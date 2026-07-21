@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: perfumeria_api
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      # ====== PERSISTENCIA EN DOKPLOY ======
+      # Estos directorios locales en Dokploy (host) deben mapearse a las rutas del contenedor
+      # Dokploy Panel > Mounts > Type=Bind > Source=./data | Destination=/app/data
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    environment:
+      - SQLALCHEMY_DATABASE_URL=sqlite:////app/data/perfumeria.db
+      - DOCKER_ENV=1
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: perfumeria_web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - API_URL_INTERNAL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8001 # O la URL pública de la API en Dokploy
+      - NEXT_PUBLIC_WHATSAPP_NUMBER=5493704048860
+    depends_on:
+      - backend
+
+# Instrucciones para Dokploy:
+# 1. En la pestaña de Environment/Config, usar docker-compose
+# 2. Crea en tu servidor local (o mediante la UI de Dokploy Mounts) 
+#    las carpetas `data` y `uploads` en la raíz del proyecto para evitar errores de permisos.
+# 3. La base de datos persistirá en `data/perfumeria.db`.

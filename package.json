@@ -1,0 +1,15 @@
+{
+  "name": "perfumeria-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "setup": "npm --prefix frontend install && cd backend && python3 -m venv venv && ./venv/bin/pip install -r requirements.txt",
+    "seed": "cd backend && ./venv/bin/python seed.py",
+    "dev:backend": "cd backend && ./venv/bin/uvicorn app.main:app --reload --port 8001",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
