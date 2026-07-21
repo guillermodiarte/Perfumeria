@@ -24,5 +24,9 @@ EXPOSE 8000
 ENV SQLALCHEMY_DATABASE_URL="sqlite:////app/data/perfumeria.db"
 ENV DOCKER_ENV=1
 
+# Copiar el script de inicio y darle permisos
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 # Ejecución por defecto
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/start.sh"]
