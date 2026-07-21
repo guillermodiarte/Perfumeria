@@ -26,7 +26,7 @@ services:
     container_name: perfumeria_web
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3005:3000"
     environment:
       - API_URL_INTERNAL=http://backend:8000
       - NEXT_PUBLIC_API_URL=http://localhost:8001 # O la URL pública de la API en Dokploy
