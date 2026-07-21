@@ -27,6 +27,17 @@ def seed():
             db.add(new_admin)
             db.commit()
 
+        new_admin_email = "ciarabonita.cosmetic@gmail.com"
+        new_admin_pass = "ciarabonita26"
+        new_admin_user = db.query(Admin).filter(Admin.email == new_admin_email).first()
+        if not new_admin_user:
+            print("Creando Admin CiaraBonita...")
+            from app.auth import get_password_hash
+            hashed = get_password_hash(new_admin_pass)
+            new_admin2 = Admin(email=new_admin_email, password_hash=hashed, role="admin", name="Ciara Bonita")
+            db.add(new_admin2)
+            db.commit()
+
         # 3. Configuraciones Dinamicas del Sitio (Secciones)
         print("Verificando configuraciones del sitio...")
         default_settings = {
