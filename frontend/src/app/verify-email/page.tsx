@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { fetchApi } from '@/utils/api';
 import { useAuthStore } from '@/store/useAuthStore';
 
-export default function VerifyEmailPage() {
+import { Suspense } from 'react';
+
+function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -80,5 +82,20 @@ export default function VerifyEmailPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-6">
+        <div className="bg-white dark:bg-slate-800 p-10 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 w-full max-w-md text-center">
+          <span className="material-symbols-outlined text-6xl text-slate-300 animate-spin mb-4 block">sync</span>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Cargando...</h1>
+        </div>
+      </div>
+    }>
+      <VerifyEmailContent />
+    </Suspense>
   );
 }
