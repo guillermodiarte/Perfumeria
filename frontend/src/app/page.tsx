@@ -12,7 +12,7 @@ export default function Home() {
   const productsStore = useStockFlowStore(s => s.products);
   const latestProducts = [...productsStore].reverse().slice(0, 4);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me';
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -46,25 +46,25 @@ export default function Home() {
       {
         title: 'DESCUBRE TU ESENCIA',
         subtitle: 'FRAGANCIAS EXCLUSIVAS',
-        mediaUrl: "http://localhost:8001/uploads/Perfumes/3.jpeg",
+        mediaUrl: "https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me/uploads/Perfumes/3.jpeg",
         link: "/catalog"
       },
       {
         title: 'ESENCIA FEMENINA',
         subtitle: 'AROMAS QUE ENAMORAN',
-        mediaUrl: "http://localhost:8001/uploads/Perfumes/1.jpeg",
+        mediaUrl: "https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me/uploads/Perfumes/1.jpeg",
         link: "/catalog?category=Perfumes+de+Mujer"
       },
       {
         title: 'CARÁCTER Y ELEGANCIA',
         subtitle: 'PERFUMES DE HOMBRE',
-        mediaUrl: "http://localhost:8001/uploads/Perfumes/2.jpeg",
+        mediaUrl: "https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me/uploads/Perfumes/2.jpeg",
         link: "/catalog?category=Perfumes+de+Hombre"
       },
       {
         title: 'DETALLES QUE RESALTAN',
         subtitle: 'LABIALES EXCLUSIVOS',
-        mediaUrl: "http://localhost:8001/uploads/Labiales/1.jpeg",
+        mediaUrl: "https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me/uploads/Labiales/1.jpeg",
         link: "/catalog?category=Labios"
       }
     ]
@@ -198,7 +198,7 @@ export default function Home() {
               {/* Category 1 */}
               <Link href="/catalog?category=Perfumes+de+Mujer" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
                 <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: "url('http://localhost:8001/uploads/Perfumes/1.jpeg')" }}></div>
+                  style={{ backgroundImage: "url('https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me/uploads/Perfumes/1.jpeg')" }}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                 <div className="absolute bottom-0 left-0 p-8">
                   <h3 className="text-white text-2xl font-bold mb-2">Perfumes de Mujer</h3>
@@ -211,7 +211,7 @@ export default function Home() {
               {/* Category 2 */}
               <Link href="/catalog?category=Perfumes+de+Hombre" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
                 <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: "url('http://localhost:8001/uploads/Perfumes/2.jpeg')" }}></div>
+                  style={{ backgroundImage: "url('https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me/uploads/Perfumes/2.jpeg')" }}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                 <div className="absolute bottom-0 left-0 p-8">
                   <h3 className="text-white text-2xl font-bold mb-2">Perfumes de Hombre</h3>
@@ -224,7 +224,7 @@ export default function Home() {
               {/* Category 3 */}
               <Link href="/catalog?category=Labios" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
                 <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: "url('http://localhost:8001/uploads/Labiales/1.jpeg')" }}></div>
+                  style={{ backgroundImage: "url('https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me/uploads/Labiales/1.jpeg')" }}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                 <div className="absolute bottom-0 left-0 p-8">
                   <h3 className="text-white text-2xl font-bold mb-2">Labiales Exclusivos</h3>

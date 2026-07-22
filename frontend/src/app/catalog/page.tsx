@@ -257,7 +257,7 @@ function CatalogContent() {
                     {product.imageUrls && product.imageUrls.length > 0 ? (
                       <div
                         className="w-full h-full bg-center bg-cover transition-transform duration-700 group-hover:scale-110"
-                        style={{ backgroundImage: `url("${product.imageUrls[0].startsWith('http') ? product.imageUrls[0] : `http://localhost:8001${product.imageUrls[0]}`}")` }}
+                        style={{ backgroundImage: `url("${product.imageUrls[0].startsWith('http') ? product.imageUrls[0] : `https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me${product.imageUrls[0]}`}")` }}
                       ></div>
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 transition-transform duration-500 group-hover:scale-105">

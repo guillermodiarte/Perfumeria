@@ -29,7 +29,7 @@ export default function CartDrawer() {
 
   if (!mounted) return null;
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me';
   const parseImageUrl = (imgUrl?: string) => {
     if (!imgUrl) return '';
     return imgUrl.startsWith('http') ? imgUrl : `http://${API_URL.split('://')[1]}${imgUrl}`;
