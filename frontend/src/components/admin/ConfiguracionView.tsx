@@ -1,5 +1,4 @@
 import { useStockFlowStore } from '@/store/useStockStore';
-import { useAuthStore } from '@/store/useAuthStore';
 import { useRef, useState } from 'react';
 
 export default function ConfiguracionView() {
@@ -8,7 +7,6 @@ export default function ConfiguracionView() {
   const wholesaleConfig = useStockFlowStore(s => s.wholesaleConfig);
   const setWholesaleConfig = useStockFlowStore(s => s.setWholesaleConfig);
   
-  const token = useAuthStore(s => s.token);
   const importData = useStockFlowStore(s => s.importData);
   const getZustandState = () => useStockFlowStore.getState();
 
@@ -58,7 +56,8 @@ export default function ConfiguracionView() {
   // --- DB EXPORT / IMPORT ---
   const handleExportDB = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/admin/backup/db`, { headers: { 'X-API-KEY': token || '' } });
+      const adminToken = localStorage.getItem('lyg_api_key') || '';
+      const res = await fetch(`${API_URL}/api/admin/backup/db`, { headers: { 'X-API-KEY': adminToken } });
       if (!res.ok) throw new Error('Error al descargar');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -76,10 +75,11 @@ export default function ConfiguracionView() {
     const formData = new FormData();
     formData.append('file', file);
     setLoading(true);
+    const adminToken = localStorage.getItem('lyg_api_key') || '';
     try {
       const res = await fetch(`${API_URL}/api/admin/backup/db`, {
         method: 'POST',
-        headers: { 'X-API-KEY': token || '' },
+        headers: { 'X-API-KEY': adminToken },
         body: formData
       });
       if(res.ok) alert('Base de datos restaurada');
@@ -92,7 +92,8 @@ export default function ConfiguracionView() {
   const handleExportImages = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/admin/backup/images`, { headers: { 'X-API-KEY': token || '' } });
+      const adminToken = localStorage.getItem('lyg_api_key') || '';
+      const res = await fetch(`${API_URL}/api/admin/backup/images`, { headers: { 'X-API-KEY': adminToken } });
       if (!res.ok) throw new Error('Error al descargar');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -111,10 +112,11 @@ export default function ConfiguracionView() {
     const formData = new FormData();
     formData.append('file', file);
     setLoading(true);
+    const adminToken = localStorage.getItem('lyg_api_key') || '';
     try {
       const res = await fetch(`${API_URL}/api/admin/backup/images`, {
         method: 'POST',
-        headers: { 'X-API-KEY': token || '' },
+        headers: { 'X-API-KEY': adminToken },
         body: formData
       });
       if(res.ok) alert('Imágenes restauradas');
