@@ -21,7 +21,7 @@ export default function DondeEstamosPage() {
         {/* Background Image */}
         <div 
           className="absolute inset-0 bg-cover bg-center z-0"
-          style={{ backgroundImage: "url('https://perfumeria-app-npomsb-0df670-76-13-71-212.traefik.me/uploads/Perfumes/3.jpeg')" }}
+          style={{ backgroundImage: "url('/uploads/Perfumes/3.jpeg')" }}
         />
         {/* Overlay */}
         <div className="absolute inset-0 bg-black/60 z-10" />
