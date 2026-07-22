@@ -80,23 +80,27 @@ function Lightbox({ images, startIndex, onClose }: { images: string[]; startInde
 /** Product card gallery: shows cover thumbnail + count badge, opens lightbox on click */
 function ProductGallery({ urls, name }: { urls: string[]; name: string }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+
+  const parseUrl = (url: string) => url.startsWith('http') ? url : `${API_URL}${url}`;
+  const parsedUrls = urls.map(parseUrl);
 
   if (!urls || urls.length === 0) return null;
 
   return (
     <>
       {lightboxIndex !== null && (
-        <Lightbox images={urls} startIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
+        <Lightbox images={parsedUrls} startIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
       )}
       <div
         className="w-full h-48 bg-slate-100 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700 overflow-hidden flex-shrink-0 relative cursor-zoom-in"
         onClick={() => setLightboxIndex(0)}
       >
-        <img src={urls[0]} alt={name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-        {urls.length > 1 && (
+        <img src={parsedUrls[0]} alt={name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+        {parsedUrls.length > 1 && (
           <div className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur-md text-white px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm border border-white/10 flex items-center gap-1">
             <span className="material-symbols-outlined text-[12px]">collections</span>
-            +{urls.length - 1}
+            +{parsedUrls.length - 1}
           </div>
         )}
         <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">

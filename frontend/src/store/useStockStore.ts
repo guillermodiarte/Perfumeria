@@ -132,6 +132,8 @@ export interface StockFlowState {
   deleteProduct: (productId: string) => void;
   deleteVariant: (productId: string, variantId: string) => void;
   updateProduct: (productId: string, data: Partial<Product>, variants?: ProductVariant[]) => void;
+  
+  importData: (data: any) => void;
 }
 
 // Initial Mock Data with Variants
@@ -472,6 +474,16 @@ export const useStockFlowStore = create<StockFlowState>()(
 
             return { products: newProducts, purchases: newPurchases, sales: newSales };
          });
+      },
+
+      importData: (data: any) => {
+          set((state) => ({
+              globalMarkupPrc: data.globalMarkupPrc ?? state.globalMarkupPrc,
+              wholesaleConfig: data.wholesaleConfig ?? state.wholesaleConfig,
+              products: data.products ?? state.products,
+              purchases: data.purchases ?? state.purchases,
+              sales: data.sales ?? state.sales
+          }));
       }
     }),
     {

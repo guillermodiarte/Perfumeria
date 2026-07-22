@@ -38,12 +38,13 @@ app.add_middleware(
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Import routers
-from app.routers import customer_auth, admin_auth, locations, orders
+from app.routers import customer_auth, admin_auth, locations, orders, backup
 
 app.include_router(customer_auth.router)
 app.include_router(admin_auth.router)
 app.include_router(locations.router)
 app.include_router(orders.router)
+app.include_router(backup.router)
 
 @app.get("/health")
 def health_check():
