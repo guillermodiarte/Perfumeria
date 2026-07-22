@@ -33,7 +33,7 @@ services:
       - "3005:3000"
     environment:
       - API_URL_INTERNAL=http://backend:8000
-      - NEXT_PUBLIC_API_URL=http://localhost:8001 # O la URL pública de la API en Dokploy
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
       - NEXT_PUBLIC_WHATSAPP_NUMBER=5493704048860
     depends_on:
       - backend
