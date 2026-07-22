@@ -49,6 +49,10 @@ app.include_router(orders.router)
 def health_check():
     return {"status": "ok"}
 
+@app.get("/")
+def read_root():
+    return {"message": "API Perfumeria Online - Backend Activo"}
+
 
 
 # --- ADMIN ENDPOINTS ---
