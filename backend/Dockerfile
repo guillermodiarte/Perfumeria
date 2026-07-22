@@ -3,8 +3,8 @@ FROM python:3.11-slim as builder
 
 WORKDIR /app
 # Preparamos las dependencias
-# (Cualquier archivo de requerimientos, aquí usamos un run simple para FastAPI)
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" sqlalchemy pydantic python-multipart
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.11-slim
 
