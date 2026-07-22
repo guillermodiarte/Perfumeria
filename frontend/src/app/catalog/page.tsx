@@ -2,6 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
+import { API_URL } from '@/utils/api';
 import { useStockFlowStore, CATEGORIAS_PERFUMERIA } from '@/store/useStockStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAuthModalStore } from '@/store/useAuthModalStore';
@@ -9,7 +10,6 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useState, useEffect, Suspense, useMemo } from 'react';
 
 function CatalogContent() {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
   const storeProducts = useStockFlowStore(s => s.products);
   const user = useAuthStore(s => s.user);
   const searchParams = useSearchParams();

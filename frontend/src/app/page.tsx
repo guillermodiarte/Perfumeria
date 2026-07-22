@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image'
 import Link from 'next/link'
+import { API_URL } from '@/utils/api';
 import { useStockFlowStore } from '@/store/useStockStore';
 
 export default function Home() {
@@ -11,8 +12,6 @@ export default function Home() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const productsStore = useStockFlowStore(s => s.products);
   const latestProducts = [...productsStore].reverse().slice(0, 4);
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
   useEffect(() => {
     const fetchSettings = async () => {

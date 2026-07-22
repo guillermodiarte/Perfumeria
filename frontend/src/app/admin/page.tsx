@@ -8,6 +8,7 @@ import ComprasView from '@/components/admin/ComprasView';
 import VentasView from '@/components/admin/VentasView';
 import VentasRealizadasView from '@/components/admin/VentasRealizadasView';
 import FinanzasView from '@/components/admin/FinanzasView';
+import { API_URL } from '@/utils/api';
 
 export default function AdminDashboard() {
   const [products, setProducts] = useState<any[]>([]);
@@ -54,8 +55,6 @@ export default function AdminDashboard() {
   const [mediaCategories, setMediaCategories] = useState<string[]>([]);
   const [selectedMediaCategory, setSelectedMediaCategory] = useState<string>('');
   const [mediaSearch, setMediaSearch] = useState('');
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
   useEffect(() => {
     setActiveViewState(getSavedView());

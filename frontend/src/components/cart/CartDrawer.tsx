@@ -3,11 +3,12 @@
 import { useCartStore } from '@/store/useCartStore';
 import { useCartUIStore } from '@/store/useCartUIStore';
 import { useStockFlowStore } from '@/store/useStockStore';
+import { API_URL } from '@/utils/api';
 import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 export default function CartDrawer() {
   const isOpen = useCartUIStore((s) => s.isOpen);
@@ -15,6 +16,7 @@ export default function CartDrawer() {
   const { items, updateQuantity, removeItem } = useCartStore();
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
 
   const wholesaleConfig = useStockFlowStore(s => s.wholesaleConfig);
 
@@ -29,7 +31,6 @@ export default function CartDrawer() {
 
   if (!mounted) return null;
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
   const parseImageUrl = (imgUrl?: string) => {
     if (!imgUrl) return '';
     return imgUrl.startsWith('http') ? imgUrl : `http://${API_URL.split('://')[1]}${imgUrl}`;

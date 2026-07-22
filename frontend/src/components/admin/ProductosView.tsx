@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import { useStockFlowStore, CATEGORIAS_PERFUMERIA, Product } from '@/store/useStockStore';
+import { useStockFlowStore, CATEGORIAS_PERFUMERIA, VENDEDORES, PaymentMethod, Product } from '@/store/useStockStore';
+import { API_URL } from '@/utils/api';
 
 /** Full-screen lightbox with arrow navigation */
 function Lightbox({ images, startIndex, onClose }: { images: string[]; startIndex: number; onClose: () => void }) {
@@ -80,7 +81,6 @@ function Lightbox({ images, startIndex, onClose }: { images: string[]; startInde
 /** Product card gallery: shows cover thumbnail + count badge, opens lightbox on click */
 function ProductGallery({ urls, name }: { urls: string[]; name: string }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
   const parseUrl = (url: string) => url.startsWith('http') ? url : `${API_URL}${url}`;
   const parsedUrls = urls.map(parseUrl);

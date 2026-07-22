@@ -1,5 +1,6 @@
 import { useStockFlowStore } from '@/store/useStockStore';
 import { useRef, useState } from 'react';
+import { API_URL } from '@/utils/api';
 
 export default function ConfiguracionView() {
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
@@ -15,8 +16,6 @@ export default function ConfiguracionView() {
   const fileInputRefImages = useRef<HTMLInputElement>(null);
   const fileInputRefJSON = useRef<HTMLInputElement>(null);
   
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-
   // --- JSON EXPORT / IMPORT ---
   const handleExportJSON = () => {
     const state = getZustandState();

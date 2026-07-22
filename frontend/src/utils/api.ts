@@ -1,4 +1,7 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+const isServer = typeof window === 'undefined';
+export const API_URL = isServer 
+  ? (process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001')
+  : (process.env.NEXT_PUBLIC_API_URL || `${window.location.protocol}//${window.location.hostname}:8001`);
 
 export const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('auth-storage') 
