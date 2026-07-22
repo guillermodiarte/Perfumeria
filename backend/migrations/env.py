@@ -21,6 +21,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.models import Base
 target_metadata = Base.metadata
 
+# Override URL with environment variable if present
+import os
+db_url = os.environ.get("SQLALCHEMY_DATABASE_URL")
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
+
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
