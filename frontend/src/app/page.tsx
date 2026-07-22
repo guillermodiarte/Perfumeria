@@ -113,7 +113,7 @@ export default function Home() {
                   >
                     {isVideo ? (
                       <video
-                        src={slide.mediaUrl}
+                        src={slide.mediaUrl.startsWith('http') ? slide.mediaUrl : `${API_URL}${slide.mediaUrl}`}
                         autoPlay
                         muted
                         loop
@@ -123,7 +123,7 @@ export default function Home() {
                     ) : (
                       <div 
                         className="absolute inset-0 w-full h-full bg-cover bg-center z-0" 
-                        style={{ backgroundImage: `url('${slide.mediaUrl}')`, backgroundColor: '#1E293B' }}
+                        style={{ backgroundImage: `url('${slide.mediaUrl.startsWith('http') ? slide.mediaUrl : `${API_URL}${slide.mediaUrl}`}')`, backgroundColor: '#1E293B' }}
                       />
                     )}
                     
@@ -198,7 +198,7 @@ export default function Home() {
               {/* Category 1 */}
               <Link href="/catalog?category=Perfumes+de+Mujer" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
                 <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: "url('/uploads/Perfumes/1.jpeg')" }}></div>
+                  style={{ backgroundImage: `url('${API_URL}/uploads/Perfumes/1.jpeg')` }}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                 <div className="absolute bottom-0 left-0 p-8">
                   <h3 className="text-white text-2xl font-bold mb-2">Perfumes de Mujer</h3>
@@ -211,7 +211,7 @@ export default function Home() {
               {/* Category 2 */}
               <Link href="/catalog?category=Perfumes+de+Hombre" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
                 <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: "url('/uploads/Perfumes/2.jpeg')" }}></div>
+                  style={{ backgroundImage: `url('${API_URL}/uploads/Perfumes/2.jpeg')` }}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                 <div className="absolute bottom-0 left-0 p-8">
                   <h3 className="text-white text-2xl font-bold mb-2">Perfumes de Hombre</h3>
@@ -224,7 +224,7 @@ export default function Home() {
               {/* Category 3 */}
               <Link href="/catalog?category=Labios" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
                 <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: "url('/uploads/Labiales/1.jpeg')" }}></div>
+                  style={{ backgroundImage: `url('${API_URL}/uploads/Labiales/1.jpeg')` }}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                 <div className="absolute bottom-0 left-0 p-8">
                   <h3 className="text-white text-2xl font-bold mb-2">Labiales Exclusivos</h3>

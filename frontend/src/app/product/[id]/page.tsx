@@ -58,7 +58,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const images = product.imageUrls && product.imageUrls.length > 0 ? product.imageUrls : [];
 
   const parseImageUrl = (imgUrl: string) => {
-    return imgUrl.startsWith('http') ? imgUrl : `http://${API_URL.split('://')[1]}${imgUrl}`;
+    return imgUrl.startsWith('http') ? imgUrl : `${API_URL}${imgUrl}`;
   };
 
   const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "5493704048860";

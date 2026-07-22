@@ -9,6 +9,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useState, useEffect, Suspense, useMemo } from 'react';
 
 function CatalogContent() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
   const storeProducts = useStockFlowStore(s => s.products);
   const user = useAuthStore(s => s.user);
   const searchParams = useSearchParams();
