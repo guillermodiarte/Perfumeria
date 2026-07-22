@@ -18,6 +18,8 @@ services:
     environment:
       - SQLALCHEMY_DATABASE_URL=sqlite:////app/data/perfumeria.db
       - DOCKER_ENV=1
+    networks:
+      - dokploy-network
 
   frontend:
     build:
@@ -33,6 +35,12 @@ services:
       - NEXT_PUBLIC_WHATSAPP_NUMBER=5493704048860
     depends_on:
       - backend
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
 
 # Instrucciones para Dokploy:
 # 1. En la pestaña de Environment/Config, usar docker-compose
