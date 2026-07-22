@@ -14,6 +14,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED 1
+
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 # Ignoramos errores de tipos/eslint temporalmente para ambientes de Dokploy rápidos sin tsconfig riguroso
 RUN npm run build || (echo "Build failed, attempting standalone preparation manually" && mkdir -p .next/standalone/server && mkdir -p .next/static)
 
