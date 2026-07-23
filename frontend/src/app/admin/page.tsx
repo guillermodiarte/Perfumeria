@@ -55,6 +55,7 @@ export default function AdminDashboard() {
   const [mediaCategories, setMediaCategories] = useState<string[]>([]);
   const [selectedMediaCategory, setSelectedMediaCategory] = useState<string>('');
   const [mediaSearch, setMediaSearch] = useState('');
+  const [deleteConfirmParams, setDeleteConfirmParams] = useState<{category: string, filename: string} | null>(null);
 
   useEffect(() => {
     setActiveViewState(getSavedView());
@@ -304,7 +305,7 @@ export default function AdminDashboard() {
   const handleMoveMedia = async (category: string, filename: string, targetCategory: string) => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/admin/media/${category}/${filename}/move`, {
+      const res = await fetch(`${API_URL}/api/admin/media/move?category=${encodeURIComponent(category)}&filename=${encodeURIComponent(filename)}`, {
         method: 'PUT',
         headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ new_category: targetCategory })
@@ -321,10 +322,16 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteMedia = async (category: string, filename: string) => {
-    if (!confirm('¿Seguro que deseas eliminar este archivo permanentemente?')) return;
+  const handleDeleteMedia = (category: string, filename: string) => {
+    setDeleteConfirmParams({ category, filename });
+  };
+
+  const executeDeleteMedia = async () => {
+    if (!deleteConfirmParams) return;
+    const { category, filename } = deleteConfirmParams;
+    setDeleteConfirmParams(null);
     try {
-      const res = await fetch(`${API_URL}/api/admin/media/${category}/${filename}`, {
+      const res = await fetch(`${API_URL}/api/admin/media?category=${encodeURIComponent(category)}&filename=${encodeURIComponent(filename)}`, {
         method: 'DELETE',
         headers: { 'X-API-KEY': apiKey }
       });
@@ -1066,6 +1073,30 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {deleteConfirmParams && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-2xl max-w-sm w-full mx-4 text-center">
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Eliminar archivo</h3>
+            <p className="text-slate-600 mb-6">
+              ¿Seguro que deseas eliminar este archivo permanentemente?
+            </p>
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setDeleteConfirmParams(null)}
+                className="flex-1 py-2 px-4 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={executeDeleteMedia}
+                className="flex-1 py-2 px-4 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-colors"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

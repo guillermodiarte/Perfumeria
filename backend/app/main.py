@@ -193,10 +193,10 @@ async def upload_product_image(request: Request, file: UploadFile = File(...), s
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/api/admin/media/{category}/{filename}", dependencies=[Depends(get_current_admin)])
+@app.delete("/api/admin/media", dependencies=[Depends(get_current_admin)])
 def delete_media_file(category: str, filename: str):
     try:
-        safe_category = category.strip().replace("..", "").replace("/", "")
+        safe_category = category.strip().replace("..", "")
         safe_filename = filename.strip().replace("..", "").replace("/", "")
         file_path = os.path.join(UPLOAD_DIR, safe_category, safe_filename)
         
@@ -207,11 +207,11 @@ def delete_media_file(category: str, filename: str):
             raise HTTPException(status_code=404, detail="File not found")
     except HTTPException:
         raise
-@app.put("/api/admin/media/{category}/{filename}/move", dependencies=[Depends(get_current_admin)])
+@app.put("/api/admin/media/move", dependencies=[Depends(get_current_admin)])
 def move_media_file(category: str, filename: str, data: MediaMoveSchema):
     try:
-        new_category = data.new_category.strip().replace("..", "").replace("/", "")
-        safe_category = category.strip().replace("..", "").replace("/", "")
+        new_category = data.new_category.strip().replace("..", "")
+        safe_category = category.strip().replace("..", "")
         safe_filename = filename.strip().replace("..", "").replace("/", "")
         
         old_path = os.path.join(UPLOAD_DIR, safe_category, safe_filename)
