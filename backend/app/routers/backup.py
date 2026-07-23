@@ -63,10 +63,19 @@ async def import_images(file: UploadFile = File(...)):
         with open(temp_zip_path, "wb+") as f:
             shutil.copyfileobj(file.file, f)
             
-        # Vaciar carpeta actual de uploads
+        # Vaciar carpeta actual de uploads sin borrar el mount point
         if os.path.exists(UPLOAD_DIR):
-            shutil.rmtree(UPLOAD_DIR)
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
+            for filename in os.listdir(UPLOAD_DIR):
+                file_path = os.path.join(UPLOAD_DIR, filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                except Exception as e:
+                    pass
+        else:
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
         
         # Descomprimir
         with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
