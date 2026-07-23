@@ -362,7 +362,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
         <footer className="mt-16 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800">
           <div className="px-6 lg:px-20 py-12 grid grid-cols-1 md:grid-cols-3 gap-10">
             <div className="flex flex-col gap-4">
-              <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-lg italic"><span className="material-symbols-outlined text-primary">spa</span> Essence Perfumería</h3>
+              <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-lg italic"><span className="material-symbols-outlined text-primary">spa</span> Ciara Bonita</h3>
               <p className="text-slate-500 text-sm leading-relaxed max-w-sm">Elegancia, calidad y exclusividad. Fragancias creadas para destacar tu personalidad todos los días.</p>
             </div>
             <div>

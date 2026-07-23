@@ -38,12 +38,12 @@ export default function DondeEstamosPage() {
 
       <main className="flex-1 w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-20 py-16 flex flex-col gap-24">
         
-        {/* Sobre Essence Perfumería */}
+        {/* Sobre Ciara Bonita */}
         <section className="flex flex-col items-center text-center max-w-4xl mx-auto gap-6">
           <span className="text-primary font-bold tracking-widest uppercase text-sm">Nuestra Historia</span>
-          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">Sobre Essence Perfumería</h2>
+          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">Sobre Ciara Bonita</h2>
           <p className="text-slate-600 dark:text-slate-400 text-lg leading-relaxed">
-            En Essence Perfumería creemos que cada fragancia cuenta una historia. Nos especializamos en ofrecer perfumes originales y de excelente calidad para quienes buscan destacar su personalidad con aromas únicos. Nuestro objetivo es brindar una experiencia de compra cercana, confiable y personalizada.
+            En Ciara Bonita creemos que cada fragancia cuenta una historia. Nos especializamos en ofrecer perfumes originales y de excelente calidad para quienes buscan destacar su personalidad con aromas únicos. Nuestro objetivo es brindar una experiencia de compra cercana, confiable y personalizada.
           </p>
         </section>
 
@@ -191,9 +191,9 @@ export default function DondeEstamosPage() {
         <div className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center gap-6">
           <Link href="/" className="flex items-center gap-2 text-primary grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all">
             <span className="material-symbols-outlined text-2xl font-bold">spa</span>
-            <span className="font-bold tracking-widest uppercase text-sm">Essence</span>
+            <span className="font-bold tracking-widest uppercase text-sm">Ciara Bonita</span>
           </Link>
-          <p className="text-slate-400 text-sm">© {new Date().getFullYear()} Essence Perfumería. Todos los derechos reservados.</p>
+          <p className="text-slate-400 text-sm">© {new Date().getFullYear()} Ciara Bonita. Todos los derechos reservados.</p>
         </div>
       </footer>
     </div>

@@ -89,7 +89,7 @@ export default function Home() {
 
   const footer = settings['site_footer'] || {
     logoUrl: "",
-    copyRight: "© 2026 Essence Perfumería. Todos los derechos reservados."
+    copyRight: "© 2026 Ciara Bonita. Todos los derechos reservados."
   };
 
   if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center dark:bg-slate-900"><div className="animate-spin text-primary material-symbols-outlined text-4xl">autorenew</div></div>;
@@ -131,7 +131,7 @@ export default function Home() {
 
                     <div className="relative z-10 max-w-2xl flex flex-col gap-6 transform transition-all duration-1000 delay-300">
                       <div className="flex flex-col gap-3">
-                        <span className="text-primary font-bold tracking-widest uppercase text-sm">Essence Collection</span>
+                        <span className="text-primary font-bold tracking-widest uppercase text-sm">Ciara Bonita Collection</span>
                         <h1 className="text-white text-5xl md:text-7xl font-black leading-[1.1] tracking-tighter drop-shadow-lg">
                           {(slide.title || '').toUpperCase()} <br /> <span className="text-primary italic font-serif">{(slide.subtitle || '').toUpperCase()}</span>
                         </h1>
@@ -329,7 +329,7 @@ export default function Home() {
             <div className="flex flex-col gap-6">
               <div className="flex items-center gap-2 text-primary">
                 <span className="material-symbols-outlined text-3xl font-bold">spa</span>
-                <h2 className="text-white text-2xl font-black italic tracking-tighter">Essence Perfumería</h2>
+                <h2 className="text-white text-2xl font-black italic tracking-tighter">Ciara Bonita</h2>
               </div>
               <p className="text-slate-400 text-sm leading-relaxed">
                 Resaltando tu belleza a través de fragancias únicas y accesorios de calidad desde 2018.

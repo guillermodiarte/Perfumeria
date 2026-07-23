@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useAuthModalStore } from '@/store/useAuthModalStore';
 import { useCartStore } from '@/store/useCartStore';
 import { useCartUIStore } from '@/store/useCartUIStore';
+import Logo from '@/components/ui/Logo';
 import { User, ShoppingBag, Search, LogOut, Package, ShieldCheck } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -38,11 +39,8 @@ export default function Header() {
         
         {/* Left: Logo */}
         <div className="flex-shrink-0">
-          <Link href="/" className="flex items-center gap-2 text-primary group">
-            <span className="material-symbols-outlined text-3xl font-bold transition-transform group-hover:scale-110">spa</span>
-            <h2 className="text-slate-900 dark:text-slate-100 text-xl md:text-2xl font-black leading-tight tracking-tighter italic">
-              Essence
-            </h2>
+          <Link href="/" className="flex items-center group">
+            <Logo className="transition-transform group-hover:scale-105" />
           </Link>
         </div>
 

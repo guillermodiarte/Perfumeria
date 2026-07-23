@@ -327,7 +327,7 @@ function CatalogContent() {
             <div className="flex flex-col gap-6">
               <div className="flex items-center gap-2 text-primary">
                 <span className="material-symbols-outlined text-3xl">spa</span>
-                <h2 className="text-xl font-black tracking-tight leading-none text-slate-900 dark:text-white">Essence <br /><span className="text-sm font-bold text-primary">Perfumería Exclusiva</span></h2>
+                <h2 className="text-xl font-black tracking-tight leading-none text-slate-900 dark:text-white">Ciara Bonita <br /><span className="text-sm font-bold text-primary">Perfumería Exclusiva</span></h2>
               </div>
               <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
                 Descubre la esencia que mejor te representa con nuestra selección exclusiva de fragancias y accesorios.
@@ -370,7 +370,7 @@ function CatalogContent() {
             </div>
           </div>
           <div className="mt-16 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-slate-400 dark:text-slate-500 text-sm font-medium">
-            © {new Date().getFullYear()} Essence Perfumería. Todos los derechos reservados.
+            © {new Date().getFullYear()} Ciara Bonita. Todos los derechos reservados.
           </div>
         </footer>
       </div>

@@ -13,7 +13,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Essence Perfumería | Catálogo',
+  title: 'Ciara Bonita | Catálogo',
   description: 'Catálogo de fragancias, maquillaje y accesorios exclusivos.',
 }
 
