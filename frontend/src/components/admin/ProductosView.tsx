@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import { useStockFlowStore, CATEGORIAS_PERFUMERIA, VENDEDORES, PaymentMethod, Product } from '@/store/useStockStore';
+import { useStockFlowStore, Product } from '@/store/useStockStore';
 import { API_URL } from '@/utils/api';
 
 /** Full-screen lightbox with arrow navigation */
@@ -111,10 +111,11 @@ function ProductGallery({ urls, name }: { urls: string[]; name: string }) {
   );
 }
 
-export default function ProductosView({ showAlert }: { showAlert: (msg: string) => void }) {
+export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert: (msg: string) => void; apiKey?: string; apiUrl?: string }) {
   const products = useStockFlowStore(s => s.products);
   const deleteProduct = useStockFlowStore(s => s.deleteProduct);
   const updateProduct = useStockFlowStore(s => s.updateProduct);
+  const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMainCategory, setSelectedMainCategory] = useState<string>('Todo');
@@ -122,8 +123,12 @@ export default function ProductosView({ showAlert }: { showAlert: (msg: string) 
   
   // Modals state
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', sku: '', purchasePrice: 0, salePrice: 0 });
+  const [editForm, setEditForm] = useState<any>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  
+  const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
+  const variantGroupsConfig = useStockFlowStore(s => s.variantGroupsConfig);
 
   useEffect(() => {
     // Reset subcategory when main category changes
@@ -131,7 +136,7 @@ export default function ProductosView({ showAlert }: { showAlert: (msg: string) 
   }, [selectedMainCategory]);
 
   const getGrupoByCategory = (cat: string) => {
-      for(let g of CATEGORIAS_PERFUMERIA) {
+      for(let g of categoriesConfig) {
           if(g.opciones.includes(cat)) return g.grupo;
       }
       return 'Otros (Sin Asignar)';
@@ -152,21 +157,86 @@ export default function ProductosView({ showAlert }: { showAlert: (msg: string) 
     return matchesMain && matchesSub;
   });
 
-  const mainCategories = ['Todo', ...CATEGORIAS_PERFUMERIA.map(c => c.grupo)];
+  const mainCategories = ['Todo', ...categoriesConfig.map(c => c.grupo)];
   const subCategories = selectedMainCategory === 'Todo' 
       ? ['Todo'] 
-      : ['Todo', ...(CATEGORIAS_PERFUMERIA.find(c => c.grupo === selectedMainCategory)?.opciones || [])];
+      : ['Todo', ...(categoriesConfig.find(c => c.grupo === selectedMainCategory)?.opciones || [])];
 
   const handleEditClick = (p: Product) => {
       setEditingProduct(p);
-      setEditForm({ name: p.name, sku: p.sku, purchasePrice: p.purchasePrice, salePrice: p.salePrice });
+      setEditForm(JSON.parse(JSON.stringify(p))); // Deep copy to avoid mutating store directly before save
+  };
+
+  const handleVariantChange = (vIdx: number, field: string, value: any) => {
+      setEditForm((prev: any) => {
+          const newForm = { ...prev };
+          const variant = newForm.variants[vIdx];
+          variant[field] = value;
+          
+          if (field === 'unitPurchasePrice' && (variant.autoCalculated !== false)) {
+              variant.manualSalePrice = Number((value * (1 + (globalMarkupPrc / 100))).toFixed(2));
+          }
+          if (field === 'manualSalePrice') {
+              variant.autoCalculated = false;
+          }
+          return newForm;
+      });
+  };
+
+  const removeVariant = (vIdx: number) => {
+      setEditForm((prev: any) => {
+          const newForm = { ...prev };
+          if (newForm.variants.length > 1) {
+              newForm.variants.splice(vIdx, 1);
+          }
+          return newForm;
+      });
+  };
+
+  const addVariant = () => {
+      setEditForm((prev: any) => {
+          const newForm = { ...prev };
+          newForm.variants = [...prev.variants];
+          newForm.variants.push({
+              id: 'v-' + Math.random().toString(36).substr(2, 9),
+              size: 'M', color: '', stock: 1, 
+              unitPurchasePrice: 0, manualSalePrice: 0, 
+              autoCalculated: true, sizeIndex: 0
+          });
+          return newForm;
+      });
   };
   
   const handleSaveEdit = () => {
-      if(editingProduct) {
-          updateProduct(editingProduct.id, editForm);
+      if(editingProduct && editForm) {
+          // Flatten variant sizes if they use indices
+          const formattedVariants = editForm.variants.map((item: any) => {
+              const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
+              let finalSize = item.size;
+              
+              if (group && group.variantGroupId !== 'none') {
+                  const variantGroup = variantGroupsConfig.find(vg => vg.id === group.variantGroupId);
+                  if (variantGroup && item.sizeIndex !== undefined) {
+                      const row = variantGroup.options[item.sizeIndex || 0];
+                      if (row) {
+                          finalSize = row.description ? `${row.value} - ${row.description}` : row.value;
+                      }
+                  }
+              }
+              return { ...item, size: finalSize };
+          });
+          
+          updateProduct(editingProduct.id, {
+              name: editForm.name,
+              sku: editForm.sku,
+              categoryId: editForm.categoryId,
+              targetGender: editForm.targetGender,
+              imageUrls: editForm.imageUrls
+          }, formattedVariants);
+
           showAlert('Producto y finanzas actualizados con éxito.');
           setEditingProduct(null);
+          setEditForm(null);
       }
   };
 
@@ -345,49 +415,179 @@ export default function ProductosView({ showAlert }: { showAlert: (msg: string) 
       )}
 
       {/* Edit Product Modal */}
-      {editingProduct && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl p-6 md:p-8 max-w-md w-full animate-in zoom-in-95 fade-in duration-200">
+      {editingProduct && editForm && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl p-6 md:p-8 max-w-4xl w-full my-8 animate-in zoom-in-95 fade-in duration-200">
                 <div className="flex items-center justify-between mb-6">
                    <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-                       <span className="material-symbols-outlined text-blue-500">edit_square</span> Editar Producto
+                       <span className="material-symbols-outlined text-blue-500">edit_square</span> Editar Producto Completo
                    </h3>
                    <button onClick={() => setEditingProduct(null)} className="size-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors">
                        <span className="material-symbols-outlined text-sm">close</span>
                    </button>
                 </div>
 
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Nombre</label>
-                        <input type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.name} onChange={e => setEditForm(prev => ({...prev, name: e.target.value}))} />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">SKU</label>
-                        <input type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium font-mono focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.sku} onChange={e => setEditForm(prev => ({...prev, sku: e.target.value}))} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2 pb-6">
+                    {/* Basic Info */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">P. Compra Unitario</label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                                <input type="number" step="100" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-4 py-3 text-sm font-black focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.purchasePrice} onChange={e => setEditForm(prev => ({...prev, purchasePrice: Number(e.target.value)}))} />
-                            </div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
+                            <select 
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" 
+                                value={editForm.categoryId} 
+                                onChange={e => setEditForm((prev:any) => ({...prev, categoryId: e.target.value}))}
+                            >
+                                {categoriesConfig.map(g => (
+                                    <optgroup key={g.grupo} label={g.grupo}>
+                                        {g.opciones.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                    </optgroup>
+                                ))}
+                            </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">P. Venta Final</label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                                <input type="number" step="100" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-4 py-3 text-sm font-black focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.salePrice} onChange={e => setEditForm(prev => ({...prev, salePrice: Number(e.target.value)}))} />
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Público</label>
+                            <select className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.targetGender || 'Unisex'} onChange={e => setEditForm((prev:any) => ({...prev, targetGender: e.target.value}))}>
+                                <option value="Mujer">Mujer</option>
+                                <option value="Hombre">Hombre</option>
+                                <option value="Unisex">Unisex</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Nombre del Producto</label>
+                            <input type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.name} onChange={e => setEditForm((prev:any) => ({...prev, name: e.target.value}))} />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">SKU</label>
+                            <input type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium font-mono focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.sku} onChange={e => setEditForm((prev:any) => ({...prev, sku: e.target.value}))} />
+                        </div>
+                    </div>
+
+                    {/* Images */}
+                    <div className="flex flex-col gap-2">
+                        <label className="block text-xs font-bold text-slate-500">Imágenes del Producto</label>
+                        <div className="flex items-center gap-3 w-full border border-slate-200 dark:border-slate-700/60 p-2 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+                            <label className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border rounded-lg transition-colors text-xs font-bold whitespace-nowrap ${isUploading
+                                ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 text-blue-600 cursor-wait'
+                                : 'bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer'
+                                }`}>
+                                <span className="material-symbols-outlined text-[16px]">{isUploading ? 'sync' : 'add_photo_alternate'}</span>
+                                {isUploading ? 'Subiendo...' : 'Subir'}
+                                <input
+                                    type="file" accept="image/*" multiple disabled={isUploading || !apiKey || !apiUrl} className="hidden"
+                                    onChange={async e => {
+                                        const files = Array.from(e.target.files || []);
+                                        if (files.length === 0) return;
+                                        if (!apiKey || !apiUrl) { showAlert('Faltan credenciales API.'); return; }
+
+                                        setIsUploading(true);
+                                        const uploadedUrls: string[] = [];
+
+                                        for (const file of files) {
+                                            const formData = new FormData();
+                                            formData.append('file', file);
+                                            try {
+                                                const res = await fetch(`${apiUrl}/api/admin/product-image?subcategory=${encodeURIComponent(editForm.categoryId)}`,
+                                                    { method: 'POST', headers: { 'X-API-KEY': apiKey }, body: formData }
+                                                );
+                                                if (res.ok) {
+                                                    const data = await res.json();
+                                                    uploadedUrls.push(data.url);
+                                                }
+                                            } catch (err) {}
+                                        }
+
+                                        setEditForm((prev: any) => ({ ...prev, imageUrls: [...(prev.imageUrls || []), ...uploadedUrls] }));
+                                        setIsUploading(false);
+                                        e.target.value = '';
+                                    }}
+                                />
+                            </label>
+
+                            <div className="flex gap-2 overflow-x-auto flex-1 min-w-0">
+                                {(editForm.imageUrls || []).map((imgUrl: string, imgIdx: number) => (
+                                    <div key={imgIdx} className="size-10 rounded-md flex-shrink-0 border border-slate-200 dark:border-slate-700 overflow-hidden relative group/img cursor-pointer"
+                                        onClick={() => {
+                                            setEditForm((prev: any) => {
+                                                const arr = [...(prev.imageUrls || [])];
+                                                arr.splice(imgIdx, 1);
+                                                return { ...prev, imageUrls: arr };
+                                            });
+                                        }}
+                                    >
+                                        <img src={imgUrl.startsWith('http') ? imgUrl : (apiUrl ? `${apiUrl}${imgUrl}` : imgUrl)} className="w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-red-500/80 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-white text-[14px]">close</span>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
-                    <p className="text-xs text-slate-400 italic mt-2">
-                        Nota: Modificar los precios ajustará retroactivamente las facturas de registro en Finanzas de forma proporcional a las unidades transaccionadas.
-                    </p>
+
+                    {/* Variants */}
+                    <div className="mt-2 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
+                        <label className="block text-xs font-bold text-slate-500">Variantes (Stock y Precios)</label>
+                        <p className="text-xs text-slate-400 italic mb-2">Nota: Modificar el stock ajustará retroactivamente las facturas de registro en Finanzas.</p>
+
+                        <div className="space-y-2">
+                            {editForm.variants.map((variant: any, vIdx: number) => (
+                                <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                                    {(() => {
+                                        const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
+                                        if (group && group.variantGroupId !== 'none') {
+                                            const variantGroup = variantGroupsConfig.find(vg => vg.id === group.variantGroupId);
+                                            if (variantGroup) {
+                                                return (
+                                                    <div className="flex-1 min-w-[150px]">
+                                                        <select className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold h-10" value={variant.sizeIndex !== undefined ? variant.sizeIndex : variantGroup.options.findIndex(o => variant.size.includes(o.value))} onChange={e => handleVariantChange(vIdx, 'sizeIndex', Number(e.target.value))}>
+                                                            <option value="-1" disabled>Selecciona talle...</option>
+                                                            {variantGroup.options.map((row, rIdx) => (
+                                                                <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                );
+                                            }
+                                        }
+                                        return null;
+                                    })()}
+
+                                    <div className="flex-1 min-w-[120px]">
+                                        <input type="text" placeholder="Color/Desc" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm h-10" value={variant.color || ''} onChange={e => handleVariantChange(vIdx, 'color', e.target.value)} />
+                                    </div>
+
+                                    <div className="w-[80px]">
+                                        <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Stock</label>
+                                        <input type="number" step="1" className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm font-bold h-9 text-blue-600 dark:text-blue-400" value={variant.stock === '' ? '' : variant.stock} onChange={e => handleVariantChange(vIdx, 'stock', e.target.value === '' ? '' : Number(e.target.value))} />
+                                    </div>
+
+                                    <div className="w-[100px]">
+                                        <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Costo Unit.</label>
+                                        <input type="number" className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9" value={variant.unitPurchasePrice === '' ? '' : (variant.unitPurchasePrice !== undefined ? variant.unitPurchasePrice : editForm.purchasePrice)} onChange={e => handleVariantChange(vIdx, 'unitPurchasePrice', e.target.value === '' ? '' : Number(e.target.value))} />
+                                    </div>
+
+                                    <div className="w-[100px]">
+                                        <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none truncate">PV Final</label>
+                                        <input type="number" className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm font-black h-9 text-green-600 dark:text-green-400" value={variant.manualSalePrice === '' ? '' : (variant.manualSalePrice !== undefined ? variant.manualSalePrice : editForm.salePrice)} onChange={e => handleVariantChange(vIdx, 'manualSalePrice', e.target.value === '' ? '' : Number(e.target.value))} />
+                                    </div>
+
+                                    <button onClick={() => removeVariant(vIdx)} className={`h-9 px-2 rounded-lg transition-colors flex items-center justify-center border border-transparent ${editForm.variants.length > 1 ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 opacity-50 cursor-not-allowed'}`} disabled={editForm.variants.length <= 1}>
+                                        <span className="material-symbols-outlined text-[20px]">delete</span>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+
+                        <button onClick={addVariant} className="text-sm font-bold text-primary flex items-center gap-1 hover:bg-primary/10 px-3 py-2 rounded-lg w-max transition-colors">
+                            <span className="material-symbols-outlined text-[18px]">add_circle</span> Añadir Variante
+                        </button>
+                    </div>
+
                 </div>
 
-                <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-700">
+                <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-700">
                     <button onClick={handleSaveEdit} className="w-full py-4 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 flex justify-center items-center gap-2 shadow-lg shadow-primary/20 transition-all">
                        <span className="material-symbols-outlined">save</span> Actualizar Producto
                     </button>

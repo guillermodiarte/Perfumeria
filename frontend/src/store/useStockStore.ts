@@ -1,44 +1,103 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export const CATEGORIAS_PERFUMERIA = [
+export interface CategoryConfig {
+  grupo: string;
+  opciones: string[];
+  variantGroupId: string; // 'none' or group id
+}
+
+export interface VariantOption {
+  value: string;
+  description: string;
+}
+
+export interface VariantGroupConfig {
+  id: string;
+  name: string;
+  options: VariantOption[];
+}
+
+export const DEFAULT_VARIANT_GROUPS: VariantGroupConfig[] = [
   {
-    grupo: "Perfumería",
-    opciones: ["Perfumes de Mujer", "Perfumes de Hombre", "Unisex", "Body Splash", "Set de Regalo"]
+    id: 'perfumes',
+    name: 'Tamaños de Perfumería',
+    options: [
+      { value: '30ml', description: 'Travel Size' },
+      { value: '50ml', description: 'Estándar' },
+      { value: '75ml', description: 'Mediano' },
+      { value: '100ml', description: 'Grande' },
+      { value: '150ml', description: 'Extra Grande' },
+      { value: '200ml', description: 'Familiar' }
+    ]
   },
   {
-    grupo: "Maquillaje",
-    opciones: ["Ojos", "Labios", "Rostro", "Paletas", "Brochas y Accesorios"]
-  },
-  {
-    grupo: "Cuidado de la Piel",
-    opciones: ["Limpieza Facial", "Hidratación", "Tratamiento Anti-age", "Protectores Solares"]
-  },
-  {
-    grupo: "Cuidado Personal",
-    opciones: ["Cuidado Capilar", "Higiene Corporal", "Desodorantes"]
-  },
-  {
-    grupo: "Accesorios",
-    opciones: ["Collares y Cadenas", "Anillos", "Aros", "Pulseras y Esclavas", "Relojes"]
+    id: 'accesorios',
+    name: 'Talles de Accesorios',
+    options: [
+      { value: 'Único', description: 'Ajustable o Estándar' },
+      { value: 'S', description: 'Pequeño' },
+      { value: 'M', description: 'Mediano' },
+      { value: 'L', description: 'Grande' }
+    ]
   }
 ];
 
-export const TABLA_PRESENTACION_PERFUMES = [
-  { ML: "30ml", TIPO: "Travel Size" },
-  { ML: "50ml", TIPO: "Estándar" },
-  { ML: "75ml", TIPO: "Mediano" },
-  { ML: "100ml", TIPO: "Grande" },
-  { ML: "150ml", TIPO: "Extra Grande" },
-  { ML: "200ml", TIPO: "Familiar" }
+export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
+  {
+    grupo: 'Perfumería',
+    variantGroupId: 'perfumes',
+    opciones: [
+      'Perfumes de Mujer',
+      'Unisex',
+      'Body Splash / Body Mist',
+      'Set de Regalo'
+    ]
+  },
+  {
+    grupo: 'Maquillaje',
+    variantGroupId: 'accesorios',
+    opciones: [
+      'Ojos',
+      'Labios',
+      'Rostro',
+      'Paletas',
+      'Brochas y Accesorios'
+    ]
+  },
+  {
+    grupo: 'Cuidado de la Piel',
+    variantGroupId: 'none',
+    opciones: [
+      'Limpieza Facial',
+      'Hidratación',
+      'Tratamiento Anti-age',
+      'Protectores Solares'
+    ]
+  },
+  {
+    grupo: 'Cuidado Personal',
+    variantGroupId: 'perfumes',
+    opciones: [
+      'Cuidado Capilar',
+      'Higiene Corporal',
+      'Desodorantes'
+    ]
+  },
+  {
+    grupo: 'Accesorios',
+    variantGroupId: 'accesorios',
+    opciones: [
+      'Collares y Cadenas',
+      'Anillos',
+      'Aritos',
+      'Pulseras',
+      'Relojes'
+    ]
+  }
 ];
 
-export const TABLA_TALLES_ACCESORIOS = [
-  { TALLE: "Único", DESC: "Ajustable o Estándar" },
-  { TALLE: "S", DESC: "Pequeño" },
-  { TALLE: "M", DESC: "Mediano" },
-  { TALLE: "L", DESC: "Grande" }
-];
+// Legacy constants (removed in favor of VariantGroupConfig)
 
 export interface ProductVariant {
   id: string; // Unique ID for the variant
@@ -52,6 +111,7 @@ export interface Product {
   name: string;
   sku: string;
   categoryId: string;
+  targetGender?: 'Hombre' | 'Mujer' | 'Unisex';
   purchasePrice: number;
   salePrice: number;
   imageUrls?: string[];
@@ -96,8 +156,13 @@ export interface StockFlowState {
   sales: SaleRecord[];
   wholesaleConfig: { minQuantity: number; discountPercentage: number };
   
+  categoriesConfig: CategoryConfig[];
+  variantGroupsConfig: VariantGroupConfig[];
+
   setGlobalMarkup: (percentage: number) => void;
   setWholesaleConfig: (config: { minQuantity: number; discountPercentage: number }) => void;
+  setCategoriesConfig: (categories: CategoryConfig[]) => void;
+  setVariantGroupsConfig: (groups: VariantGroupConfig[]) => void;
   
   registerPurchases: (newPurchases: {
     productId: string | 'NEW';
@@ -105,6 +170,7 @@ export interface StockFlowState {
     newProductSku?: string;
     newProductImageUrls?: string[];
     categoryId: string;
+    targetGender?: 'Hombre' | 'Mujer' | 'Unisex';
     size: string;
     color: string;
     quantity: number;
@@ -184,20 +250,23 @@ const MOCK_SALES: SaleRecord[] = [
   { id: 's-mock-1', ticketId: 'TICK-MOCK-1', date: '2026-05-20T14:30:00Z', productId: 'p1', productName: 'Perfume Elegance 1', variantId: 'vp1', size: '100ml', color: 'Único', clientName: 'María Gómez', clientPhone: '1123456789', quantity: 2, unitSalePrice: 55000, revenue: 110000, status: 'Pagada' },
   { id: 's-mock-2', ticketId: 'TICK-MOCK-2', date: '2026-06-10T11:00:00Z', productId: 'l1', productName: 'Labial Matte 1', variantId: 'vl1', size: 'Único', color: 'Rojo', clientName: 'Consumidor Final', clientPhone: '', quantity: 1, unitSalePrice: 8500, revenue: 8500, status: 'Pagada' },
   { id: 's-mock-3', ticketId: 'TICK-MOCK-3', date: '2026-06-25T16:15:00Z', productId: 'b1', productName: 'Body Splash Tropical 1', variantId: 'vb1', size: '200ml', color: 'Único', clientName: 'Juan Perez', clientPhone: '', quantity: 3, unitSalePrice: 12000, revenue: 36000, status: 'Pagada' },
-  { id: 's-mock-4', ticketId: 'TICK-MOCK-4', date: '2026-07-05T09:45:00Z', productId: 'p3', productName: 'Perfume Intense 3', variantId: 'vp3', size: '50ml', color: 'Único', clientName: 'Ana Ruiz', clientPhone: '', quantity: 1, unitSalePrice: 50000, revenue: 50000, status: 'Pagada' },
 ];
 
 export const useStockFlowStore = create<StockFlowState>()(
   persist(
     (set) => ({
-      globalMarkupPrc: 50, // 50% por defecto
-      wholesaleConfig: { minQuantity: 6, discountPercentage: 10 },
+      globalMarkupPrc: 50,
+      wholesaleConfig: { minQuantity: 3, discountPercentage: 15 },
       products: MOCK_PRODUCTS,
       purchases: MOCK_PURCHASES,
       sales: MOCK_SALES,
+      categoriesConfig: CATEGORIAS_PERFUMERIA,
+      variantGroupsConfig: DEFAULT_VARIANT_GROUPS,
 
-      setGlobalMarkup: (percentage) => set({ globalMarkupPrc: percentage }),
-      setWholesaleConfig: (config) => set({ wholesaleConfig: config }),
+      setGlobalMarkup: (prc) => set({ globalMarkupPrc: prc }),
+      setWholesaleConfig: (cfg) => set({ wholesaleConfig: cfg }),
+      setCategoriesConfig: (cfg) => set({ categoriesConfig: cfg }),
+      setVariantGroupsConfig: (cfg) => set({ variantGroupsConfig: cfg }),
 
       registerPurchases: (newPurchases) => {
         set((state) => {
@@ -388,7 +457,7 @@ export const useStockFlowStore = create<StockFlowState>()(
         set((state) => {
           const updatedSales = state.sales.map(s => {
             if (s.id === saleId && s.status === 'Pendiente') {
-              return { ...s, status: 'Pagada', confirmationDate: new Date().toISOString() };
+              return { ...s, status: 'Pagada' as const, confirmationDate: new Date().toISOString() };
             }
             return s;
           });
@@ -450,15 +519,56 @@ export const useStockFlowStore = create<StockFlowState>()(
       updateProduct: (productId, data, variants) => {
          set((state) => {
             const newProducts = [...state.products];
+            let newPurchases = [...state.purchases];
             const pIdx = newProducts.findIndex(p => p.id === productId);
+            
             if(pIdx !== -1) {
+              const oldProduct = newProducts[pIdx];
+              
+              if (variants) {
+                  variants.forEach(newVar => {
+                      const oldVar = oldProduct.variants.find(v => v.id === newVar.id);
+                      if (oldVar) {
+                          const diff = newVar.stock - oldVar.stock;
+                          if (diff !== 0) {
+                              // Generar ajuste en finanzas
+                              newPurchases.push({
+                                  id: 'adj-' + Math.random().toString(36).substr(2, 9),
+                                  date: new Date().toISOString(),
+                                  productId: oldProduct.id,
+                                  productName: data.name || oldProduct.name,
+                                  variantId: newVar.id,
+                                  size: newVar.size,
+                                  color: newVar.color,
+                                  quantity: diff, // Can be negative (refund) or positive (expense)
+                                  unitPurchasePrice: data.purchasePrice !== undefined ? data.purchasePrice : oldProduct.purchasePrice,
+                                  totalCost: diff * (data.purchasePrice !== undefined ? data.purchasePrice : oldProduct.purchasePrice)
+                              });
+                          }
+                      } else {
+                          // Es una variante totalmente nueva
+                          newPurchases.push({
+                              id: 'pch-' + Math.random().toString(36).substr(2, 9),
+                              date: new Date().toISOString(),
+                              productId: oldProduct.id,
+                              productName: data.name || oldProduct.name,
+                              variantId: newVar.id,
+                              size: newVar.size,
+                              color: newVar.color,
+                              quantity: newVar.stock,
+                              unitPurchasePrice: data.purchasePrice !== undefined ? data.purchasePrice : oldProduct.purchasePrice,
+                              totalCost: newVar.stock * (data.purchasePrice !== undefined ? data.purchasePrice : oldProduct.purchasePrice)
+                          });
+                      }
+                  });
+              }
+
               newProducts[pIdx] = { ...newProducts[pIdx], ...data };
               if (variants) {
                 newProducts[pIdx].variants = variants;
               }
             }
             
-            let newPurchases = state.purchases;
             if(data.purchasePrice !== undefined) {
                newPurchases = newPurchases.map(p => 
                   p.productId === productId ? { ...p, unitPurchasePrice: data.purchasePrice!, totalCost: p.quantity * data.purchasePrice! } : p

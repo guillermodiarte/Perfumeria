@@ -1,13 +1,14 @@
 import { useStockFlowStore } from '@/store/useStockStore';
 import { useRef, useState } from 'react';
 import { API_URL } from '@/utils/api';
+import CatalogConfig from './CatalogConfig';
 
 export default function ConfiguracionView() {
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
   const setGlobalMarkup = useStockFlowStore(s => s.setGlobalMarkup);
   const wholesaleConfig = useStockFlowStore(s => s.wholesaleConfig);
   const setWholesaleConfig = useStockFlowStore(s => s.setWholesaleConfig);
-  
+
   const importData = useStockFlowStore(s => s.importData);
   const getZustandState = () => useStockFlowStore.getState();
 
@@ -15,7 +16,7 @@ export default function ConfiguracionView() {
   const fileInputRefDB = useRef<HTMLInputElement>(null);
   const fileInputRefImages = useRef<HTMLInputElement>(null);
   const fileInputRefJSON = useRef<HTMLInputElement>(null);
-  
+
   // --- JSON EXPORT / IMPORT ---
   const handleExportJSON = () => {
     const state = getZustandState();
@@ -81,7 +82,7 @@ export default function ConfiguracionView() {
         headers: { 'X-API-KEY': adminToken },
         body: formData
       });
-      if(res.ok) alert('Base de datos restaurada');
+      if (res.ok) alert('Base de datos restaurada');
       else alert('Error al restaurar BD');
     } catch (err) { alert('Error de red'); }
     finally { setLoading(false); e.target.value = ''; }
@@ -118,7 +119,7 @@ export default function ConfiguracionView() {
         headers: { 'X-API-KEY': adminToken },
         body: formData
       });
-      if(res.ok) alert('Imágenes restauradas');
+      if (res.ok) alert('Imágenes restauradas');
       else alert('Error al restaurar Imágenes');
     } catch (err) { alert('Error de red'); }
     finally { setLoading(false); e.target.value = ''; }
@@ -136,61 +137,68 @@ export default function ConfiguracionView() {
         </p>
       </div>
 
-      <div className="max-w-md bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6">
-        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
-          Porcentaje de Ganancia Global (Markup %)
-        </label>
-        <p className="text-xs text-slate-500 mb-4">
-          Este porcentaje se usará para autocalcular los Precios de Venta sugeridos al momento de ingresar mercadería en 'Compras'.
-        </p>
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1">
-            <input 
-              type="number" 
-              value={globalMarkupPrc} 
-              onChange={(e) => setGlobalMarkup(Number(e.target.value) || 0)}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-4 pr-10 py-3 text-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 h-full flex flex-col">
+          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+            Porcentaje de Ganancia Global (Markup %)
+          </label>
+          <p className="text-xs text-slate-500 mb-4 flex-1">
+            Este porcentaje se usará para autocalcular los Precios de Venta sugeridos al momento de ingresar mercadería en 'Compras'.
+          </p>
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1">
+              <input
+                type="number"
+                value={globalMarkupPrc}
+                onChange={(e) => setGlobalMarkup(Number(e.target.value) || 0)}
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-4 pr-10 py-3 text-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+            </div>
+            <div className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1 h-[52px]">
+              <span className="material-symbols-outlined text-sm">check_circle</span>
+              Guardado Auto
+            </div>
           </div>
-          <div className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1 h-full">
-            <span className="material-symbols-outlined text-sm">check_circle</span>
-            Guardado Auto
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 h-full flex flex-col">
+          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+            Configuración Mayorista
+          </label>
+          <p className="text-xs text-slate-500 mb-4">
+            Establece la cantidad mínima requerida del mismo producto para aplicar el descuento mayorista automáticamente en las ventas.
+          </p>
+  
+          <div className="grid grid-cols-2 gap-4 mt-auto">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Cantidad mínima</label>
+              <input
+                type="number"
+                value={wholesaleConfig?.minQuantity || 6}
+                onChange={(e) => setWholesaleConfig({ ...wholesaleConfig, minQuantity: Number(e.target.value) || 0 })}
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-3 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Descuento (%)</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={wholesaleConfig?.discountPercentage || 10}
+                  onChange={(e) => setWholesaleConfig({ ...wholesaleConfig, discountPercentage: Number(e.target.value) || 0 })}
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-4 pr-10 py-3 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-md bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 mt-6">
-        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
-          Configuración Mayorista
-        </label>
-        <p className="text-xs text-slate-500 mb-4">
-          Establece la cantidad mínima requerida del mismo producto para aplicar el descuento mayorista automáticamente en las ventas.
-        </p>
-        
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">Cantidad mínima (unidades)</label>
-            <input 
-              type="number" 
-              value={wholesaleConfig?.minQuantity || 6} 
-              onChange={(e) => setWholesaleConfig({ ...wholesaleConfig, minQuantity: Number(e.target.value) || 0 })}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-3 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">Porcentaje de descuento (%)</label>
-            <div className="relative">
-              <input 
-                type="number" 
-                value={wholesaleConfig?.discountPercentage || 10} 
-                onChange={(e) => setWholesaleConfig({ ...wholesaleConfig, discountPercentage: Number(e.target.value) || 0 })}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-4 pr-10 py-3 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
-            </div>
-          </div>
-        </div>
+
+      <div className="mt-8">
+        <CatalogConfig />
       </div>
 
       {/* BACKUPS SECTION */}
@@ -199,7 +207,7 @@ export default function ConfiguracionView() {
           <span className="material-symbols-outlined text-primary text-2xl">cloud_sync</span>
           Respaldos (Backups) del Sistema
         </h3>
-        
+
         {loading && <p className="text-primary font-bold mb-4 animate-pulse">Procesando solicitud de backup...</p>}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

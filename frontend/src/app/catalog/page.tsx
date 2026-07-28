@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { API_URL } from '@/utils/api';
-import { useStockFlowStore, CATEGORIAS_PERFUMERIA } from '@/store/useStockStore';
+import { useStockFlowStore } from '@/store/useStockStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAuthModalStore } from '@/store/useAuthModalStore';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -16,14 +16,16 @@ function CatalogContent() {
   const router = useRouter();
   const categoryFilter = searchParams.get('category');
 
+  const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
+
   // Determine expanded category group based on current URL
-  const initialExpandedGroup = CATEGORIAS_PERFUMERIA.find(g => g.opciones.includes(categoryFilter || ''))?.grupo || null;
+  const initialExpandedGroup = categoriesConfig.find(g => g.opciones.includes(categoryFilter || ''))?.grupo || null;
   const [expandedGroup, setExpandedGroup] = useState<string | null>(initialExpandedGroup);
 
   const [mounted, setMounted] = useState(false);
 
   // Extract unique filter options from storeProducts
-  const allSizes = useMemo(() => Array.from(new Set(storeProducts.flatMap(p => p.variants.map(v => v.size)))).filter(s => s && s !== 'Unico').sort(), [storeProducts]);
+  const allSizes = useMemo(() => Array.from(new Set(storeProducts.flatMap(p => p.variants.map(v => v.size)))).filter(s => s && s !== 'Unico' && s !== 'Único').sort(), [storeProducts]);
   const allColors = useMemo(() => Array.from(new Set(storeProducts.flatMap(p => p.variants.map(v => v.color)))).filter(Boolean).sort(), [storeProducts]);
   const highestPrice = useMemo(() => storeProducts.length > 0 ? Math.max(...storeProducts.map(p => p.salePrice || 0)) : 100000, [storeProducts]);
 
@@ -88,7 +90,7 @@ function CatalogContent() {
                   <span>Todos los Productos</span>
                 </Link>
 
-                {CATEGORIAS_PERFUMERIA.map(g => {
+                {categoriesConfig.map(g => {
                   const isExpanded = expandedGroup === g.grupo;
                   const hasActiveChild = g.opciones.includes(categoryFilter || '');
 

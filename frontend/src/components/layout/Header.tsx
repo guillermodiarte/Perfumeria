@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAuthModalStore } from '@/store/useAuthModalStore';
 import { useCartStore } from '@/store/useCartStore';
@@ -10,6 +11,7 @@ import { User, ShoppingBag, Search, LogOut, Package, ShieldCheck } from 'lucide-
 import { useState, useEffect } from 'react';
 
 export default function Header() {
+  const pathname = usePathname();
   const user = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
   const openAuthModal = useAuthModalStore(s => s.openModal);
@@ -30,6 +32,7 @@ export default function Header() {
   }, []);
 
   if (!mounted) return null;
+  if (pathname?.startsWith('/admin')) return null;
 
   const totalItems = items.reduce((acc, item) => acc + item.quantity, 0);
 

@@ -6,20 +6,32 @@ import { generateTicketPDF } from '@/utils/generateTicket';
 export default function VentasView({ showAlert }: { showAlert: (msg: string) => void }) {
   const products = useStockFlowStore(s => s.products);
   const registerSale = useStockFlowStore(s => s.registerSale);
+  const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
+  const allCategories = categoriesConfig.flatMap(g => g.opciones);
 
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   
-  const [selectedProductName, setSelectedProductName] = useState('');
+  const [selectedParentCategory, setSelectedParentCategory] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [productSearchText, setProductSearchText] = useState('');
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [quantityToAdd, setQuantityToAdd] = useState(1);
   const [cart, setCart] = useState<{productId: string, variantId: string, name: string, quantity: number, salePrice: number}[]>([]);
 
-  const selectedProduct = products.find(p => p.name.toLowerCase() === selectedProductName.toLowerCase());
+  const selectedProduct = products.find(p => p.id === selectedProductId);
   
   const availableVariants = selectedProduct 
     ? selectedProduct.variants.filter(v => v.stock > 0)
     : [];
+
+  const availableProductsInCategory = products.filter(p => 
+    p.categoryId === selectedCategory && p.variants.some(v => v.stock > 0)
+  );
+
+  const currentCategoryGroup = categoriesConfig.find(g => g.grupo === selectedParentCategory);
+  const availableSubcategories = currentCategoryGroup ? currentCategoryGroup.opciones : [];
 
   const addToCart = () => {
     if (!selectedProduct) {
@@ -70,7 +82,10 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     setCart([]);
     setClientName('');
     setClientPhone('');
-    setSelectedProductName('');
+    setSelectedParentCategory('');
+    setSelectedCategory('');
+    setSelectedProductId('');
+    setProductSearchText('');
   };
 
   const total = cart.reduce((acc, item) => acc + (item.quantity * item.salePrice), 0);
@@ -118,28 +133,104 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
 
             <div className="flex flex-col gap-4 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
                 
-                {/* 1. Seleccionar Producto */}
-                <div className="flex-1 w-full">
-                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">1. Buscar Producto</label>
-                    <input 
-                        list="ventas-product-names"
-                        placeholder="Escribe para buscar un producto..."
-                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm outline-none focus:ring-2 focus:ring-primary"
-                        value={selectedProductName}
-                        onChange={e => {
-                            setSelectedProductName(e.target.value);
-                            setSelectedVariantId('');
-                        }}
-                    />
-                    <datalist id="ventas-product-names">
-                        {products.map(p => <option key={p.id} value={p.name} />)}
-                    </datalist>
+                {/* Row 1: Categoría Padre y Búsqueda por Texto */}
+                <div className="flex flex-col md:flex-row gap-4">
+                    {/* 1. Categoría Padre */}
+                    <div className="flex-1 w-full">
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">1. Categoría Padre</label>
+                        <select 
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm outline-none focus:ring-2 focus:ring-primary"
+                            value={selectedParentCategory}
+                            onChange={e => {
+                                setSelectedParentCategory(e.target.value);
+                                setSelectedCategory('');
+                                setSelectedProductId('');
+                                setSelectedVariantId('');
+                                setProductSearchText('');
+                            }}
+                        >
+                            <option value="">-- Selecciona una categoría padre --</option>
+                            {categoriesConfig.map(c => <option key={c.grupo} value={c.grupo}>{c.grupo}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Buscador de Producto por Texto */}
+                    <div className="flex-1 w-full">
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">O Buscar Producto por Nombre</label>
+                        <div className="relative">
+                            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+                            <input 
+                                list="ventas-product-names"
+                                placeholder="Escribe para buscar un producto..."
+                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl pl-12 pr-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm outline-none focus:ring-2 focus:ring-primary"
+                                value={productSearchText}
+                                onChange={e => {
+                                    const val = e.target.value;
+                                    setProductSearchText(val);
+                                    const found = products.find(p => p.name.toLowerCase() === val.toLowerCase());
+                                    if (found) {
+                                        const group = categoriesConfig.find(g => g.opciones.includes(found.categoryId));
+                                        if (group) setSelectedParentCategory(group.grupo);
+                                        setSelectedCategory(found.categoryId);
+                                        setSelectedProductId(found.id);
+                                        setSelectedVariantId('');
+                                    }
+                                }}
+                            />
+                            <datalist id="ventas-product-names">
+                                {products.filter(p => p.variants.some(v => v.stock > 0)).map(p => <option key={p.id} value={p.name} />)}
+                            </datalist>
+                        </div>
+                    </div>
                 </div>
 
-                {/* 2. Seleccionar Variante y Cantidad */}
-                <div className="flex flex-col md:flex-row gap-4 items-end">
+                {/* Row 2: Subcategoría y Producto */}
+                <div className="flex flex-col md:flex-row gap-4 mt-2">
+                    {/* 2. Subcategoría */}
                     <div className="flex-1 w-full">
-                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">2. Variante</label>
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">2. Subcategoría</label>
+                        <select 
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                            value={selectedCategory}
+                            onChange={e => {
+                                setSelectedCategory(e.target.value);
+                                setSelectedProductId('');
+                                setSelectedVariantId('');
+                            }}
+                            disabled={!selectedParentCategory || availableSubcategories.length === 0}
+                        >
+                            <option value="">-- Selecciona una subcategoría --</option>
+                            {availableSubcategories.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                    </div>
+
+                    {/* 3. Producto en Stock */}
+                    <div className="flex-1 w-full">
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">3. Producto en Stock</label>
+                        <select 
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm disabled:opacity-50"
+                            value={selectedProductId}
+                            onChange={e => {
+                                setSelectedProductId(e.target.value);
+                                setSelectedVariantId('');
+                            }}
+                            disabled={!selectedCategory || availableProductsInCategory.length === 0}
+                        >
+                            <option value="">-- Selecciona un producto --</option>
+                            {availableProductsInCategory.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                        </select>
+                        {selectedCategory && availableProductsInCategory.length === 0 && (
+                            <p className="text-red-500 text-xs mt-1 font-bold">No hay productos con stock en esta categoría.</p>
+                        )}
+                    </div>
+                </div>
+
+                {/* 4. Seleccionar Variante y Cantidad */}
+                <div className="flex flex-col md:flex-row gap-4 items-end pt-2 border-t border-slate-200 dark:border-slate-700/50 mt-2">
+                    <div className="flex-1 w-full">
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">4. Variante</label>
                         <select 
                             className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm disabled:opacity-50"
                             value={selectedVariantId} 

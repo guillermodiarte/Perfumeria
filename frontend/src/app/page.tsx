@@ -71,6 +71,15 @@ export default function Home() {
 
   const slides = banner.slides || [];
 
+  const categoriesSetting = settings['home_categories'] || {
+    categories: [
+      { title: 'Perfumes de Mujer', subtitle: 'Fragancias que enamoran', mediaUrl: '/uploads/Perfumes/1.jpeg', link: '/catalog?category=Perfumes+de+Mujer' },
+      { title: 'Perfumes de Hombre', subtitle: 'Carácter y Elegancia', mediaUrl: '/uploads/Perfumes/2.jpeg', link: '/catalog?category=Perfumes+de+Hombre' },
+      { title: 'Labiales Exclusivos', subtitle: 'Detalles que resaltan', mediaUrl: '/uploads/Labiales/1.jpeg', link: '/catalog?category=Labios' }
+    ]
+  };
+  const categoryCards = categoriesSetting.categories || [];
+
   // Auto-advance carousel
   useEffect(() => {
     if (slides.length <= 1) return;
@@ -194,45 +203,20 @@ export default function Home() {
               </Link>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Category 1 */}
-              <Link href="/catalog?category=Perfumes+de+Mujer" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
-                <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: `url('${API_URL}/uploads/Perfumes/1.jpeg')` }}></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                <div className="absolute bottom-0 left-0 p-8">
-                  <h3 className="text-white text-2xl font-bold mb-2">Perfumes de Mujer</h3>
-                  <p className="text-slate-300 text-sm mb-4">Fragancias que enamoran</p>
-                  <span className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-white text-slate-900 group-hover:bg-primary group-hover:text-white transition-colors">
-                    <span className="material-symbols-outlined">arrow_forward</span>
-                  </span>
-                </div>
-              </Link>
-              {/* Category 2 */}
-              <Link href="/catalog?category=Perfumes+de+Hombre" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
-                <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: `url('${API_URL}/uploads/Perfumes/2.jpeg')` }}></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                <div className="absolute bottom-0 left-0 p-8">
-                  <h3 className="text-white text-2xl font-bold mb-2">Perfumes de Hombre</h3>
-                  <p className="text-slate-300 text-sm mb-4">Carácter y Elegancia</p>
-                  <span className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-white text-slate-900 group-hover:bg-primary group-hover:text-white transition-colors">
-                    <span className="material-symbols-outlined">arrow_forward</span>
-                  </span>
-                </div>
-              </Link>
-              {/* Category 3 */}
-              <Link href="/catalog?category=Labios" className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
-                <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: `url('${API_URL}/uploads/Labiales/1.jpeg')` }}></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                <div className="absolute bottom-0 left-0 p-8">
-                  <h3 className="text-white text-2xl font-bold mb-2">Labiales Exclusivos</h3>
-                  <p className="text-slate-300 text-sm mb-4">Detalles que resaltan</p>
-                  <span className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-white text-slate-900 group-hover:bg-primary group-hover:text-white transition-colors">
-                    <span className="material-symbols-outlined">arrow_forward</span>
-                  </span>
-                </div>
-              </Link>
+              {categoryCards.map((cat: any, idx: number) => (
+                <Link key={idx} href={cat.link || "/catalog"} className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
+                  <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
+                    style={{ backgroundImage: `url('${cat.mediaUrl?.startsWith('http') ? cat.mediaUrl : `${API_URL}${cat.mediaUrl}`}')` }}></div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                  <div className="absolute bottom-0 left-0 p-8">
+                    <h3 className="text-white text-2xl font-bold mb-2">{cat.title}</h3>
+                    <p className="text-slate-300 text-sm mb-4">{cat.subtitle}</p>
+                    <span className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-white text-slate-900 group-hover:bg-primary group-hover:text-white transition-colors">
+                      <span className="material-symbols-outlined">arrow_forward</span>
+                    </span>
+                  </div>
+                </Link>
+              ))}
             </div>
           </section>
 

@@ -1,21 +1,21 @@
 'use client';
 import { useState } from 'react';
-import { useStockFlowStore, CATEGORIAS_PERFUMERIA, TABLA_PRESENTACION_PERFUMES, TABLA_TALLES_ACCESORIOS } from '@/store/useStockStore';
+import { useStockFlowStore } from '@/store/useStockStore';
 
 export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: (msg: string) => void; apiKey: string; apiUrl: string }) {
     const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
     const registerPurchases = useStockFlowStore(s => s.registerPurchases);
     const productsStore = useStockFlowStore(s => s.products);
+    const { categoriesConfig, variantGroupsConfig } = useStockFlowStore();
 
     const createEmptyVariant = () => ({
         size: 'M', description: '',
         quantity: 1, unitPurchasePrice: 0, manualSalePrice: 0, autoCalculated: true,
-        perfumeMetric: 'ML', perfumeSizeIndex: 1,
-        accessoryMetric: 'TALLE', accessorySizeIndex: 0,
+        sizeIndex: 0,
     });
 
     const createEmptyProduct = () => ({
-        productId: 'NEW', newProductName: '', newProductSku: '', categoryId: 'Perfumes de Mujer',
+        productId: 'NEW', newProductName: '', newProductSku: '', categoryId: categoriesConfig[0]?.opciones[0] || 'Perfumes de Mujer', targetGender: 'Unisex' as const,
         newProductImageUrls: [] as string[],
         _uploading: false,
         variants: [createEmptyVariant()]
@@ -90,21 +90,19 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
         });
 
         const formattedItems = flattenedItems.map(item => {
-            const group = CATEGORIAS_PERFUMERIA.find(g => g.opciones.includes(item.categoryId));
-            const isPerfume = group?.grupo === 'Perfumería' || group?.grupo === 'Cuidado de la Piel' || group?.grupo === 'Cuidado Personal';
-            const isAccesorios = group?.grupo === 'Accesorios' || group?.grupo === 'Maquillaje';
-
+            const group = categoriesConfig.find(g => g.opciones.includes(item.categoryId));
             let finalSize = item.size;
-            if (isPerfume) {
-                const row = TABLA_PRESENTACION_PERFUMES[item.perfumeSizeIndex];
-                if (row) {
-                    finalSize = `${row.ML} (${row.TIPO})`;
+            
+            if (group && group.variantGroupId !== 'none') {
+                const variantGroup = variantGroupsConfig.find(vg => vg.id === group.variantGroupId);
+                if (variantGroup) {
+                    const row = variantGroup.options[item.sizeIndex || 0];
+                    if (row) {
+                        finalSize = row.description ? `${row.value} - ${row.description}` : row.value;
+                    }
                 }
-            } else if (isAccesorios) {
-                const row = TABLA_TALLES_ACCESORIOS[item.accessorySizeIndex];
-                if (row) {
-                    finalSize = `${row.TALLE} - ${row.DESC}`;
-                }
+            } else {
+                finalSize = 'Único';
             }
 
             return { ...item, size: finalSize };
@@ -144,20 +142,30 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                             <div className="col-span-1 md:col-span-5 space-y-2">
                                 <label className="block text-xs font-bold text-slate-500">1. Producto Padre</label>
-                                <select
-                                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-bold h-10"
-                                    value={prod.categoryId} onChange={e => updateProduct(pIdx, 'categoryId', e.target.value)}
-                                >
-                                    {CATEGORIAS_PERFUMERIA.map(g => (
-                                        <optgroup key={g.grupo} label={g.grupo} className="font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900">
-                                            {g.opciones.map(opt => (
-                                                <option key={opt} value={opt} className="font-medium text-slate-900 dark:text-slate-300 bg-white dark:bg-slate-800">
-                                                    {opt}
-                                                </option>
-                                            ))}
-                                        </optgroup>
-                                    ))}
-                                </select>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <select
+                                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-bold h-10"
+                                        value={prod.categoryId} onChange={e => updateProduct(pIdx, 'categoryId', e.target.value)}
+                                    >
+                                        {categoriesConfig.map(g => (
+                                            <optgroup key={g.grupo} label={g.grupo} className="font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900">
+                                                {g.opciones.map(opt => (
+                                                    <option key={opt} value={opt} className="font-medium text-slate-900 dark:text-slate-300 bg-white dark:bg-slate-800">
+                                                        {opt}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        ))}
+                                    </select>
+                                    <select 
+                                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-bold h-10"
+                                        value={prod.targetGender || 'Unisex'} onChange={e => updateProduct(pIdx, 'targetGender', e.target.value)}
+                                    >
+                                        <option value="Unisex">Unisex</option>
+                                        <option value="Mujer">Mujer</option>
+                                        <option value="Hombre">Hombre</option>
+                                    </select>
+                                </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
                                     <input
                                         list={`product-names-${pIdx}`}
@@ -176,6 +184,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                                                     updateVariant(pIdx, 0, 'manualSalePrice', existing.salePrice);
                                                 }
                                                 updateProduct(pIdx, 'newProductImageUrls', existing.imageUrls || []);
+                                                if (existing.targetGender) updateProduct(pIdx, 'targetGender', existing.targetGender);
                                             }
                                         }}
                                     />
@@ -270,42 +279,40 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                         {/* VARIANTS SECTION */}
                         <div className="mt-2 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
                             <div className="flex items-center justify-between">
-                                <label className="block text-xs font-bold text-slate-500">2. Variantes (Ítem Físico)</label>
+                                {(() => {
+                                    const group = categoriesConfig.find(g => g.opciones.includes(prod.categoryId));
+                                    const hasVariants = group && group.variantGroupId !== 'none';
+                                    return (
+                                        <label className="block text-xs font-bold text-slate-500">
+                                            {hasVariants ? '2. Variantes (Ítem Físico)' : '2. Detalles de Stock e Ingreso'}
+                                        </label>
+                                    );
+                                })()}
                             </div>
                             
                             <div className="space-y-2">
                                 {prod.variants.map((variant, vIdx) => (
                                     <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-600">
-                                        {/* Size Selectors */}
-                                        <div className="flex-1 min-w-[200px]">
-                                            {CATEGORIAS_PERFUMERIA.find(g => g.opciones.includes(prod.categoryId))?.grupo === 'Perfumería' || CATEGORIAS_PERFUMERIA.find(g => g.opciones.includes(prod.categoryId))?.grupo === 'Cuidado de la Piel' || CATEGORIAS_PERFUMERIA.find(g => g.opciones.includes(prod.categoryId))?.grupo === 'Cuidado Personal' ? (
-                                                <div className="flex gap-2">
-                                                    <select className="w-1/3 bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-2 py-2 text-xs text-purple-900 dark:text-purple-300 font-bold h-10" value={variant.perfumeMetric} onChange={e => updateVariant(pIdx, vIdx, 'perfumeMetric', e.target.value)}>
-                                                        <option value="ML">ML / Vol</option>
-                                                    </select>
-                                                    <select className="w-2/3 bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10" value={variant.perfumeSizeIndex} onChange={e => updateVariant(pIdx, vIdx, 'perfumeSizeIndex', Number(e.target.value))}>
-                                                        {TABLA_PRESENTACION_PERFUMES.map((row, rIdx) => (
-                                                            <option key={rIdx} value={rIdx}>{row.ML} ({row.TIPO})</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                            ) : CATEGORIAS_PERFUMERIA.find(g => g.opciones.includes(prod.categoryId))?.grupo === 'Accesorios' || CATEGORIAS_PERFUMERIA.find(g => g.opciones.includes(prod.categoryId))?.grupo === 'Maquillaje' ? (
-                                                <div className="flex gap-2">
-                                                    <select className="w-1/3 bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-2 py-2 text-xs text-purple-900 dark:text-purple-300 font-bold h-10" value={variant.accessoryMetric} onChange={e => updateVariant(pIdx, vIdx, 'accessoryMetric', e.target.value)}>
-                                                        <option value="TALLE">TALLE</option>
-                                                    </select>
-                                                    <select className="w-2/3 bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10" value={variant.accessorySizeIndex} onChange={e => updateVariant(pIdx, vIdx, 'accessorySizeIndex', Number(e.target.value))}>
-                                                        {TABLA_TALLES_ACCESORIOS.map((row, rIdx) => (
-                                                            <option key={rIdx} value={rIdx}>{row.TALLE}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                            ) : (
-                                                <select className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-400 font-bold h-10 opacity-60 pointer-events-none cursor-not-allowed text-center" value="Unico" onChange={() => { }}>
-                                                    <option value="Unico">Sin Talle (Estándar)</option>
-                                                </select>
-                                            )}
-                                        </div>
+                                        {(() => {
+                                            const group = categoriesConfig.find(g => g.opciones.includes(prod.categoryId));
+                                            if (group && group.variantGroupId !== 'none') {
+                                                const variantGroup = variantGroupsConfig.find(vg => vg.id === group.variantGroupId);
+                                                if (variantGroup) {
+                                                    return (
+                                                        <div className="flex-1 min-w-[200px]">
+                                                            <div className="flex gap-2">
+                                                                <select className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10" value={variant.sizeIndex || 0} onChange={e => updateVariant(pIdx, vIdx, 'sizeIndex', Number(e.target.value))}>
+                                                                    {variantGroup.options.map((row, rIdx) => (
+                                                                        <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                            }
+                                            return null;
+                                        })()}
 
                                         <div className="flex-1 min-w-[140px]">
                                             <input
