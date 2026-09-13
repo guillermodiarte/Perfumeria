@@ -17,14 +17,7 @@ venv/
 out/
 build/
 
-# Ignore all files inside the uploads directory and nested directories
+# Backend legacy uploads
 backend/uploads/**
-uploads/**
-
-# Do not ignore directories, so that they can be committed
 !backend/uploads/**/
-!uploads/**/
-
-# Do not ignore the .gitkeep files to maintain the folder structure
 !backend/uploads/**/.gitkeep
-!uploads/**/.gitkeep

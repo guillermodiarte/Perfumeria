@@ -32,6 +32,12 @@ if [ ! -f "/app/data/dev.db" ]; then
   fi
 fi
 
+# Inicializar imágenes iniciales si no existen en el volumen persistente
+if [ ! -d "/app/uploads/Perfumes" ] && [ -d "/app/uploads_init" ]; then
+  echo "Copiando catálogo inicial de imágenes a /app/uploads..."
+  cp -r /app/uploads_init/* /app/uploads/ 2>/dev/null || true
+fi
+
 # Apuntar DATABASE_URL al archivo en el volumen persistente
 export DATABASE_URL="file:/app/data/dev.db"
 

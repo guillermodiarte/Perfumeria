@@ -42,5 +42,8 @@ RUN chmod +x /app/start.sh
 # Carpetas de datos y subidas
 RUN mkdir -p /app/data /app/uploads
 
+# Copiar catálogo inicial de imágenes
+COPY uploads ./uploads_init
+
 EXPOSE 3000
-CMD ["sh", "-c", "sh /app/start.sh 2>&1; echo '=== START.SH TERMINO CON CODE $? ==='; sleep 3600"]
+CMD ["sh", "/app/start.sh"]
