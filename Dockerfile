@@ -30,6 +30,11 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 
+# Copiar node_modules de prisma (necesario para migrate deploy en runtime)
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+
 # Copiar script de inicio
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
@@ -38,4 +43,4 @@ RUN chmod +x /app/start.sh
 RUN mkdir -p /app/data /app/uploads
 
 EXPOSE 3000
-CMD ["/app/start.sh"]
+CMD ["sh", "/app/start.sh"]
