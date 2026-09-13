@@ -151,7 +151,7 @@ export default function AdminDashboard() {
         showAlert(err.detail || "Credenciales incorrectas");
       }
     } catch (e) {
-      showAlert("Error al conectar con el servidor backend (puerto 8001). Verifica que esté en ejecución.");
+      showAlert("Error al conectar con el servidor. Verifica tu conexión.");
     }
   };
 

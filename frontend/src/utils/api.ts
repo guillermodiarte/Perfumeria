@@ -1,7 +1,7 @@
 const isServer = typeof window === 'undefined';
 export const API_URL = isServer 
-  ? (process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001')
-  : (process.env.NEXT_PUBLIC_API_URL || `${window.location.protocol}//${window.location.hostname}:8001`);
+  ? (process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3000}`)
+  : (process.env.NEXT_PUBLIC_API_URL || '');
 
 export const parseImageUrl = (url?: string): string => {
   if (!url) return '';
@@ -11,7 +11,7 @@ export const parseImageUrl = (url?: string): string => {
 };
 
 export const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
-  const token = localStorage.getItem('auth-storage') 
+  const token = typeof window !== 'undefined' && localStorage.getItem('auth-storage') 
     ? JSON.parse(localStorage.getItem('auth-storage') as string)?.state?.token 
     : null;
 

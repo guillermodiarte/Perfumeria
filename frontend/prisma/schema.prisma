@@ -1,0 +1,118 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+model SiteSetting {
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String // Stored as JSON string
+
+  @@map("site_settings")
+}
+
+model Province {
+  id     Int    @id @default(autoincrement())
+  name   String @unique
+  cities City[]
+
+  @@map("provinces")
+}
+
+model City {
+  id          Int       @id @default(autoincrement())
+  province_id Int?
+  name        String?
+  postal_code String?
+  province    Province? @relation(fields: [province_id], references: [id])
+
+  @@index([name])
+  @@index([province_id])
+  @@map("cities")
+}
+
+model Customer {
+  id                 Int         @id @default(autoincrement())
+  email              String      @unique
+  password_hash      String
+  name               String
+  phone              String      @unique
+  address            String?
+  province           String?
+  city               String?
+  postal_code        String?
+  email_verified     Boolean?    @default(false)
+  verification_token String?
+  is_approved        Boolean?    @default(false)
+  created_at         DateTime?   @default(now())
+  is_wholesale       Boolean?    @default(false)
+  wholesale_until    DateTime?
+  cart_items         CartItem[]
+  orders             Order[]
+
+  @@map("customers")
+}
+
+model Admin {
+  id            Int     @id @default(autoincrement())
+  email         String  @unique
+  password_hash String
+  name          String
+  role          String? @default("admin")
+
+  @@map("admins")
+}
+
+model CartItem {
+  id         Int       @id @default(autoincrement())
+  user_id    Int?
+  product_id String
+  variant_id String
+  quantity   Int?      @default(1)
+  customer   Customer? @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("cart_items")
+}
+
+model Order {
+  id                          Int         @id @default(autoincrement())
+  order_number                String?     @unique
+  user_id                     Int?
+  status                      String?     @default("En revisión")
+  total                       Float?      @default(0)
+  created_at                  DateTime?   @default(now())
+  payment_status              String?     @default("pending")
+  paid_amount                 Float?      @default(0)
+  admin_notes                 String?
+  delivery_status             String?     @default("pending")
+  payment_type                String?     @default("total")
+  installments_count          Int?        @default(1)
+  last_installment_paid_month String?
+  customer                    Customer?   @relation(fields: [user_id], references: [id])
+  items                       OrderItem[]
+
+  @@index([user_id])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           Int     @id @default(autoincrement())
+  order_id     Int?
+  product_id   String
+  variant_id   String
+  quantity     Int?    @default(1)
+  price        Float?  @default(0)
+  product_name String?
+  variant_info String?
+  image_url    String?
+  order        Order?  @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@map("order_items")
+}
