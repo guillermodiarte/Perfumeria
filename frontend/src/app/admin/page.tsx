@@ -65,6 +65,8 @@ export default function AdminDashboard() {
   const [selectedMediaCategory, setSelectedMediaCategory] = useState<string>('');
   const [mediaSearch, setMediaSearch] = useState('');
   const [deleteConfirmParams, setDeleteConfirmParams] = useState<{ category: string, filename: string } | null>(null);
+  const [isExportingMedia, setIsExportingMedia] = useState(false);
+  const [isImportingMedia, setIsImportingMedia] = useState(false);
 
   // Pending customers badge count
   const [pendingCount, setPendingCount] = useState(0);
@@ -387,6 +389,75 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleExportAllMedia = async () => {
+    try {
+      setIsExportingMedia(true);
+      const res = await fetch(`${API_URL}/api/admin/backup/images`, {
+        headers: { 'X-API-KEY': apiKey }
+      });
+      if (!res.ok) {
+        throw new Error('Error al exportar multimedia');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `multimedia_perfumeria_${new Date().toISOString().split('T')[0]}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showAlert('¡Multimedia exportado exitosamente! El archivo ZIP se ha descargado.');
+    } catch (err: any) {
+      console.error(err);
+      showAlert('Error al exportar multimedia en archivo ZIP.');
+    } finally {
+      setIsExportingMedia(false);
+    }
+  };
+
+  const handleImportAllMedia = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      showAlert('Por favor, selecciona un archivo comprimido en formato .zip');
+      e.target.value = '';
+      return;
+    }
+
+    const confirmImport = window.confirm(`¿Deseas importar el archivo "${file.name}"? Se extraerán e integrarán las imágenes y carpetas en la galería.`);
+    if (!confirmImport) {
+      e.target.value = '';
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setIsImportingMedia(true);
+      const res = await fetch(`${API_URL}/api/admin/backup/images`, {
+        method: 'POST',
+        headers: { 'X-API-KEY': apiKey },
+        body: formData
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showAlert(data.message || '¡Multimedia importado exitosamente!');
+        fetchMedia(selectedMediaCategory);
+      } else {
+        showAlert(data.detail || 'Error al importar archivo ZIP.');
+      }
+    } catch (err) {
+      console.error(err);
+      showAlert('Error de red al importar archivo ZIP.');
+    } finally {
+      setIsImportingMedia(false);
+      e.target.value = '';
+    }
+  };
+
   const handleEditSection = async (key: string) => {
     const defaultData: Record<string, any> = {
       'home_banner': { slides: [] },
@@ -671,20 +742,63 @@ export default function AdminDashboard() {
                     <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Biblioteca de Medios</h1>
                     <p className="text-slate-500 dark:text-slate-400 mt-1">Gestiona todas las imágenes y archivos subidos al servidor.</p>
                   </div>
+
+                  {/* Botones de acción arriba a la derecha */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="cursor-pointer bg-primary text-white font-bold px-5 py-2.5 rounded-xl hover:bg-primary/90 transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm">
+                      <span className="material-symbols-outlined text-xl">upload_file</span>
+                      <span>Agregar Archivos</span>
+                      <input type="file" className="hidden" onChange={handleMediaUpload} />
+                    </label>
+
+                    {/* Exportar Todo (ZIP) */}
+                    <button
+                      onClick={handleExportAllMedia}
+                      disabled={isExportingMedia || isImportingMedia || loading}
+                      className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Descargar todo el multimedia comprimido en un archivo .zip"
+                    >
+                      {isExportingMedia ? (
+                        <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                      ) : (
+                        <span className="material-symbols-outlined text-xl">archive</span>
+                      )}
+                      <span>{isExportingMedia ? 'Exportando ZIP...' : 'Exportar Todo'}</span>
+                    </button>
+
+                    {/* Importar ZIP */}
+                    <label
+                      className={`cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm ${isImportingMedia || isExportingMedia || loading ? 'opacity-50 pointer-events-none' : ''}`}
+                      title="Importar un archivo ZIP con imágenes o carpetas a la galería"
+                    >
+                      {isImportingMedia ? (
+                        <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                      ) : (
+                        <span className="material-symbols-outlined text-xl">unarchive</span>
+                      )}
+                      <span>{isImportingMedia ? 'Importando ZIP...' : 'Importar'}</span>
+                      <input
+                        type="file"
+                        accept=".zip"
+                        className="hidden"
+                        disabled={isImportingMedia || isExportingMedia || loading}
+                        onChange={handleImportAllMedia}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 {/* Toolbar */}
                 <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
-                  <div className="flex items-center gap-4 w-full md:w-auto">
-                    <label className="cursor-pointer bg-primary text-white font-bold px-6 py-2.5 rounded-xl hover:bg-primary/90 transition flex items-center gap-2">
-                      <span className="material-symbols-outlined">upload_file</span>
-                      Agregar Archivos
-                      <input type="file" className="hidden" onChange={handleMediaUpload} />
-                    </label>
-                    <div className="relative flex-1 md:w-64">
-                      <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-                      <input type="text" value={mediaSearch} onChange={e => setMediaSearch(e.target.value)} placeholder="Buscar archivos..." className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary/20 outline-none text-slate-900 dark:text-white" />
-                    </div>
+                  <div className="relative w-full md:w-80">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+                    <input
+                      type="text"
+                      value={mediaSearch}
+                      onChange={e => setMediaSearch(e.target.value)}
+                      placeholder="Buscar archivos..."
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary/20 outline-none text-slate-900 dark:text-white text-sm"
+                    />
                   </div>
 
                   {/* Category Pills */}
