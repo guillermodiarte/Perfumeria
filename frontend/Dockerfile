@@ -21,13 +21,18 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+ENV DATABASE_URL="file:/app/data/dev.db"
+ENV UPLOAD_DIR="/app/uploads"
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 
-RUN mkdir -p /app/uploads
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+RUN mkdir -p /app/data /app/uploads
 
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["/app/start.sh"]

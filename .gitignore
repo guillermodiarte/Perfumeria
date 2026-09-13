@@ -10,6 +10,7 @@ __pycache__/
 venv/
 .venv/
 *.db
+!frontend/prisma/dev.db
 
 # Frontend Next.js build output
 .next/
