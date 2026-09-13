@@ -43,4 +43,4 @@ RUN chmod +x /app/start.sh
 RUN mkdir -p /app/data /app/uploads
 
 EXPOSE 3000
-CMD ["sh", "/app/start.sh"]
+CMD ["sh", "-c", "sh /app/start.sh 2>&1; echo '=== START.SH TERMINO CON CODE $? ==='; sleep 3600"]
