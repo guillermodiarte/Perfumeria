@@ -181,15 +181,22 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (apiKey && isAuthenticated) {
       if (activeView === 'admins') {
-        fetchAdmins();
+        if (currentAdminRole === 'super_admin') {
+          fetchAdmins();
+        } else {
+          setActiveView('products');
+        }
       } else {
         fetchUsers();
+      }
+      if (activeView === 'sections' && currentAdminRole !== 'super_admin') {
+        setActiveView('products');
       }
       if (activeView === 'media') {
         fetchMedia(selectedMediaCategory);
       }
     }
-  }, [apiKey, isAuthenticated, activeView]);
+  }, [apiKey, isAuthenticated, activeView, currentAdminRole]);
 
   const handleLogout = () => {
     setApiKey('');
@@ -590,10 +597,12 @@ export default function AdminDashboard() {
             <span>Productos</span>
           </button>
 
-          <button onClick={() => setActiveView('sections')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'sections' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">web</span>
-            <span>Secciones</span>
-          </button>
+          {currentAdminRole === 'super_admin' && (
+            <button onClick={() => setActiveView('sections')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'sections' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+              <span className="material-symbols-outlined">web</span>
+              <span>Secciones</span>
+            </button>
+          )}
 
           <button onClick={() => setActiveView('compras')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'compras' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
             <span className="material-symbols-outlined">local_shipping</span>
@@ -630,10 +639,12 @@ export default function AdminDashboard() {
             )}
           </button>
 
-          <button onClick={() => setActiveView('admins')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'admins' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">admin_panel_settings</span>
-            <span>Administradores</span>
-          </button>
+          {currentAdminRole === 'super_admin' && (
+            <button onClick={() => setActiveView('admins')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'admins' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+              <span className="material-symbols-outlined">admin_panel_settings</span>
+              <span>Administradores</span>
+            </button>
+          )}
 
           <button onClick={() => setActiveView('finanzas')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'finanzas' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
             <span className="material-symbols-outlined">payments</span>
@@ -731,7 +742,7 @@ export default function AdminDashboard() {
           <>
             {activeView === 'products' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ProductosView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
-            ) : activeView === 'sections' ? (
+            ) : (activeView === 'sections' && currentAdminRole === 'super_admin') ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <SeccionesView apiKey={apiKey} apiUrl={API_URL} showAlert={showAlert} />
               </div>
@@ -752,39 +763,43 @@ export default function AdminDashboard() {
                     </label>
 
                     {/* Exportar Todo (ZIP) */}
-                    <button
-                      onClick={handleExportAllMedia}
-                      disabled={isExportingMedia || isImportingMedia || loading}
-                      className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Descargar todo el multimedia comprimido en un archivo .zip"
-                    >
-                      {isExportingMedia ? (
-                        <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
-                      ) : (
-                        <span className="material-symbols-outlined text-xl">archive</span>
-                      )}
-                      <span>{isExportingMedia ? 'Exportando ZIP...' : 'Exportar Todo'}</span>
-                    </button>
+                    {currentAdminRole === 'super_admin' && (
+                      <button
+                        onClick={handleExportAllMedia}
+                        disabled={isExportingMedia || isImportingMedia || loading}
+                        className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Descargar todo el multimedia comprimido en un archivo .zip"
+                      >
+                        {isExportingMedia ? (
+                          <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                        ) : (
+                          <span className="material-symbols-outlined text-xl">archive</span>
+                        )}
+                        <span>{isExportingMedia ? 'Exportando ZIP...' : 'Exportar Todo'}</span>
+                      </button>
+                    )}
 
                     {/* Importar ZIP */}
-                    <label
-                      className={`cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm ${isImportingMedia || isExportingMedia || loading ? 'opacity-50 pointer-events-none' : ''}`}
-                      title="Importar un archivo ZIP con imágenes o carpetas a la galería"
-                    >
-                      {isImportingMedia ? (
-                        <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
-                      ) : (
-                        <span className="material-symbols-outlined text-xl">unarchive</span>
-                      )}
-                      <span>{isImportingMedia ? 'Importando ZIP...' : 'Importar'}</span>
-                      <input
-                        type="file"
-                        accept=".zip"
-                        className="hidden"
-                        disabled={isImportingMedia || isExportingMedia || loading}
-                        onChange={handleImportAllMedia}
-                      />
-                    </label>
+                    {currentAdminRole === 'super_admin' && (
+                      <label
+                        className={`cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm ${isImportingMedia || isExportingMedia || loading ? 'opacity-50 pointer-events-none' : ''}`}
+                        title="Importar un archivo ZIP con imágenes o carpetas a la galería"
+                      >
+                        {isImportingMedia ? (
+                          <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                        ) : (
+                          <span className="material-symbols-outlined text-xl">unarchive</span>
+                        )}
+                        <span>{isImportingMedia ? 'Importando ZIP...' : 'Importar'}</span>
+                        <input
+                          type="file"
+                          accept=".zip"
+                          className="hidden"
+                          disabled={isImportingMedia || isExportingMedia || loading}
+                          onChange={handleImportAllMedia}
+                        />
+                      </label>
+                    )}
                   </div>
                 </div>
 
@@ -842,20 +857,24 @@ export default function AdminDashboard() {
                             <button onClick={() => { navigator.clipboard.writeText(file.url); showAlert("URL Copiada"); }} className="size-10 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-colors tooltip" title="Copiar URL">
                               <span className="material-symbols-outlined text-lg">content_copy</span>
                             </button>
-                            <button onClick={() => handleDeleteMedia(file.category, file.filename)} className="size-10 rounded-full bg-red-500/80 hover:bg-red-500 text-white flex items-center justify-center transition-colors tooltip" title="Eliminar">
-                              <span className="material-symbols-outlined text-lg">delete</span>
-                            </button>
-                          </div>
-                          <select
-                            className="w-full text-center h-8 rounded-lg bg-white/20 hover:bg-white/40 text-white outline-none cursor-pointer text-xs font-bold appearance-none px-2"
-                            value=""
-                            onChange={(e) => { if (e.target.value) handleMoveMedia(file.category, file.filename, e.target.value); }}
-                          >
-                            <option value="" disabled className="text-black bg-white">Mover a...</option>
-                            {mediaCategories.filter(c => c !== file.category).map(c =>
-                              <option key={c} value={c} className="text-black bg-white">{c}</option>
+                            {currentAdminRole === 'super_admin' && (
+                              <button onClick={() => handleDeleteMedia(file.category, file.filename)} className="size-10 rounded-full bg-red-500/80 hover:bg-red-500 text-white flex items-center justify-center transition-colors tooltip" title="Eliminar">
+                                <span className="material-symbols-outlined text-lg">delete</span>
+                              </button>
                             )}
-                          </select>
+                          </div>
+                          {currentAdminRole === 'super_admin' && (
+                            <select
+                              className="w-full text-center h-8 rounded-lg bg-white/20 hover:bg-white/40 text-white outline-none cursor-pointer text-xs font-bold appearance-none px-2"
+                              value=""
+                              onChange={(e) => { if (e.target.value) handleMoveMedia(file.category, file.filename, e.target.value); }}
+                            >
+                              <option value="" disabled className="text-black bg-white">Mover a...</option>
+                              {mediaCategories.filter(c => c !== file.category).map(c =>
+                                <option key={c} value={c} className="text-black bg-white">{c}</option>
+                              )}
+                            </select>
+                          )}
                         </div>
 
                         {/* Category Badge */}
@@ -897,12 +916,12 @@ export default function AdminDashboard() {
             ) : activeView === 'finanzas' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><FinanzasView /></div>
             ) : activeView === 'configuracion' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><ConfiguracionView /></div>
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><ConfiguracionView isSuperAdmin={currentAdminRole === 'super_admin'} /></div>
             ) : activeView === 'users' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <ClientesView apiKey={apiKey} onPendingCountChange={setPendingCount} />
               </div>
-            ) : activeView === 'admins' ? (
+            ) : (activeView === 'admins' && currentAdminRole === 'super_admin') ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4">
                   <div>

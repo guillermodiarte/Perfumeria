@@ -7,8 +7,18 @@ import CatalogConfig from './CatalogConfig';
 
 type TabType = 'precios' | 'catalogo' | 'respaldos';
 
-export default function ConfiguracionView() {
+interface ConfiguracionViewProps {
+  isSuperAdmin?: boolean;
+}
+
+export default function ConfiguracionView({ isSuperAdmin = false }: ConfiguracionViewProps) {
   const [activeTab, setActiveTab] = useState<TabType>('precios');
+
+  useEffect(() => {
+    if (!isSuperAdmin && activeTab === 'respaldos') {
+      setActiveTab('precios');
+    }
+  }, [isSuperAdmin, activeTab]);
 
   // Zustand Store
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
@@ -242,17 +252,19 @@ export default function ConfiguracionView() {
           Categorías y Catálogo
         </button>
 
-        <button
-          onClick={() => setActiveTab('respaldos')}
-          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
-            activeTab === 'respaldos'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          <span className="material-symbols-outlined text-lg">cloud_sync</span>
-          Copias de Seguridad (Backups)
-        </button>
+        {isSuperAdmin && (
+          <button
+            onClick={() => setActiveTab('respaldos')}
+            className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+              activeTab === 'respaldos'
+                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-lg">cloud_sync</span>
+            Copias de Seguridad (Backups)
+          </button>
+        )}
       </div>
 
       {/* TAB 1: PRECIOS Y MAYORISTAS */}
@@ -470,7 +482,7 @@ export default function ConfiguracionView() {
       )}
 
       {/* TAB 3: RESPALDOS Y SISTEMA */}
-      {activeTab === 'respaldos' && (
+      {activeTab === 'respaldos' && isSuperAdmin && (
         <div className="animate-in fade-in duration-200 space-y-6">
           <div>
             <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
