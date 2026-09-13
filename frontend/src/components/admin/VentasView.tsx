@@ -20,6 +20,14 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
   const [quantityToAdd, setQuantityToAdd] = useState(1);
   const [cart, setCart] = useState<{productId: string, variantId: string, name: string, quantity: number, salePrice: number}[]>([]);
 
+  // Modal de pago / cuotas
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentType, setPaymentType] = useState<'total' | 'partial' | 'cuotas'>('total');
+  const [partialPaidInput, setPartialPaidInput] = useState('');
+  const [installmentsCount, setInstallmentsCount] = useState<number>(3);
+  const [initialDownPayment, setInitialDownPayment] = useState<string>('0');
+  const [saleNotes, setSaleNotes] = useState('');
+
   const selectedProduct = products.find(p => p.id === selectedProductId);
   
   const availableVariants = selectedProduct 
@@ -32,6 +40,8 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
 
   const currentCategoryGroup = categoriesConfig.find(g => g.grupo === selectedParentCategory);
   const availableSubcategories = currentCategoryGroup ? currentCategoryGroup.opciones : [];
+
+  const total = cart.reduce((acc, item) => acc + (item.quantity * item.salePrice), 0);
 
   const addToCart = () => {
     if (!selectedProduct) {
@@ -63,7 +73,7 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     setQuantityToAdd(1);
   };
 
-  const handleCheckout = () => {
+  const handleOpenPaymentModal = () => {
     if(cart.length === 0) return;
     if(!clientName.trim()) {
       showAlert('El nombre del cliente es obligatorio.');
@@ -73,12 +83,52 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
       showAlert('El teléfono del cliente es obligatorio.');
       return;
     }
-    const ticketId = registerSale(clientName, clientPhone, cart);
-    
+    setPaymentType('total');
+    setPartialPaidInput('');
+    setInitialDownPayment('0');
+    setSaleNotes('');
+    setShowPaymentModal(true);
+  };
+
+  const handleConfirmSale = () => {
+    let finalPaid = total;
+    let finalPending = 0;
+
+    if (paymentType === 'partial') {
+      const parsed = parseFloat(partialPaidInput) || 0;
+      if (parsed < 0 || parsed > total) {
+        showAlert('El monto abonado no puede ser negativo ni superar el total.');
+        return;
+      }
+      finalPaid = parsed;
+      finalPending = Math.max(0, total - parsed);
+    } else if (paymentType === 'cuotas') {
+      const down = parseFloat(initialDownPayment) || 0;
+      if (down < 0 || down > total) {
+        showAlert('El pago inicial no puede ser negativo ni mayor al total.');
+        return;
+      }
+      finalPaid = down;
+      finalPending = Math.max(0, total - down);
+    }
+
+    const ticketId = registerSale(clientName, clientPhone, cart, {
+      paymentType,
+      paidAmount: finalPaid,
+      pendingAmount: finalPending,
+      installmentsCount: paymentType === 'cuotas' ? installmentsCount : 1,
+      notes: saleNotes.trim()
+    });
+
     // Generar PDF y abrir para impresión
     generateTicketPDF(ticketId, useStockFlowStore.getState().sales, true);
 
-    showAlert('Venta procesada con éxito. Stock descontado y finanzas actualizadas.');
+    const msgSuccess = finalPending > 0
+      ? `Venta en mostrador registrada. Saldo pendiente: $${finalPending.toLocaleString('es-AR')} (guardado en Cobros Pendientes).`
+      : 'Venta procesada con éxito. Cobro total registrado.';
+    
+    showAlert(msgSuccess);
+    setShowPaymentModal(false);
     setCart([]);
     setClientName('');
     setClientPhone('');
@@ -87,8 +137,6 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     setSelectedProductId('');
     setProductSearchText('');
   };
-
-  const total = cart.reduce((acc, item) => acc + (item.quantity * item.salePrice), 0);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -303,15 +351,240 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
                 <p className="text-4xl font-black text-primary tracking-tight">${total.toLocaleString()}</p>
             </div>
             <button 
-                onClick={handleCheckout} 
+                onClick={handleOpenPaymentModal} 
                 disabled={cart.length === 0}
                 className="w-full bg-green-500 hover:bg-green-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-black py-4 rounded-xl text-lg shadow-lg shadow-green-500/20 transition-all flex justify-center items-center gap-2"
             >
-                <span className="material-symbols-outlined text-2xl">check_circle</span> 
-                TICKET Y COBRAR
+                <span className="material-symbols-outlined text-2xl">point_of_sale</span> 
+                COBRAR / CONFIRMAR VENTA
             </button>
         </div>
       </div>
+
+      {/* Modal de Selección de Pago (Total / Parcial / Cuotas) */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                  <span className="material-symbols-outlined">payments</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Modalidad de Cobro</h3>
+                  <p className="text-xs text-slate-500">Define si se abona completo, con seña o en cuotas</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPaymentModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Resumen de Venta */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl mb-5 flex items-center justify-between border border-slate-100 dark:border-slate-700/50">
+              <div>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Cliente</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-white">{clientName} <span className="font-normal text-xs text-slate-500">({clientPhone})</span></p>
+                <p className="text-xs text-slate-500 mt-0.5">{cart.length} artículo(s) en caja</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total Venta</p>
+                <p className="text-2xl font-black text-primary">${total.toLocaleString('es-AR')}</p>
+              </div>
+            </div>
+
+            {/* Selector de Modalidad */}
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Selecciona la forma de pago</p>
+            <div className="grid grid-cols-3 gap-2.5 mb-5">
+              <button
+                type="button"
+                onClick={() => setPaymentType('total')}
+                className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-1.5 ${
+                  paymentType === 'total'
+                    ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 font-bold shadow-sm'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                }`}
+              >
+                <span className="material-symbols-outlined text-2xl text-emerald-500">check_circle</span>
+                <span className="text-xs font-bold leading-tight">Pago Total</span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 rounded-full">100% Saldo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaymentType('partial')}
+                className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-1.5 ${
+                  paymentType === 'partial'
+                    ? 'border-amber-500 bg-amber-50/80 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 font-bold shadow-sm'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                }`}
+              >
+                <span className="material-symbols-outlined text-2xl text-amber-500">hourglass_top</span>
+                <span className="text-xs font-bold leading-tight">Pago Parcial</span>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-100 dark:bg-amber-900/50 px-2 py-0.5 rounded-full">Seña / Resto</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaymentType('cuotas')}
+                className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-1.5 ${
+                  paymentType === 'cuotas'
+                    ? 'border-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 font-bold shadow-sm'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                }`}
+              >
+                <span className="material-symbols-outlined text-2xl text-indigo-500">calendar_month</span>
+                <span className="text-xs font-bold leading-tight">En Cuotas</span>
+                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-100 dark:bg-indigo-900/50 px-2 py-0.5 rounded-full">Plan mensual</span>
+              </button>
+            </div>
+
+            {/* Opciones según modalidad */}
+            {paymentType === 'total' && (
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-200 text-xs mb-5 flex items-center gap-3">
+                <span className="material-symbols-outlined text-emerald-500 text-xl shrink-0">verified</span>
+                <div>
+                  <p className="font-bold">Cobro completo en el momento</p>
+                  <p className="text-[11px] opacity-80">Se registra como cobrado el monto total de ${total.toLocaleString('es-AR')}. No genera deuda en Cobros Pendientes.</p>
+                </div>
+              </div>
+            )}
+
+            {paymentType === 'partial' && (
+              <div className="space-y-3 mb-5 p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Monto abonado hoy ($):
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={total}
+                    value={partialPaidInput}
+                    onChange={(e) => setPartialPaidInput(e.target.value)}
+                    placeholder={`Ej: ${Math.round(total / 2)}`}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-base focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+                
+                <div className="flex justify-between items-center text-xs pt-2 border-t border-amber-200/60 dark:border-amber-800/40">
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">Saldo adeudado:</span>
+                  <span className="text-sm font-black text-red-600 dark:text-red-400">
+                    ${Math.max(0, total - (parseFloat(partialPaidInput) || 0)).toLocaleString('es-AR')}
+                  </span>
+                </div>
+                <p className="text-[10px] text-amber-800 dark:text-amber-300">
+                  * Este saldo quedará registrado en el menú "Cobros Pendientes" para su seguimiento y registro de pagos futuros.
+                </p>
+              </div>
+            )}
+
+            {paymentType === 'cuotas' && (
+              <div className="space-y-4 mb-5 p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/40">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Cantidad de Cuotas:
+                  </label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[2, 3, 4, 6, 12].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setInstallmentsCount(num)}
+                        className={`py-2 text-xs font-bold rounded-xl border transition-all ${
+                          installmentsCount === num
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {num} cuotas
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Entrega o pago inicial hoy ($ - opcional):
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={total}
+                    value={initialDownPayment}
+                    onChange={(e) => setInitialDownPayment(e.target.value)}
+                    placeholder="0"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                {(() => {
+                  const down = parseFloat(initialDownPayment) || 0;
+                  const financed = Math.max(0, total - down);
+                  const perInstallment = installmentsCount > 0 ? Math.round(financed / installmentsCount) : 0;
+                  return (
+                    <div className="bg-white/80 dark:bg-slate-900/60 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-1.5 text-xs">
+                      <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                        <span>Saldo a financiar en cuotas:</span>
+                        <span className="font-bold text-slate-900 dark:text-white">${financed.toLocaleString('es-AR')}</span>
+                      </div>
+                      <div className="flex justify-between items-center pt-1 border-t border-slate-100 dark:border-slate-800 font-bold">
+                        <span className="text-indigo-600 dark:text-indigo-400">Valor estimado por cuota:</span>
+                        <span className="text-sm font-black text-indigo-700 dark:text-indigo-300">
+                          {installmentsCount} cuotas de ~${perInstallment.toLocaleString('es-AR')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <p className="text-[10px] text-indigo-700 dark:text-indigo-300">
+                  * El sistema te recordará a principio de cada mes cobrar las cuotas que sigan pendientes hasta que se completen.
+                </p>
+              </div>
+            )}
+
+            {/* Notas opcionales */}
+            <div className="mb-5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Notas u Observaciones (opcional):
+              </label>
+              <textarea
+                rows={2}
+                value={saleNotes}
+                onChange={(e) => setSaleNotes(e.target.value)}
+                placeholder="Ej: Cliente paga con transferencia, retira mañana..."
+                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white text-xs outline-none focus:ring-2 focus:ring-primary resize-none"
+              />
+            </div>
+
+            {/* Botones de acción */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowPaymentModal(false)}
+                className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSale}
+                className="flex-[2] py-3 rounded-xl bg-green-500 hover:bg-green-600 text-white font-black text-sm shadow-lg shadow-green-500/20 transition-all flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-lg">check_circle</span>
+                Confirmar Venta y Generar Ticket
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

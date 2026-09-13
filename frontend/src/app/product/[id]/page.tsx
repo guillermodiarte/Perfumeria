@@ -61,7 +61,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     return imgUrl.startsWith('http') ? imgUrl : `${API_URL}${imgUrl}`;
   };
 
-  const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "5493704048860";
+  const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "5493513146924";
   const whatsappUrl = `https://wa.me/${phone}?text=Hola,%20quisiera%20consultar%20disponibilidad%20sobre%20el%20producto:%20${encodeURIComponent(product.name)}%20(SKU:%20${product.sku || 'N/A'})`;
 
   const minWholesaleQty = wholesaleConfig?.minQuantity || 6;
@@ -75,9 +75,9 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     const action = () => {
       const sizeToMatch = selectedSize || (uniqueSizes.length === 0 ? product.variants[0]?.size : '');
       const colorToMatch = selectedColor || (uniqueColors.length === 0 ? product.variants[0]?.color : '');
-      
+
       const variant = product.variants.find(v => v.size === sizeToMatch && v.color === colorToMatch) || product.variants[0];
-      
+
       if (variant) {
         addItem(product, variant.id, variant.size, variant.color, quantity);
         setAdded(true);
@@ -126,21 +126,21 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                   {/* Thumbnails */}
                   <div className="flex md:flex-col gap-3 overflow-x-auto md:overflow-visible pb-2 md:pb-0 scrollbar-hide">
                     {images.map((img, i) => (
-                      <button 
+                      <button
                         key={i}
                         onClick={() => setSelectedImageIndex(i)}
                         className={`w-20 h-24 flex-shrink-0 rounded-xl overflow-hidden border-2 transition-all ${selectedImageIndex === i ? 'border-primary opacity-100' : 'border-transparent opacity-60 hover:opacity-100 hover:border-slate-300 dark:hover:border-slate-600'}`}
                       >
-                         <img src={parseImageUrl(img)} alt={`${product.name} ${i}`} className="w-full h-full object-cover" />
+                        <img src={parseImageUrl(img)} alt={`${product.name} ${i}`} className="w-full h-full object-cover" />
                       </button>
                     ))}
                   </div>
                   {/* Main Image */}
                   <div className="flex-1 overflow-hidden rounded-2xl bg-slate-100 dark:bg-slate-800 aspect-[4/5] sm:aspect-auto sm:h-[600px] relative group cursor-zoom-in">
-                    <img 
-                      src={parseImageUrl(images[selectedImageIndex])} 
-                      alt={product.name} 
-                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                    <img
+                      src={parseImageUrl(images[selectedImageIndex])}
+                      alt={product.name}
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                     />
                     <div className="absolute top-4 left-4 bg-white/90 backdrop-blur text-primary text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider shadow-sm">
                       Recomendado
@@ -149,7 +149,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                 </div>
               ) : (
                 <div className="w-full overflow-hidden rounded-2xl bg-slate-100 dark:bg-slate-800 aspect-[4/5] sm:aspect-auto sm:h-[600px] flex items-center justify-center text-slate-400">
-                   <span className="material-symbols-outlined text-6xl opacity-40 mb-2">image</span>
+                  <span className="material-symbols-outlined text-6xl opacity-40 mb-2">image</span>
                 </div>
               )}
             </div>
@@ -193,8 +193,8 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                     </div>
                     <div className="flex flex-wrap gap-3">
                       {uniqueColors.map(c => (
-                        <button 
-                          key={c} 
+                        <button
+                          key={c}
                           onClick={() => setSelectedColor(c)}
                           className={`px-3 py-1 border rounded-lg text-sm capitalize font-medium transition-colors ${selectedColor === c ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800'}`}>
                           {c}
@@ -213,8 +213,8 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                     </div>
                     <div className="flex flex-wrap gap-3">
                       {uniqueSizes.map(s => (
-                        <button 
-                          key={s} 
+                        <button
+                          key={s}
                           onClick={() => setSelectedSize(s)}
                           className={`h-12 px-4 rounded-xl border flex items-center justify-center font-bold transition-all ${selectedSize === s ? 'border-primary bg-primary text-white shadow-lg shadow-primary/30' : 'border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800'}`}>
                           {s}
@@ -264,7 +264,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
 
                 {/* Action Button */}
                 <div className="flex flex-col gap-4 mt-2 border-t border-slate-200 dark:border-slate-800 pt-8">
-                  <button 
+                  <button
                     onClick={handleAddToCart}
                     className={`flex items-center justify-center gap-3 w-full h-14 font-bold text-lg rounded-2xl hover:scale-[1.02] transition-transform shadow-xl group ${added ? 'bg-green-500 text-white shadow-green-500/20' : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-slate-900/20 dark:shadow-white/10'}`}
                   >

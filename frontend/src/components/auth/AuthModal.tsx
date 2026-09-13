@@ -34,6 +34,7 @@ export default function AuthModal() {
 
   // Shared State
   const [error, setError] = useState('');
+  const [pendingMsg, setPendingMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -62,7 +63,7 @@ export default function AuthModal() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(''); setLoading(true);
+    setError(''); setPendingMsg(''); setLoading(true);
     try {
       const data = await fetchApi('/api/auth/login', {
         method: 'POST',
@@ -75,7 +76,12 @@ export default function AuthModal() {
       closeModal();
       executePendingAction();
     } catch (err: any) {
-      setError(err.message || 'Error al iniciar sesión');
+      const msg: string = err.message || 'Error al iniciar sesión';
+      if (msg.startsWith('pending_approval:')) {
+        setPendingMsg(msg.replace('pending_approval:', ''));
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -83,20 +89,20 @@ export default function AuthModal() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(''); setLoading(true);
+    setError(''); setPendingMsg(''); setLoading(true);
     try {
       await fetchApi('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify(regData)
       });
-      setSuccessMsg('¡Registro exitoso! Verifica tu correo.');
-      // Switch back to login after short delay so they can login (or auto login if we supported it)
-      setTimeout(() => {
-        setSuccessMsg('');
-        setView('login');
-      }, 3000);
+      setSuccessMsg('¡Solicitud enviada! Tu cuenta está a la espera de la aprobación de un administrador. Te avisaremos cuando esté lista.');
     } catch (err: any) {
-      setError(err.message || 'Error al registrarse');
+      const msg: string = err.message || 'Error al registrarse';
+      if (msg.startsWith('pending_approval:')) {
+        setPendingMsg(msg.replace('pending_approval:', ''));
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -122,6 +128,12 @@ export default function AuthModal() {
               </div>
 
               {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 text-sm font-bold">{error}</div>}
+              {pendingMsg && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl mb-6 text-sm font-bold flex items-start gap-3">
+                  <span className="material-symbols-outlined text-amber-500 text-lg shrink-0 mt-0.5">schedule</span>
+                  <span>{pendingMsg}</span>
+                </div>
+              )}
               {successMsg && <div className="bg-green-50 text-green-600 p-4 rounded-xl mb-6 text-sm font-bold">{successMsg}</div>}
 
               <form onSubmit={handleLogin} className="space-y-4">
@@ -150,7 +162,18 @@ export default function AuthModal() {
               </div>
 
               {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-4 text-sm font-bold">{error}</div>}
-              {successMsg && <div className="bg-green-50 text-green-600 p-4 rounded-xl mb-4 text-sm font-bold">{successMsg}</div>}
+              {pendingMsg && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl mb-4 text-sm font-bold flex items-start gap-3">
+                  <span className="material-symbols-outlined text-amber-500 text-lg shrink-0 mt-0.5">schedule</span>
+                  <span>{pendingMsg}</span>
+                </div>
+              )}
+              {successMsg && (
+                <div className="bg-green-50 border border-green-200 text-green-800 p-4 rounded-xl mb-4 text-sm font-bold flex items-start gap-3">
+                  <span className="material-symbols-outlined text-green-600 text-lg shrink-0 mt-0.5">check_circle</span>
+                  <span>{successMsg}</span>
+                </div>
+              )}
 
               <form onSubmit={handleRegister} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -34,7 +34,7 @@ services:
     environment:
       - API_URL_INTERNAL=http://backend:8000
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-      - NEXT_PUBLIC_WHATSAPP_NUMBER=5493704048860
+      - NEXT_PUBLIC_WHATSAPP_NUMBER=5493513146924
     depends_on:
       - backend
     networks:

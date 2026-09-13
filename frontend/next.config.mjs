@@ -16,7 +16,15 @@ const nextConfig = {
   },
   typescript: {
     ignoreBuildErrors: true,
-  }
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/uploads/:path*',
+        destination: 'http://localhost:8001/uploads/:path*',
+      },
+    ];
+  },
 };
 
 export default nextConfig;

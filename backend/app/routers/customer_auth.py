@@ -10,14 +10,30 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=CustomerSchema)
 def register_user(user: CustomerCreateSchema, db: Session = Depends(get_db)):
-    if db.query(Customer).filter(Customer.email == user.email).first():
-        raise HTTPException(status_code=400, detail="El correo electrónico ya está registrado.")
+    existing_email = db.query(Customer).filter(Customer.email == user.email).first()
+    if existing_email:
+        if not existing_email.is_approved:
+            raise HTTPException(
+                status_code=400,
+                detail="pending_approval:Tu solicitud de registro ya está en proceso a la espera de la aprobación de un administrador."
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="El correo electrónico ya está registrado. Por favor inicia sesión."
+            )
     
-    if db.query(Customer).filter(Customer.phone == user.phone).first():
-        raise HTTPException(status_code=400, detail="El número de celular ya está registrado.")
+    existing_phone = db.query(Customer).filter(Customer.phone == user.phone).first()
+    if existing_phone:
+        if not existing_phone.is_approved:
+            raise HTTPException(
+                status_code=400,
+                detail="pending_approval:Tu solicitud con este número de celular ya está en proceso de aprobación."
+            )
+        else:
+            raise HTTPException(status_code=400, detail="El número de celular ya está registrado.")
 
     hashed_pw = get_password_hash(user.password)
-    verification_token = str(uuid.uuid4())
     
     new_user = Customer(
         email=user.email,
@@ -29,17 +45,20 @@ def register_user(user: CustomerCreateSchema, db: Session = Depends(get_db)):
         city=user.city,
         postal_code=user.postal_code,
         email_verified=False,
-        verification_token=verification_token
+        is_approved=False,
+        verification_token=str(uuid.uuid4())
     )
     
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     
-    print(f"\\n--- EMAIL MOCK ---")
-    print(f"Para verificar el correo de {user.email}, accede a:")
-    print(f"http://localhost:3000/verify-email?token={verification_token}")
-    print(f"------------------\\n")
+    print(f"\n--- NUEVA SOLICITUD DE REGISTRO ---")
+    print(f"Nombre: {user.name}")
+    print(f"Email: {user.email}")
+    print(f"Teléfono: {user.phone}")
+    print(f"Ingresar al panel admin para aprobar la solicitud.")
+    print(f"----------------------------------\n")
     
     return new_user
 
@@ -48,6 +67,12 @@ def login(user: LoginSchema, db: Session = Depends(get_db)):
     db_user = db.query(Customer).filter(Customer.email == user.email).first()
     if not db_user or not verify_password(user.password, db_user.password_hash):
         raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos")
+    
+    if not db_user.is_approved:
+        raise HTTPException(
+            status_code=403,
+            detail="pending_approval:Tu cuenta aún no ha sido aprobada por un administrador. Tu solicitud está en proceso."
+        )
     
     access_token = create_access_token(data={"sub": db_user.email, "role": "cliente"})
     return {"access_token": access_token, "token_type": "bearer"}
@@ -75,10 +100,6 @@ def update_me(update_data: CustomerUpdateSchema, db: Session = Depends(get_db), 
         current_user.email = update_data.email
         current_user.email_verified = False
         current_user.verification_token = str(uuid.uuid4())
-        print(f"\\n--- EMAIL MOCK ---")
-        print(f"Para verificar el NUEVO correo de {current_user.email}, accede a:")
-        print(f"http://localhost:3000/verify-email?token={current_user.verification_token}")
-        print(f"------------------\\n")
 
     if update_data.phone and update_data.phone != current_user.phone:
         if db.query(Customer).filter(Customer.phone == update_data.phone).first():

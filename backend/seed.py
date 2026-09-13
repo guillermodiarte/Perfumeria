@@ -23,7 +23,7 @@ def seed():
             print("Creando Admin Inicial...")
             from app.auth import get_password_hash
             hashed = get_password_hash(admin_pass)
-            new_admin = Admin(email=admin_email, password_hash=hashed, role="admin", name="Super Admin")
+            new_admin = Admin(email=admin_email, password_hash=hashed, role="super_admin", name="Super Admin")
             db.add(new_admin)
             db.commit()
 
@@ -58,7 +58,7 @@ def seed():
                 "showSocials": True, 
                 "facebookUrl": "#", 
                 "instagramUrl": "#",
-                "whatsapp": "5493704048860"
+                "whatsapp": "5493513146924"
             },
             'site_footer': { 
                 "logoUrl": "", 

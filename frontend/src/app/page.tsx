@@ -23,9 +23,9 @@ export default function Home() {
           data.forEach((item: any) => {
             // Backward compatibility for old banner format
             if (item.key === 'home_banner' && !item.value.slides) {
-               settingsMap[item.key] = { slides: [{ title: item.value.title || '', subtitle: item.value.subtitle || '', mediaUrl: item.value.videoUrl || '', link: '/catalog' }] };
+              settingsMap[item.key] = { slides: [{ title: item.value.title || '', subtitle: item.value.subtitle || '', mediaUrl: item.value.videoUrl || '', link: '/catalog' }] };
             } else {
-               settingsMap[item.key] = item.value;
+              settingsMap[item.key] = item.value;
             }
           });
           setSettings(settingsMap);
@@ -93,7 +93,7 @@ export default function Home() {
     logoUrl: "",
     facebookUrl: "#",
     instagramUrl: "#",
-    whatsapp: "5493704048860"
+    whatsapp: "5493513146924"
   };
 
   const footer = settings['site_footer'] || {
@@ -113,9 +113,9 @@ export default function Home() {
             <div className="relative min-h-[600px] w-full overflow-hidden rounded-3xl group">
               {slides.map((slide: any, idx: number) => {
                 const isVideo = slide.mediaUrl && slide.mediaUrl.match(/\.(mp4|webm|ogg)$/i);
-                
+
                 return (
-                  <div 
+                  <div
                     key={idx}
                     className={`absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out flex flex-col items-start justify-end p-8 md:p-16 ${idx === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}
                   >
@@ -129,12 +129,12 @@ export default function Home() {
                         className="absolute inset-0 w-full h-full object-cover z-0"
                       />
                     ) : (
-                      <div 
-                        className="absolute inset-0 w-full h-full bg-cover bg-center z-0" 
+                      <div
+                        className="absolute inset-0 w-full h-full bg-cover bg-center z-0"
                         style={{ backgroundImage: `url('${slide.mediaUrl.startsWith('http') ? slide.mediaUrl : `${API_URL}${slide.mediaUrl}`}')`, backgroundColor: '#1E293B' }}
                       />
                     )}
-                    
+
                     {/* Gradient Overlay */}
                     <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-0" />
 
@@ -170,17 +170,17 @@ export default function Home() {
                   ))}
                 </div>
               )}
-              
+
               {/* Carousel Arrows */}
               {slides.length > 1 && (
                 <>
-                  <button 
+                  <button
                     onClick={() => setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length)}
                     className="absolute left-4 top-1/2 -translate-y-1/2 z-20 size-12 flex items-center justify-center rounded-full bg-black/20 hover:bg-black/50 text-white backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0"
                   >
                     <span className="material-symbols-outlined">chevron_left</span>
                   </button>
-                  <button 
+                  <button
                     onClick={() => setCurrentSlide((prev) => (prev + 1) % slides.length)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 z-20 size-12 flex items-center justify-center rounded-full bg-black/20 hover:bg-black/50 text-white backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0"
                   >
@@ -234,7 +234,7 @@ export default function Home() {
                   latestProducts.map((product, idx) => {
                     const uniqueColors = Array.from(new Set(product.variants.map(v => v.color))).filter(Boolean);
                     const colorDesc = uniqueColors.length > 0 ? uniqueColors.join(', ') : 'Varios colores';
-                    
+
                     return (
                       <Link href={`/product/${product.id}`} key={product.id} className="flex flex-col gap-4 group cursor-pointer">
                         <div className="relative aspect-[3/4] overflow-hidden rounded-xl bg-slate-50 dark:bg-slate-800">
@@ -248,7 +248,7 @@ export default function Home() {
                               <span className="material-symbols-outlined text-4xl opacity-40 mb-2">image</span>
                             </div>
                           )}
-                          
+
                           {idx === 0 && (
                             <div className="absolute top-4 left-4 bg-primary text-white text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider">Nuevo</div>
                           )}

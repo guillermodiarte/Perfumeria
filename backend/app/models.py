@@ -51,6 +51,10 @@ class Customer(Base):
 
     email_verified = Column(Boolean, default=False)
     verification_token = Column(String, nullable=True)
+    is_approved = Column(Boolean, default=False)
+    is_wholesale = Column(Boolean, default=False)
+    wholesale_until = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     orders = relationship("Order", back_populates="customer")
     cart_items = relationship("CartItem", back_populates="customer")
@@ -85,8 +89,15 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_number = Column(String, unique=True, index=True)
     user_id = Column(Integer, ForeignKey("customers.id"))
-    status = Column(String, default="Pendiente de pago") # Pendiente de pago, Pagada, etc.
+    status = Column(String, default="En revisión") # En revisión, Aprobada, Rechazada, etc.
+    payment_status = Column(String, default="pending") # pending, partial, full
+    payment_type = Column(String, default="total") # total, partial, cuotas
+    installments_count = Column(Integer, default=1)
+    last_installment_paid_month = Column(String, nullable=True)
+    delivery_status = Column(String, default="pending") # pending, delivered
+    paid_amount = Column(Numeric(10, 2), default=0.0)
     total = Column(Numeric(10, 2))
+    admin_notes = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     customer = relationship("Customer", back_populates="orders")
@@ -100,7 +111,11 @@ class OrderItem(Base):
     order_id = Column(Integer, ForeignKey("orders.id"))
     product_id = Column(String, nullable=False)
     variant_id = Column(String, nullable=False)
+    product_name = Column(String, nullable=True)
+    variant_info = Column(String, nullable=True)
+    image_url = Column(String, nullable=True)
     quantity = Column(Integer, default=1)
     price = Column(Numeric(10, 2))
 
     order = relationship("Order", back_populates="items")
+

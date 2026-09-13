@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
+from datetime import datetime
 
 
 
@@ -33,7 +34,18 @@ class LoginSchema(BaseModel):
 class CustomerSchema(CustomerBaseSchema):
     id: int
     email_verified: bool
+    is_approved: bool
+    is_wholesale: Optional[bool] = False
+    wholesale_until: Optional[datetime] = None
+    created_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
+
+class CustomerApprovalUpdateSchema(BaseModel):
+    is_approved: bool
+
+class CustomerWholesaleUpdateSchema(BaseModel):
+    is_wholesale: Optional[bool] = None
+    wholesale_until: Optional[datetime] = None
 
 class AdminBaseSchema(BaseModel):
     email: str
@@ -41,6 +53,7 @@ class AdminBaseSchema(BaseModel):
 
 class AdminCreateSchema(AdminBaseSchema):
     password: str
+    role: Optional[str] = "admin"
 
 class AdminSchema(AdminBaseSchema):
     id: int
@@ -65,6 +78,9 @@ class TokenData(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    role: Optional[str] = None
+    email: Optional[str] = None
+    name: Optional[str] = None
 
 class SiteSettingSchema(BaseModel):
     id: int

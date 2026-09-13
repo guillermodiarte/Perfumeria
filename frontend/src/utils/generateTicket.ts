@@ -65,17 +65,39 @@ export function generateTicketPDF(ticketId: string, sales: SaleRecord[], print: 
         margin: { left: 5, right: 5 }
     });
 
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    
+    let currentY = finalY;
     // Total
     const total = ticketSales.reduce((acc, s) => acc + s.revenue, 0);
-    doc.setFontSize(12);
+    const firstSale = ticketSales[0];
+    const paid = firstSale.paidAmount !== undefined ? firstSale.paidAmount : total;
+    const pending = firstSale.pendingAmount !== undefined ? firstSale.pendingAmount : (firstSale.remainingAmount || 0);
+    const pType = firstSale.paymentType || 'total';
+
+    doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
-    doc.text(`TOTAL A PAGAR: $${total.toLocaleString()}`, 75, finalY, { align: "right" });
+    doc.text(`TOTAL: $${total.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
+    currentY += 6;
+
+    if (pType !== 'total' || pending > 0) {
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        const typeLabel = pType === 'cuotas' 
+            ? `En ${firstSale.installmentsCount || 1} cuota(s)` 
+            : 'Pago Parcial';
+        doc.text(`Modalidad: ${typeLabel}`, 5, currentY);
+        currentY += 5;
+        doc.text(`Abonado hoy: $${paid.toLocaleString('es-AR')}`, 5, currentY);
+        currentY += 5;
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(200, 0, 0);
+        doc.text(`SALDO ADEUDADO: $${pending.toLocaleString('es-AR')}`, 5, currentY);
+        doc.setTextColor(0, 0, 0);
+        currentY += 7;
+    }
     
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
-    doc.text("¡Gracias por su compra!", 40, finalY + 15, { align: "center" });
+    doc.text("¡Gracias por su compra!", 40, currentY + 6, { align: "center" });
 
     if (print) {
         doc.autoPrint();

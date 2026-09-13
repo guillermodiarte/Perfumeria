@@ -29,11 +29,11 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 pt-20 pb-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-8">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 pt-20 pb-12 px-4 sm:px-6 lg:px-12">
+      <div className="w-full max-w-[1920px] mx-auto flex flex-col md:flex-row gap-6 lg:gap-8">
         
         {/* Sidebar */}
-        <div className="w-full md:w-64 shrink-0">
+        <div className="w-full md:w-64 lg:w-72 xl:w-80 shrink-0">
           <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 sticky top-24">
             <div className="mb-6 text-center md:text-left">
               <div className="size-16 bg-primary/10 text-primary rounded-full flex items-center justify-center mb-3 mx-auto md:mx-0">
@@ -42,10 +42,10 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
               <h2 className="font-black text-slate-900 dark:text-white text-lg">{user.name}</h2>
               <p className="text-sm text-slate-500 truncate">{user.email}</p>
               
-              {!user.email_verified && (
-                <div className="mt-3 bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1 justify-center md:justify-start">
-                  <span className="material-symbols-outlined text-sm">warning</span>
-                  Email sin verificar
+              {!user.is_approved && (
+                <div className="mt-3 bg-amber-100 text-amber-700 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1 justify-center md:justify-start">
+                  <span className="material-symbols-outlined text-sm">schedule</span>
+                  Cuenta pendiente de aprobación
                 </div>
               )}
             </div>

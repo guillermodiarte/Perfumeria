@@ -28,7 +28,7 @@ Asegúrate de definir estas variables de entorno en la configuración de la apli
 *Para el Frontend (Next.js):*
 - `API_URL_INTERNAL`: `http://backend:8000` *(Para que el servidor de Next se conecte internamente)*
 - `NEXT_PUBLIC_API_URL`: `https://api.tudominio.com` *(O la URL pública que asignes a tu backend)*
-- `NEXT_PUBLIC_WHATSAPP_NUMBER`: `5493704048860`
+- `NEXT_PUBLIC_WHATSAPP_NUMBER`: `5493513146924`
 
 ### Volúmenes (Persistencia)
 Como estamos usando **Docker Compose**, los volúmenes configurados en el archivo `.yml` se generarán automáticamente en el servidor host.

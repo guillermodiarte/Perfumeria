@@ -8,7 +8,12 @@ import ConfiguracionView from '@/components/admin/ConfiguracionView';
 import ComprasView from '@/components/admin/ComprasView';
 import VentasView from '@/components/admin/VentasView';
 import VentasRealizadasView from '@/components/admin/VentasRealizadasView';
+import PedidosWebView from '@/components/admin/PedidosWebView';
+import VentasMostradorView from '@/components/admin/VentasMostradorView';
+import CobrosPendientesView from '@/components/admin/CobrosPendientesView';
+import NotificationBell from '@/components/admin/NotificationBell';
 import FinanzasView from '@/components/admin/FinanzasView';
+import ClientesView from '@/components/admin/ClientesView';
 import { API_URL } from '@/utils/api';
 
 export default function AdminDashboard() {
@@ -18,8 +23,8 @@ export default function AdminDashboard() {
   const [apiKey, setApiKey] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  type ViewId = 'products' | 'sections' | 'compras' | 'ventas' | 'ventas_realizadas' | 'users' | 'finanzas' | 'media' | 'configuracion';
-  const VALID_VIEWS: ViewId[] = ['products', 'sections', 'compras', 'ventas', 'ventas_realizadas', 'users', 'finanzas', 'media', 'configuracion'];
+  type ViewId = 'products' | 'sections' | 'compras' | 'ventas' | 'pedidos_web' | 'ventas_mostrador' | 'cobros_pendientes' | 'ventas_realizadas' | 'users' | 'admins' | 'finanzas' | 'media' | 'configuracion';
+  const VALID_VIEWS: ViewId[] = ['products', 'sections', 'compras', 'ventas', 'pedidos_web', 'ventas_mostrador', 'cobros_pendientes', 'ventas_realizadas', 'users', 'admins', 'finanzas', 'media', 'configuracion'];
   const getSavedView = (): ViewId => {
     if (typeof window === 'undefined') return 'products';
     const v = localStorage.getItem('lyg_active_view') as ViewId | null;
@@ -32,6 +37,9 @@ export default function AdminDashboard() {
   };
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [currentAdminRole, setCurrentAdminRole] = useState<string>('');
+  const [currentAdminName, setCurrentAdminName] = useState<string>('');
+  const [currentAdminEmail, setCurrentAdminEmail] = useState<string>('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showAddPassword, setShowAddPassword] = useState(false);
   const [newUserRole, setNewUserRole] = useState('editor');
@@ -57,6 +65,9 @@ export default function AdminDashboard() {
   const [selectedMediaCategory, setSelectedMediaCategory] = useState<string>('');
   const [mediaSearch, setMediaSearch] = useState('');
   const [deleteConfirmParams, setDeleteConfirmParams] = useState<{ category: string, filename: string } | null>(null);
+
+  // Pending customers badge count
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     setActiveViewState(getSavedView());
@@ -104,6 +115,19 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchAdmins = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/admins`, {
+        headers: { 'X-API-KEY': apiKey }
+      });
+      if (res.ok) {
+        setUsers(await res.json());
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleLogin = async () => {
     try {
       const res = await fetch(`${API_URL}/api/admin/login`, {
@@ -115,22 +139,30 @@ export default function AdminDashboard() {
         const data = await res.json();
         const token = data.access_token;
         setApiKey(token);
+        setCurrentAdminRole(data.role || 'admin');
+        setCurrentAdminName(data.name || 'Admin');
+        setCurrentAdminEmail(data.email || email);
         setIsAuthenticated(true);
         localStorage.setItem('lyg_api_key', token);
         fetchProducts();
         fetchCategories();
       } else {
-        showAlert("Credenciales incorrectas");
+        const err = await res.json().catch(() => ({}));
+        showAlert(err.detail || "Credenciales incorrectas");
       }
     } catch (e) {
-      showAlert("Error de red");
+      showAlert("Error al conectar con el servidor backend (puerto 8001). Verifica que esté en ejecución.");
     }
   };
 
   const verifyToken = async (token: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/admin/users`, { headers: { 'X-API-KEY': token } });
+      const res = await fetch(`${API_URL}/api/admin/me`, { headers: { 'X-API-KEY': token } });
       if (res.ok) {
+        const me = await res.json();
+        setCurrentAdminRole(me.role || 'admin');
+        setCurrentAdminName(me.name || 'Admin');
+        setCurrentAdminEmail(me.email || '');
         setIsAuthenticated(true);
         setApiKey(token);
         fetchProducts();
@@ -146,7 +178,11 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (apiKey && isAuthenticated) {
-      fetchUsers();
+      if (activeView === 'admins') {
+        fetchAdmins();
+      } else {
+        fetchUsers();
+      }
       if (activeView === 'media') {
         fetchMedia(selectedMediaCategory);
       }
@@ -156,8 +192,11 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     setApiKey('');
     setIsAuthenticated(false);
+    setCurrentAdminRole('');
+    setCurrentAdminName('');
+    setCurrentAdminEmail('');
     localStorage.removeItem('lyg_api_key');
-  }
+  };
 
   const handleDelete = async (id: number) => {
     if (!confirm('¿Borrar este producto?')) return;
@@ -177,18 +216,17 @@ export default function AdminDashboard() {
     if (!userEmail) return showAlert("Falta el Email");
     if (!editingUser && !userPassword) return showAlert("Falta la Contraseña");
 
-    const payload: any = {
-      email: userEmail,
-      role: newUserRole,
-    };
+    const isAdminView = activeView === 'admins';
+    const payload: any = { email: userEmail, role: newUserRole };
     if (userName) payload.name = userName;
     if (userPhone) payload.phone = userPhone;
     if (userPassword) payload.password = userPassword;
 
-    try {
-      const url = editingUser ? `${API_URL}/api/admin/users/${editingUser.id}` : `${API_URL}/api/admin/users`;
-      const method = editingUser ? 'PUT' : 'POST';
+    const baseUrl = isAdminView ? `${API_URL}/api/admin/admins` : `${API_URL}/api/admin/users`;
+    const url = editingUser ? `${baseUrl}/${editingUser.id}` : baseUrl;
+    const method = editingUser ? 'PUT' : 'POST';
 
+    try {
       const res = await fetch(url, {
         method,
         headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
@@ -197,7 +235,7 @@ export default function AdminDashboard() {
 
       if (res.ok) {
         showAlert(editingUser ? "Usuario actualizado" : "Usuario creado con éxito");
-        fetchUsers();
+        if (isAdminView) fetchAdmins(); else fetchUsers();
         setShowUserModal(false);
       } else {
         const data = await res.json();
@@ -210,13 +248,16 @@ export default function AdminDashboard() {
 
   const handleDeleteUser = async (id: number) => {
     if (!confirm('¿Borrar este usuario admin?')) return;
+    const isAdminView = activeView === 'admins';
+    const baseUrl = isAdminView ? `${API_URL}/api/admin/admins` : `${API_URL}/api/admin/users`;
     try {
-      const res = await fetch(`${API_URL}/api/admin/users/${id}`, {
+      const res = await fetch(`${baseUrl}/${id}`, {
         method: 'DELETE',
         headers: { 'X-API-KEY': apiKey }
       });
-      if (res.ok) fetchUsers();
-      else {
+      if (res.ok) {
+        if (isAdminView) fetchAdmins(); else fetchUsers();
+      } else {
         const d = await res.json();
         showAlert(d.detail);
       }
@@ -493,14 +534,34 @@ export default function AdminDashboard() {
             <span>Vender</span>
           </button>
 
-          <button onClick={() => setActiveView('ventas_realizadas')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'ventas_realizadas' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">receipt_long</span>
-            <span>Ventas Realizadas</span>
+          <button onClick={() => setActiveView('pedidos_web')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'pedidos_web' ? 'bg-primary/10 text-primary font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+            <span className="material-symbols-outlined text-blue-500">language</span>
+            <span>Pedidos Web</span>
+          </button>
+
+          <button onClick={() => setActiveView('ventas_mostrador')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'ventas_mostrador' ? 'bg-primary/10 text-primary font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+            <span className="material-symbols-outlined text-emerald-500">storefront</span>
+            <span>Ventas Mostrador</span>
+          </button>
+
+          <button onClick={() => setActiveView('cobros_pendientes')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'cobros_pendientes' ? 'bg-primary/10 text-primary font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+            <span className="material-symbols-outlined text-amber-500">account_balance_wallet</span>
+            <span>Cobros Pendientes</span>
           </button>
 
           <button onClick={() => setActiveView('users')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'users' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
             <span className="material-symbols-outlined">group</span>
-            <span>Usuarios</span>
+            <span>Clientes</span>
+            {pendingCount > 0 && (
+              <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-black animate-pulse">
+                {pendingCount}
+              </span>
+            )}
+          </button>
+
+          <button onClick={() => setActiveView('admins')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'admins' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+            <span className="material-symbols-outlined">admin_panel_settings</span>
+            <span>Administradores</span>
           </button>
 
           <button onClick={() => setActiveView('finanzas')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'finanzas' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
@@ -527,14 +588,28 @@ export default function AdminDashboard() {
 
         <div className="p-4 border-t border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-            <div className="size-10 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0">
-              <img className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC84xwbk1HI88kKQKlW7zfniPhMz_iozRaV6DPNw3j3TtBuokIl2LgOHj9ZOQQGkkRQNqS4Y7h5Ymcwr7X2zokmQV_g7KsYmAIIIf_YpCHl8dS2gQ2EVhFY9ZEksgEimHap9tmtBpAT0CUcN7Rr53YYzyv1K5z1luHRSKBZiYmMfH0p1el80HywotU_P26iGkq7LDmRpRzvDMFa9ID_T_VGFaadORU1wYy5xgXxVKu6JZAVOdKEI8c-qHrPObE7IVdr9y4TxldyVsY" />
+            <div className={`size-10 rounded-full flex items-center justify-center font-bold text-white shrink-0 ${
+              currentAdminRole === 'super_admin' ? 'bg-gradient-to-tr from-purple-600 to-indigo-600 shadow-md shadow-purple-500/20' : 'bg-primary'
+            }`}>
+              <span className="material-symbols-outlined text-[20px]">
+                {currentAdminRole === 'super_admin' ? 'shield_person' : 'person'}
+              </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate dark:text-white">Admin</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">Gerente de Tienda</p>
+              <p className="text-sm font-semibold truncate dark:text-white">{currentAdminName || 'Admin'}</p>
+              <div className="text-xs truncate">
+                {currentAdminRole === 'super_admin' ? (
+                  <span className="inline-flex items-center gap-0.5 text-purple-600 dark:text-purple-400 font-bold text-[11px]">
+                    ★ Super Admin
+                  </span>
+                ) : (
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {currentAdminRole === 'editor' ? 'Editor' : 'Administrador'}
+                  </span>
+                )}
+              </div>
             </div>
-            <button onClick={handleLogout} className="text-slate-400 hover:text-primary transition-colors cursor-pointer">
+            <button onClick={handleLogout} title="Cerrar sesión" className="text-slate-400 hover:text-primary transition-colors cursor-pointer p-1">
               <span className="material-symbols-outlined text-xl">logout</span>
             </button>
           </div>
@@ -543,6 +618,43 @@ export default function AdminDashboard() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top Header Bar */}
+        <header className="h-16 px-8 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between shrink-0 z-20">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-white">
+            <span className="material-symbols-outlined text-primary text-xl">admin_panel_settings</span>
+            <span className="capitalize">
+              {activeView === 'products' ? 'Productos y Stock' :
+               activeView === 'sections' ? 'Secciones y Banner' :
+               activeView === 'compras' ? 'Compras de Proveedores' :
+               activeView === 'ventas' ? 'Punto de Venta / Caja' :
+               activeView === 'pedidos_web' ? 'Pedidos Tienda Web' :
+               activeView === 'ventas_mostrador' ? 'Ventas de Mostrador' :
+               activeView === 'cobros_pendientes' ? 'Cobros Pendientes y Cuotas' :
+               activeView === 'users' ? 'Clientes Registrados' :
+               activeView === 'admins' ? 'Administradores' :
+               activeView === 'finanzas' ? 'Finanzas y Caja' :
+               activeView === 'media' ? 'Biblioteca de Archivos' : 'Configuración'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Campana de Notificaciones */}
+            <NotificationBell 
+              apiKey={apiKey} 
+              onNavigateView={(v) => setActiveView(v as ViewId)} 
+            />
+
+            <Link
+              href="/"
+              target="_blank"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700"
+            >
+              <span className="material-symbols-outlined text-sm">open_in_new</span>
+              <span className="hidden sm:inline">Ver Tienda</span>
+            </Link>
+          </div>
+        </header>
+
         {/* Content Section */}
         <div className="flex-1 overflow-y-auto p-8 bg-background-light dark:bg-background-dark/30">
           <>
@@ -662,17 +774,26 @@ export default function AdminDashboard() {
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ComprasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : activeView === 'ventas' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasView showAlert={showAlert} /></div>
-            ) : activeView === 'ventas_realizadas' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasRealizadasView /></div>
+            ) : (activeView === 'pedidos_web' || activeView === 'ventas_realizadas') ? (
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><PedidosWebView apiKey={apiKey} showAlert={showAlert} /></div>
+            ) : activeView === 'ventas_mostrador' ? (
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasMostradorView showAlert={showAlert} /></div>
+            ) : activeView === 'cobros_pendientes' ? (
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><CobrosPendientesView apiKey={apiKey} showAlert={showAlert} /></div>
             ) : activeView === 'finanzas' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><FinanzasView /></div>
             ) : activeView === 'configuracion' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ConfiguracionView /></div>
             ) : activeView === 'users' ? (
+              <div className="max-w-[1600px] w-full px-2 mx-auto">
+                <ClientesView apiKey={apiKey} onPendingCountChange={setPendingCount} />
+              </div>
+            ) : activeView === 'admins' ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
+                  <div>
                     <h3 className="text-lg font-bold dark:text-white">Cuentas Administradoras</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Gestiona los usuarios con acceso al panel de administración</p>
                   </div>
                   <button onClick={() => {
                     setEditingUser(null);
@@ -683,7 +804,7 @@ export default function AdminDashboard() {
                     setUserPhone('');
                     setShowUserModal(true);
                   }} className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-sm font-bold hover:bg-primary/20 transition-all">
-                    <span className="material-symbols-outlined text-[16px]">person_add</span> Nuevo Usuario
+                    <span className="material-symbols-outlined text-[16px]">person_add</span> Nuevo Admin
                   </button>
                 </div>
                 <div className="overflow-x-auto">
@@ -691,7 +812,7 @@ export default function AdminDashboard() {
                     <thead>
                       <tr className="bg-slate-50/50 dark:bg-slate-700/30">
                         <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ID</th>
-                        <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Email (Usuario)</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Usuario</th>
                         <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Rol</th>
                         <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Acciones</th>
                       </tr>
@@ -706,25 +827,47 @@ export default function AdminDashboard() {
                               <span className="text-xs text-slate-500 font-normal">{u.email} {u.phone ? `• ${u.phone}` : ''}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-sm"><span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase text-[10px] tracking-wide">{u.role}</span></td>
-                          <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
-                            <button onClick={() => {
-                              setEditingUser(u);
-                              setUserEmail(u.email);
-                              setUserName(u.name || '');
-                              setUserPhone(u.phone || '');
-                              setNewUserRole(u.role || 'admin');
-                              setUserPassword('');
-                              setShowUserModal(true);
-                            }} className="size-8 inline-flex items-center justify-center rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/30 transition-all cursor-pointer">
-                              <span className="material-symbols-outlined text-[18px]">edit</span>
-                            </button>
-                            <button onClick={() => handleDeleteUser(u.id)} className="size-8 inline-flex items-center justify-center rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-red-500 hover:border-red-500/30 transition-all cursor-pointer">
-                              <span className="material-symbols-outlined text-[18px]">delete</span>
-                            </button>
+                          <td className="px-6 py-4 text-sm">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold uppercase text-[10px] tracking-wide ${
+                              u.role === 'super_admin'
+                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                : u.role === 'admin'
+                                  ? 'bg-primary/10 text-primary border border-primary/20'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                            }`}>
+                              {u.role === 'super_admin' && <span className="material-symbols-outlined text-[12px]">shield_person</span>}
+                              {u.role === 'super_admin' ? 'Super Admin' : u.role === 'admin' ? 'Administrador' : 'Editor'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button onClick={() => {
+                                setEditingUser(u);
+                                setUserEmail(u.email);
+                                setUserName(u.name || '');
+                                setUserPhone(u.phone || '');
+                                setNewUserRole(u.role || 'admin');
+                                setUserPassword('');
+                                setShowUserModal(true);
+                              }} title="Editar" className="size-8 inline-flex items-center justify-center rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/30 transition-all cursor-pointer">
+                                <span className="material-symbols-outlined text-[18px]">edit</span>
+                              </button>
+                              {u.role !== 'super_admin' ? (
+                                <button onClick={() => handleDeleteUser(u.id)} title="Eliminar" className="size-8 inline-flex items-center justify-center rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-red-500 hover:border-red-500/30 transition-all cursor-pointer">
+                                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                                </button>
+                              ) : (
+                                <span title="El Super Administrador no puede eliminarse" className="size-8 inline-flex items-center justify-center rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-400 dark:text-purple-500 cursor-not-allowed">
+                                  <span className="material-symbols-outlined text-[16px]">lock</span>
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
+                      {users.length === 0 && (
+                        <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-400 text-sm">No hay administradores registrados</td></tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -777,9 +920,9 @@ export default function AdminDashboard() {
                   <div>
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Rol de Usuario <span className="text-primary">*</span></label>
                     <select required value={newUserRole} onChange={e => setNewUserRole(e.target.value)} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none text-slate-800 dark:text-white appearance-none">
+                      <option value="super_admin">Super Administrador (Acceso Total)</option>
                       <option value="admin">Administrador</option>
                       <option value="editor">Editor</option>
-                      <option value="cliente">Cliente</option>
                     </select>
                   </div>
                 </div>

@@ -27,7 +27,7 @@ def get_current_customer(db: Session = Depends(get_db), payload: dict = Depends(
     return customer
 
 def get_current_admin(db: Session = Depends(get_db), payload: dict = Depends(get_token_payload)):
-    if payload.get("role") not in ["admin", "editor"]:
+    if payload.get("role") not in ["admin", "editor", "super_admin"]:
         raise HTTPException(status_code=403, detail="No tienes permisos de administrador")
     
     email = payload.get("sub")

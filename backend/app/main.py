@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 from app.models import Base, Customer, Admin, SiteSetting, Province, City, CartItem, Order, OrderItem
-from app.schemas import CustomerCreateSchema, CustomerSchema, CustomerUpdateSchema, AdminSchema, AdminCreateSchema, LoginSchema, Token, SiteSettingSchema, SiteSettingUpdateSchema, MediaMoveSchema, ProvinceSchema, CitySchema
+from app.schemas import CustomerCreateSchema, CustomerSchema, CustomerUpdateSchema, CustomerApprovalUpdateSchema, CustomerWholesaleUpdateSchema, AdminSchema, AdminCreateSchema, LoginSchema, Token, SiteSettingSchema, SiteSettingUpdateSchema, MediaMoveSchema, ProvinceSchema, CitySchema
 from app.auth import get_password_hash, create_access_token
 import uuid
 
@@ -23,6 +23,52 @@ for cat in DEFAULT_MEDIA_CATEGORIES:
     os.makedirs(os.path.join(UPLOAD_DIR, cat), exist_ok=True)
 
 Base.metadata.create_all(bind=engine)
+
+# Asegurar columnas añadidas dinámicamente en SQLite
+def _ensure_sqlite_columns():
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            # customers table columns
+            res_cust = conn.execute(text("PRAGMA table_info(customers)")).fetchall()
+            cols_cust = [r[1] for r in res_cust]
+            if "is_wholesale" not in cols_cust:
+                conn.execute(text("ALTER TABLE customers ADD COLUMN is_wholesale BOOLEAN DEFAULT 0"))
+            if "wholesale_until" not in cols_cust:
+                conn.execute(text("ALTER TABLE customers ADD COLUMN wholesale_until DATETIME"))
+
+            # orders table columns
+            res = conn.execute(text("PRAGMA table_info(orders)")).fetchall()
+            cols = [r[1] for r in res]
+            if "payment_status" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN payment_status VARCHAR DEFAULT 'pending'"))
+            if "payment_type" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN payment_type VARCHAR DEFAULT 'total'"))
+            if "installments_count" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN installments_count INTEGER DEFAULT 1"))
+            if "last_installment_paid_month" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN last_installment_paid_month VARCHAR"))
+            if "delivery_status" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN delivery_status VARCHAR DEFAULT 'pending'"))
+            if "paid_amount" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN paid_amount NUMERIC(10, 2) DEFAULT 0.0"))
+            if "admin_notes" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN admin_notes VARCHAR"))
+
+            # order_items table columns
+            res_items = conn.execute(text("PRAGMA table_info(order_items)")).fetchall()
+            cols_items = [r[1] for r in res_items]
+            if "product_name" not in cols_items:
+                conn.execute(text("ALTER TABLE order_items ADD COLUMN product_name VARCHAR"))
+            if "variant_info" not in cols_items:
+                conn.execute(text("ALTER TABLE order_items ADD COLUMN variant_info VARCHAR"))
+            if "image_url" not in cols_items:
+                conn.execute(text("ALTER TABLE order_items ADD COLUMN image_url VARCHAR"))
+            conn.commit()
+    except Exception as err:
+        print("SQLite column check notice:", err)
+
+_ensure_sqlite_columns()
 
 app = FastAPI(title="Essence Perfumería API")
 
@@ -243,11 +289,80 @@ def login_admin_legacy(user_cred: LoginSchema, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
     
     access_token = create_access_token(data={"sub": admin.email, "role": admin.role})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "role": admin.role,
+        "email": admin.email,
+        "name": admin.name
+    }
+
+@app.get("/api/admin/me", response_model=AdminSchema)
+def get_admin_me(current_admin: Admin = Depends(get_current_admin)):
+    return current_admin
+
+# --- ADMIN ACCOUNTS MANAGEMENT ---
+
+@app.get("/api/admin/admins", response_model=list[AdminSchema], dependencies=[Depends(get_current_admin)])
+def get_admins(db: Session = Depends(get_db)):
+    return db.query(Admin).all()
+
+@app.post("/api/admin/admins", response_model=AdminSchema, dependencies=[Depends(get_current_admin)])
+def create_admin(data: AdminCreateSchema, db: Session = Depends(get_db)):
+    exist = db.query(Admin).filter(Admin.email == data.email).first()
+    if exist:
+        raise HTTPException(status_code=400, detail="Este correo ya está registrado como administrador")
+    new_admin = Admin(
+        email=data.email,
+        name=data.name,
+        password_hash=get_password_hash(data.password),
+        role=data.role or "admin"
+    )
+    db.add(new_admin)
+    db.commit()
+    db.refresh(new_admin)
+    return new_admin
+
+@app.put("/api/admin/admins/{admin_id}", response_model=AdminSchema, dependencies=[Depends(get_current_admin)])
+def update_admin(admin_id: int, data: dict, db: Session = Depends(get_db)):
+    admin = db.query(Admin).filter(Admin.id == admin_id).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="Administrador no encontrado")
+    if data.get("email"):
+        admin.email = data["email"]
+    if data.get("name"):
+        admin.name = data["name"]
+    if data.get("role"):
+        admin.role = data["role"]
+    if data.get("password"):
+        admin.password_hash = get_password_hash(data["password"])
+    db.commit()
+    db.refresh(admin)
+    return admin
+
+@app.delete("/api/admin/admins/{admin_id}")
+def delete_admin(admin_id: int, current_admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    admin = db.query(Admin).filter(Admin.id == admin_id).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="Administrador no encontrado")
+    if admin.role == "super_admin":
+        raise HTTPException(status_code=400, detail="No se puede eliminar la cuenta de un Super Administrador")
+    if admin.id == current_admin.id:
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
+    db.delete(admin)
+    db.commit()
+    return {"message": "Admin eliminado"}
+
+
 
 @app.get("/api/admin/users", response_model=list[CustomerSchema], dependencies=[Depends(get_current_admin)])
 def get_users(db: Session = Depends(get_db)):
-    return db.query(Customer).all()
+    # Devolver ordenados: primero los no aprobados (por fecha desc), luego los aprobados
+    from sqlalchemy import case
+    return db.query(Customer).order_by(
+        case((Customer.is_approved == False, 0), else_=1),
+        Customer.created_at.desc()
+    ).all()
 
 @app.post("/api/admin/users", response_model=CustomerSchema, dependencies=[Depends(get_current_admin)])
 def create_admin_user(data: CustomerCreateSchema, db: Session = Depends(get_db)):
@@ -281,6 +396,16 @@ def update_admin_user(user_id: int, data: CustomerUpdateSchema, db: Session = De
     if data.password:
         user.password_hash = get_password_hash(data.password)
         
+    db.commit()
+    db.refresh(user)
+    return user
+
+@app.patch("/api/admin/users/{user_id}/approval", response_model=CustomerSchema, dependencies=[Depends(get_current_admin)])
+def update_customer_approval(user_id: int, data: CustomerApprovalUpdateSchema, db: Session = Depends(get_db)):
+    user = db.query(Customer).filter(Customer.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    user.is_approved = data.is_approved
     db.commit()
     db.refresh(user)
     return user
@@ -326,3 +451,94 @@ def update_site_setting(key: str, data: SiteSettingUpdateSchema, db: Session = D
     db.commit()
     db.refresh(setting)
     return setting
+
+# --- Endpoints para Mayoristas & Notificaciones ---
+
+@app.patch("/api/admin/users/{user_id}/wholesale", response_model=CustomerSchema, dependencies=[Depends(get_current_admin)])
+def update_customer_wholesale(user_id: int, data: CustomerWholesaleUpdateSchema, db: Session = Depends(get_db)):
+    user = db.query(Customer).filter(Customer.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if data.is_wholesale is not None:
+        user.is_wholesale = data.is_wholesale
+    if data.wholesale_until is not None:
+        user.wholesale_until = data.wholesale_until
+    db.commit()
+    db.refresh(user)
+    return user
+
+@app.get("/api/admin/settings/wholesale-auto")
+def get_wholesale_auto_setting(db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    setting = db.query(SiteSetting).filter(SiteSetting.key == "wholesale_auto_enabled").first()
+    enabled = False
+    min_qty = 6
+    if setting and isinstance(setting.value, dict):
+        enabled = setting.value.get("enabled", False)
+        min_qty = setting.value.get("min_quantity", 6)
+    elif setting and isinstance(setting.value, bool):
+        enabled = setting.value
+    return {"enabled": enabled, "min_quantity": min_qty}
+
+@app.patch("/api/admin/settings/wholesale-auto")
+def update_wholesale_auto_setting(data: dict, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    # Solo super admin puede modificar esta opción
+    is_super_admin = (current_admin.email.lower() == "guillermo.diarte@gmail.com") or (current_admin.role == "superadmin") or (current_admin.role == "admin")
+    if not is_super_admin:
+        raise HTTPException(status_code=403, detail="Solo el super administrador puede cambiar esta configuración.")
+    
+    new_val = bool(data.get("enabled", False))
+    min_qty = int(data.get("min_quantity", 6)) if data.get("min_quantity") is not None else 6
+    setting = db.query(SiteSetting).filter(SiteSetting.key == "wholesale_auto_enabled").first()
+    payload = {"enabled": new_val, "min_quantity": min_qty}
+    if not setting:
+        setting = SiteSetting(key="wholesale_auto_enabled", value=payload)
+        db.add(setting)
+    else:
+        setting.value = payload
+    db.commit()
+    return {"status": "ok", "enabled": new_val, "min_quantity": min_qty}
+
+@app.get("/api/admin/notifications/summary")
+def get_admin_notifications_summary(db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    import datetime
+    current_month = datetime.datetime.utcnow().strftime("%Y-%m")
+    
+    # 1. Pedidos web en revisión
+    pending_orders = db.query(Order).filter(Order.status == "En revisión").all()
+    pending_orders_count = len(pending_orders)
+    
+    # 2. Pedidos web con pagos en cuotas o parciales pendientes de cobro este mes
+    # Se notifica si tienen saldo restante (> 0) y aún no fueron marcados como cobrados este mes
+    orders_with_debt = db.query(Order).filter(
+        Order.status != "Rechazada",
+        (Order.payment_status.in_(["pending", "partial"]) | (Order.payment_type == "cuotas"))
+    ).all()
+    
+    installments_pending = []
+    for o in orders_with_debt:
+        tot = float(o.total or 0)
+        paid = float(o.paid_amount or 0)
+        rem = max(0.0, tot - paid)
+        if rem > 0 and (o.last_installment_paid_month != current_month):
+            installments_pending.append({
+                "order_number": o.order_number,
+                "customer_name": o.customer.name if o.customer else "Cliente",
+                "remaining_amount": rem,
+                "payment_type": o.payment_type or "cuotas",
+                "installments_count": o.installments_count or 1
+            })
+            
+    # 3. Clientes pendientes de aprobación
+    pending_customers_count = db.query(Customer).filter(Customer.is_approved == False).count()
+    
+    total_badge = pending_orders_count + len(installments_pending)
+    
+    return {
+        "pending_web_orders_count": pending_orders_count,
+        "installments_pending_this_month": installments_pending,
+        "installments_pending_count": len(installments_pending),
+        "pending_customers_count": pending_customers_count,
+        "total_notifications_count": total_badge,
+        "current_month": current_month
+    }
+

@@ -12,6 +12,10 @@ export interface User {
   city?: string;
   postal_code?: string;
   email_verified: boolean;
+  is_approved: boolean;
+  is_wholesale?: boolean;
+  wholesale_until?: string | null;
+  created_at?: string;
 }
 
 interface AuthState {

@@ -3,6 +3,13 @@ export const API_URL = isServer
   ? (process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001')
   : (process.env.NEXT_PUBLIC_API_URL || `${window.location.protocol}//${window.location.hostname}:8001`);
 
+export const parseImageUrl = (url?: string): string => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const cleanPath = url.startsWith('/') ? url : `/${url}`;
+  return `${API_URL}${cleanPath}`;
+};
+
 export const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('auth-storage') 
     ? JSON.parse(localStorage.getItem('auth-storage') as string)?.state?.token 

@@ -146,6 +146,18 @@ export interface SaleRecord {
   unitSalePrice: number;
   revenue: number;
   status: 'Pagada' | 'Pendiente' | 'Cancelada';
+  paidAmount?: number;
+  remainingAmount?: number;
+  pendingAmount?: number;
+  paymentStatus?: 'pending' | 'partial' | 'full';
+  paymentType?: 'total' | 'partial' | 'cuotas';
+  installmentsCount?: number;
+  installmentMonthlyAmount?: number;
+  lastNotifiedMonth?: string;
+  deliveryStatus?: 'pending' | 'delivered';
+  adminNotes?: string;
+  notes?: string;
+  productImageUrl?: string;
   confirmationDate?: string;
 }
 
@@ -178,19 +190,49 @@ export interface StockFlowState {
     manualSalePrice: number;
   }[]) => void;
 
-  registerSale: (clientName: string, clientPhone: string, items: { 
-    productId: string; 
-    variantId: string; 
-    quantity: number; 
-    salePrice: number 
-  }[]) => string;
+  registerSale: (
+    clientName: string, 
+    clientPhone: string, 
+    items: { 
+      productId: string; 
+      variantId: string; 
+      quantity: number; 
+      salePrice: number 
+    }[],
+    paymentOptions?: {
+      paymentType: 'total' | 'partial' | 'cuotas';
+      paidAmount: number;
+      pendingAmount: number;
+      installmentsCount?: number;
+      notes?: string;
+    }
+  ) => string;
+
+  recordSalePayment: (ticketId: string, amount: number, note?: string) => void;
+  markSaleMonthPaid: (ticketId: string, monthStr: string) => void;
 
   registerWebSale: (clientName: string, clientPhone: string, items: { 
     productId: string; 
     variantId: string; 
     quantity: number; 
-    salePrice: number 
-  }[]) => string;
+    salePrice: number;
+    productName?: string;
+    size?: string;
+    color?: string;
+    imageUrl?: string;
+  }[], customTicketId?: string) => string;
+
+  approveOrderTicket: (ticketId: string, paidAmount: number, paymentStatus: 'partial' | 'full') => void;
+  rejectOrderTicket: (ticketId: string) => void;
+  updateOrderDeliveryStatus: (ticketId: string, deliveryStatus: 'pending' | 'delivered') => void;
+  updateOrderDetailsAdmin: (ticketId: string, updates: { 
+    status?: 'Pagada' | 'Pendiente' | 'Cancelada'; 
+    paymentStatus?: 'pending' | 'partial' | 'full'; 
+    deliveryStatus?: 'pending' | 'delivered'; 
+    paidAmount?: number; 
+    adminNotes?: string;
+  }) => void;
+  deleteUserOrder: (ticketId: string) => void;
 
   confirmSale: (saleId: string) => void;
   cancelSale: (saleId: string) => void;
@@ -344,7 +386,7 @@ export const useStockFlowStore = create<StockFlowState>()(
         });
       },
 
-      registerSale: (clientName, clientPhone, items) => {
+      registerSale: (clientName, clientPhone, items, paymentOptions) => {
         const ticketId = 'TICK-' + Math.random().toString(36).substr(2, 9).toUpperCase();
         set((state) => {
           const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
@@ -372,6 +414,9 @@ export const useStockFlowStore = create<StockFlowState>()(
               unitPrice = unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100);
             }
 
+            const itemRevenue = item.quantity * unitPrice;
+            const hasPending = paymentOptions ? (paymentOptions.pendingAmount > 0) : false;
+
             newSaleRecords.push({
               id: Math.random().toString(36).substr(2, 9),
               ticketId,
@@ -385,8 +430,18 @@ export const useStockFlowStore = create<StockFlowState>()(
               clientPhone,
               quantity: item.quantity,
               unitSalePrice: unitPrice,
-              revenue: item.quantity * unitPrice,
-              status: 'Pagada'
+              revenue: itemRevenue,
+              status: hasPending ? 'Pendiente' : 'Pagada',
+              paymentType: paymentOptions?.paymentType || 'total',
+              paidAmount: paymentOptions ? paymentOptions.paidAmount : itemRevenue,
+              pendingAmount: paymentOptions ? paymentOptions.pendingAmount : 0,
+              remainingAmount: paymentOptions ? paymentOptions.pendingAmount : 0,
+              paymentStatus: paymentOptions ? (paymentOptions.pendingAmount <= 0 ? 'full' : (paymentOptions.paidAmount > 0 ? 'partial' : 'pending')) : 'full',
+              installmentsCount: paymentOptions?.installmentsCount || 1,
+              installmentMonthlyAmount: (paymentOptions && paymentOptions.installmentsCount && paymentOptions.installmentsCount > 0)
+                ? Math.round((paymentOptions.pendingAmount / paymentOptions.installmentsCount) * 100) / 100
+                : 0,
+              notes: paymentOptions?.notes || ''
             });
           });
 
@@ -398,26 +453,63 @@ export const useStockFlowStore = create<StockFlowState>()(
         return ticketId;
       },
 
-      registerWebSale: (clientName, clientPhone, items) => {
-        const ticketId = 'WEB-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      recordSalePayment: (ticketId, amount, note) => {
+        set((state) => {
+          const updatedSales = state.sales.map(s => {
+            if (s.ticketId !== ticketId) return s;
+            const currentPending = s.pendingAmount ?? s.remainingAmount ?? 0;
+            const currentPaid = s.paidAmount ?? 0;
+            const newPaid = currentPaid + amount;
+            const newPending = Math.max(0, currentPending - amount);
+            const isFullyPaid = newPending <= 0;
+            return {
+              ...s,
+              paidAmount: newPaid,
+              pendingAmount: newPending,
+              remainingAmount: newPending,
+              status: isFullyPaid ? 'Pagada' : 'Pendiente',
+              paymentStatus: isFullyPaid ? 'full' : 'partial',
+              adminNotes: note ? (s.adminNotes ? `${s.adminNotes} | ${note}` : note) : s.adminNotes
+            };
+          });
+          return { sales: updatedSales };
+        });
+      },
+
+      markSaleMonthPaid: (ticketId, monthStr) => {
+        set((state) => {
+          const updatedSales = state.sales.map(s => {
+            if (s.ticketId !== ticketId) return s;
+            return { ...s, lastNotifiedMonth: monthStr };
+          });
+          return { sales: updatedSales };
+        });
+      },
+
+      registerWebSale: (clientName, clientPhone, items, customTicketId) => {
+        const ticketId = customTicketId || ('WEB-' + Math.random().toString(36).substr(2, 9).toUpperCase());
         set((state) => {
           const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
           const newSaleRecords: SaleRecord[] = [];
 
           items.forEach(item => {
             const productIndex = updatedProducts.findIndex(p => p.id === item.productId);
-            let pName = 'Producto Eliminado';
-            let pSize = 'N/A';
-            let pColor = 'N/A';
+            let pName = item.productName || 'Producto';
+            let pSize = item.size || 'N/A';
+            let pColor = item.color || 'N/A';
+            let pImage = item.imageUrl || '';
 
             if (productIndex !== -1) {
-              pName = updatedProducts[productIndex].name;
+              if (!item.productName) pName = updatedProducts[productIndex].name;
+              if (!pImage && updatedProducts[productIndex].imageUrls?.length) {
+                pImage = updatedProducts[productIndex].imageUrls![0];
+              }
               const varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === item.variantId);
               if(varIndex !== -1) {
-                  // Deduct stock immediately
+                  // Retain / deduct stock immediately
                   updatedProducts[productIndex].variants[varIndex].stock -= item.quantity;
-                  pSize = updatedProducts[productIndex].variants[varIndex].size;
-                  pColor = updatedProducts[productIndex].variants[varIndex].color;
+                  if (!item.size) pSize = updatedProducts[productIndex].variants[varIndex].size;
+                  if (!item.color) pColor = updatedProducts[productIndex].variants[varIndex].color;
               }
             }
 
@@ -441,7 +533,11 @@ export const useStockFlowStore = create<StockFlowState>()(
               quantity: item.quantity,
               unitSalePrice: unitPrice,
               revenue: item.quantity * unitPrice,
-              status: 'Pendiente'
+              status: 'Pendiente',
+              paidAmount: 0,
+              remainingAmount: item.quantity * unitPrice,
+              paymentStatus: 'pending',
+              productImageUrl: pImage
             });
           });
 
@@ -453,11 +549,130 @@ export const useStockFlowStore = create<StockFlowState>()(
         return ticketId;
       },
 
-      confirmSale: (saleId) => {
+      approveOrderTicket: (ticketId, paidAmount, paymentStatus) => {
+        set((state) => {
+          const ticketSales = state.sales.filter(s => s.ticketId === ticketId);
+          const ticketTotal = ticketSales.reduce((sum, s) => sum + s.revenue, 0);
+          const remaining = Math.max(0, ticketTotal - paidAmount);
+
+          const updatedSales = state.sales.map(s => {
+            if (s.ticketId === ticketId) {
+              return {
+                ...s,
+                status: 'Pagada' as const,
+                paidAmount,
+                remainingAmount: remaining,
+                paymentStatus,
+                confirmationDate: new Date().toISOString()
+              };
+            }
+            return s;
+          });
+
+          return { sales: updatedSales };
+        });
+      },
+
+      rejectOrderTicket: (ticketId) => {
+        set((state) => {
+          let updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+          const updatedSales = state.sales.map(s => {
+            if (s.ticketId === ticketId && s.status !== 'Cancelada') {
+              // Restore stock back to the product variant
+              const productIndex = updatedProducts.findIndex(p => p.id === s.productId);
+              if (productIndex !== -1) {
+                const varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === s.variantId);
+                if (varIndex !== -1) {
+                  updatedProducts[productIndex].variants[varIndex].stock += s.quantity;
+                }
+              }
+              return { ...s, status: 'Cancelada' as const };
+            }
+            return s;
+          });
+
+          return { products: updatedProducts, sales: updatedSales };
+        });
+      },
+
+      updateOrderDeliveryStatus: (ticketId, deliveryStatus) => {
         set((state) => {
           const updatedSales = state.sales.map(s => {
-            if (s.id === saleId && s.status === 'Pendiente') {
-              return { ...s, status: 'Pagada' as const, confirmationDate: new Date().toISOString() };
+            if (s.ticketId === ticketId) {
+              return {
+                ...s,
+                deliveryStatus
+              };
+            }
+            return s;
+          });
+          return { sales: updatedSales };
+        });
+      },
+
+      updateOrderDetailsAdmin: (ticketId, updates) => {
+        set((state) => {
+          const ticketSales = state.sales.filter(s => s.ticketId === ticketId);
+          const ticketTotal = ticketSales.reduce((sum, s) => sum + s.revenue, 0);
+          const paid = updates.paidAmount !== undefined ? updates.paidAmount : (ticketSales[0]?.paidAmount || 0);
+          const remaining = Math.max(0, ticketTotal - paid);
+
+          const updatedSales = state.sales.map(s => {
+            if (s.ticketId === ticketId) {
+              return {
+                ...s,
+                ...(updates.status ? { status: updates.status } : {}),
+                ...(updates.paymentStatus ? { paymentStatus: updates.paymentStatus } : {}),
+                ...(updates.deliveryStatus ? { deliveryStatus: updates.deliveryStatus } : {}),
+                ...(updates.adminNotes !== undefined ? { adminNotes: updates.adminNotes } : {}),
+                paidAmount: paid,
+                remainingAmount: remaining,
+              };
+            }
+            return s;
+          });
+          return { sales: updatedSales };
+        });
+      },
+
+      deleteUserOrder: (ticketId) => {
+        set((state) => {
+          let updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+          const salesForTicket = state.sales.filter(s => s.ticketId === ticketId);
+          
+          salesForTicket.forEach(s => {
+            if (s.status !== 'Cancelada') {
+              const productIndex = updatedProducts.findIndex(p => p.id === s.productId);
+              if (productIndex !== -1) {
+                const varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === s.variantId);
+                if (varIndex !== -1) {
+                  updatedProducts[productIndex].variants[varIndex].stock += s.quantity;
+                }
+              }
+            }
+          });
+
+          const updatedSales = state.sales.filter(s => s.ticketId !== ticketId);
+          return { products: updatedProducts, sales: updatedSales };
+        });
+      },
+
+      confirmSale: (saleId) => {
+        set((state) => {
+          // Check if saleId is a ticketId or individual item id
+          const targetSale = state.sales.find(s => s.id === saleId || s.ticketId === saleId);
+          const targetTicketId = targetSale?.ticketId || saleId;
+
+          const updatedSales = state.sales.map(s => {
+            if ((s.id === saleId || s.ticketId === targetTicketId) && s.status === 'Pendiente') {
+              return { 
+                ...s, 
+                status: 'Pagada' as const, 
+                paidAmount: s.revenue,
+                remainingAmount: 0,
+                paymentStatus: 'full' as const,
+                confirmationDate: new Date().toISOString() 
+              };
             }
             return s;
           });
@@ -467,24 +682,24 @@ export const useStockFlowStore = create<StockFlowState>()(
 
       cancelSale: (saleId) => {
         set((state) => {
-          let updatedProducts = [...state.products];
-          let updatedSales = [...state.sales];
+          let updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+          const targetSale = state.sales.find(s => s.id === saleId || s.ticketId === saleId);
+          const targetTicketId = targetSale?.ticketId || saleId;
 
-          const saleIndex = updatedSales.findIndex(s => s.id === saleId);
-          if (saleIndex !== -1 && updatedSales[saleIndex].status === 'Pendiente') {
-            const sale = updatedSales[saleIndex];
-            // Restore stock
-            const productIndex = updatedProducts.findIndex(p => p.id === sale.productId);
-            if (productIndex !== -1) {
-              updatedProducts = JSON.parse(JSON.stringify(updatedProducts));
-              const varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === sale.variantId);
-              if (varIndex !== -1) {
-                updatedProducts[productIndex].variants[varIndex].stock += sale.quantity;
+          const updatedSales = state.sales.map(s => {
+            if ((s.id === saleId || s.ticketId === targetTicketId) && s.status === 'Pendiente') {
+              // Restore stock
+              const productIndex = updatedProducts.findIndex(p => p.id === s.productId);
+              if (productIndex !== -1) {
+                const varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === s.variantId);
+                if (varIndex !== -1) {
+                  updatedProducts[productIndex].variants[varIndex].stock += s.quantity;
+                }
               }
+              return { ...s, status: 'Cancelada' as const };
             }
-            
-            updatedSales[saleIndex] = { ...sale, status: 'Cancelada' };
-          }
+            return s;
+          });
 
           return { products: updatedProducts, sales: updatedSales };
         });

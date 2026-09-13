@@ -39,8 +39,8 @@ def seed_locations():
                     for loc in localidades_data:
                         name = loc["nombre"]
                         if name not in seen_names:
-                            # We can mock postal code if not available in this endpoint (it isn't directly without another api call)
-                            cities.append(City(province_id=new_prov.id, name=name, postal_code="3000"))
+                            # Keep postal code empty or look up instead of hardcoding 3000
+                            cities.append(City(province_id=new_prov.id, name=name, postal_code=None))
                             seen_names.add(name)
                     
                     if cities:

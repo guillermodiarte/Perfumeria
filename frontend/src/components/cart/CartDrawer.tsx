@@ -3,6 +3,7 @@
 import { useCartStore } from '@/store/useCartStore';
 import { useCartUIStore } from '@/store/useCartUIStore';
 import { useStockFlowStore } from '@/store/useStockStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { API_URL } from '@/utils/api';
 import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
@@ -19,6 +20,7 @@ export default function CartDrawer() {
   const router = useRouter();
 
   const wholesaleConfig = useStockFlowStore(s => s.wholesaleConfig);
+  const user = useAuthStore(s => s.user);
 
   useEffect(() => {
     setMounted(true);
@@ -38,9 +40,10 @@ export default function CartDrawer() {
 
   const minWholesaleQty = wholesaleConfig?.minQuantity || 6;
   const wholesaleDiscountPrc = wholesaleConfig?.discountPercentage || 10;
+  const isUserWholesale = !!(user?.is_wholesale || (user?.wholesale_until && new Date(user.wholesale_until) > new Date()));
 
   const subtotal = items.reduce((acc, item) => {
-    const isWholesale = item.quantity >= minWholesaleQty;
+    const isWholesale = isUserWholesale || item.quantity >= minWholesaleQty;
     const basePrice = item.product.salePrice || 0;
     const currentPrice = isWholesale ? basePrice * (1 - wholesaleDiscountPrc / 100) : basePrice;
     return acc + currentPrice * item.quantity;
@@ -150,11 +153,11 @@ export default function CartDrawer() {
                       </div>
                       <div className="flex flex-col items-end">
                         <span className="font-black text-primary">
-                          ${(item.quantity >= minWholesaleQty ? (item.product.salePrice || 0) * (1 - wholesaleDiscountPrc / 100) : (item.product.salePrice || 0)).toLocaleString('es-AR')}
+                          ${((isUserWholesale || item.quantity >= minWholesaleQty) ? (item.product.salePrice || 0) * (1 - wholesaleDiscountPrc / 100) : (item.product.salePrice || 0)).toLocaleString('es-AR')}
                         </span>
-                        {item.quantity >= minWholesaleQty && (
+                        {(isUserWholesale || item.quantity >= minWholesaleQty) && (
                           <span className="text-[10px] text-green-600 dark:text-green-400 font-bold uppercase tracking-wider mt-0.5">
-                            Mayorista
+                            {isUserWholesale ? 'Mayorista (Cuenta)' : 'Mayorista'}
                           </span>
                         )}
                       </div>
