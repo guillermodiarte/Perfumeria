@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureDbSchema } from '@/lib/prisma';
 import { getCurrentAdmin } from '@/lib/auth';
 
 // GET /api/orders/admin/all
@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   if (!admin) return NextResponse.json({ detail: 'No autorizado' }, { status: 401 });
 
   try {
+    await ensureDbSchema();
     const orders = await prisma.order.findMany({
       include: {
         customer: true,

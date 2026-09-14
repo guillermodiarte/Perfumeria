@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureDbSchema } from '@/lib/prisma';
 import { getCurrentAdmin } from '@/lib/auth';
 import { getUploadDir } from '@/lib/storage';
 
@@ -11,6 +11,7 @@ export async function POST(req: NextRequest, { params }: { params: { orderNumber
   if (!admin) return NextResponse.json({ detail: 'No autorizado' }, { status: 401 });
 
   try {
+    await ensureDbSchema();
     const { orderNumber } = params;
     const formData = await req.formData();
     const trackingNumber = (formData.get('tracking_number') as string) || '';

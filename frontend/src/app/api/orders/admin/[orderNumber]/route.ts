@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureDbSchema } from '@/lib/prisma';
 import { getCurrentAdmin } from '@/lib/auth';
 
 // DELETE /api/orders/admin/[orderNumber]
@@ -8,6 +8,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { orderNumb
   if (!admin) return NextResponse.json({ detail: 'No autorizado' }, { status: 401 });
 
   try {
+    await ensureDbSchema();
     const { orderNumber } = params;
 
     const order = await prisma.order.findUnique({

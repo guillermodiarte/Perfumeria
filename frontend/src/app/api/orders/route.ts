@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureDbSchema } from '@/lib/prisma';
 import { getCurrentCustomer } from '@/lib/auth';
 
 // POST /api/orders - create order (customer)
@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    await ensureDbSchema();
     const body = await req.json();
     const { order_number, items, shipping_type, shipping_cost } = body;
 
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
   const customer = await getCurrentCustomer(req);
   if (!customer) return NextResponse.json({ detail: 'No autenticado' }, { status: 401 });
 
+  await ensureDbSchema();
   const orders = await prisma.order.findMany({
     where: { user_id: customer.id },
     include: { items: true },
