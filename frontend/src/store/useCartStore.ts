@@ -58,7 +58,7 @@ export const useCartStore = create<CartState>()(
       clearCart: () => set({ items: [] }),
     }),
     {
-      name: 'perfumeria-cart-storage',
+      name: 'tienda-deportiva-cart-v1',
     }
   )
 );

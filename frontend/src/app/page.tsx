@@ -16,13 +16,13 @@ export default function Home() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/settings`);
+        const res = await fetch(`${API_URL}/api/settings`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           const settingsMap: Record<string, any> = {};
           data.forEach((item: any) => {
             // Backward compatibility for old banner format
-            if (item.key === 'home_banner' && !item.value.slides) {
+            if (item.key === 'home_banner' && item.value && !item.value.slides) {
               settingsMap[item.key] = { slides: [{ title: item.value.title || '', subtitle: item.value.subtitle || '', mediaUrl: item.value.videoUrl || '', link: '/catalog' }] };
             } else {
               settingsMap[item.key] = item.value;
@@ -40,54 +40,51 @@ export default function Home() {
   }, [API_URL]);
 
   const dbBanner = settings['home_banner'];
-  const banner = (dbBanner && dbBanner.slides && dbBanner.slides.length > 1) ? dbBanner : {
+  const banner = (dbBanner && Array.isArray(dbBanner.slides) && dbBanner.slides.length > 0) ? dbBanner : {
     slides: [
       {
-        title: 'DESCUBRE TU ESENCIA',
-        subtitle: 'FRAGANCIAS EXCLUSIVAS',
-        mediaUrl: "/uploads/Perfumes/3.jpeg",
+        title: 'ENTRENA AL MÁXIMO',
+        subtitle: 'INDUMENTARIA DEPORTIVA Y RENDIMIENTO',
+        mediaUrl: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=1600&q=80",
         link: "/catalog"
       },
       {
-        title: 'ESENCIA FEMENINA',
-        subtitle: 'AROMAS QUE ENAMORAN',
-        mediaUrl: "/uploads/Perfumes/1.jpeg",
-        link: "/catalog?category=Perfumes+de+Mujer"
+        title: 'SUPERA TUS LÍMITES',
+        subtitle: 'CALZADO Y ACCESORIOS DEPORTIVOS',
+        mediaUrl: "https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=1600&q=80",
+        link: "/catalog"
       },
       {
-        title: 'CARÁCTER Y ELEGANCIA',
-        subtitle: 'PERFUMES DE HOMBRE',
-        mediaUrl: "/uploads/Perfumes/2.jpeg",
-        link: "/catalog?category=Perfumes+de+Hombre"
-      },
-      {
-        title: 'DETALLES QUE RESALTAN',
-        subtitle: 'LABIALES EXCLUSIVOS',
-        mediaUrl: "/uploads/Labiales/1.jpeg",
-        link: "/catalog?category=Labios"
+        title: 'ESTILO Y CONFORT',
+        subtitle: 'EQUIPAMIENTO DE ALTO NIVEL',
+        mediaUrl: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1600&q=80",
+        link: "/catalog"
       }
     ]
   };
 
   const slides = banner.slides || [];
 
-  const categoriesSetting = settings['home_categories'] || {
-    categories: [
-      { title: 'Perfumes de Mujer', subtitle: 'Fragancias que enamoran', mediaUrl: '/uploads/Perfumes/1.jpeg', link: '/catalog?category=Perfumes+de+Mujer' },
-      { title: 'Perfumes de Hombre', subtitle: 'Carácter y Elegancia', mediaUrl: '/uploads/Perfumes/2.jpeg', link: '/catalog?category=Perfumes+de+Hombre' },
-      { title: 'Labiales Exclusivos', subtitle: 'Detalles que resaltan', mediaUrl: '/uploads/Labiales/1.jpeg', link: '/catalog?category=Labios' }
-    ]
-  };
-  const categoryCards = categoriesSetting.categories || [];
+  const categoriesSetting = settings['home_categories'];
+  const categoryCards = (categoriesSetting && Array.isArray(categoriesSetting.categories) && categoriesSetting.categories.length > 0)
+    ? categoriesSetting.categories
+    : [
+      { title: 'Ropa Deportiva', subtitle: 'Comodidad y Rendimiento', mediaUrl: 'https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800&q=80', link: '/catalog?category=Remeras+y+Musculosas' },
+      { title: 'Calzado Deportivo', subtitle: 'Máxima Amortiguación', mediaUrl: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80', link: '/catalog?category=Zapatillas+Running' },
+      { title: 'Accesorios & Fitness', subtitle: 'Lleva tu rutina al siguiente nivel', mediaUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?w=800&q=80', link: '/catalog?category=Gorras+y+Viseras' }
+    ];
+
+  // Carousel transition interval
+  const bannerInterval = (dbBanner && dbBanner.interval) ? Math.max(2, Number(dbBanner.interval)) * 1000 : 6000;
 
   // Auto-advance carousel
   useEffect(() => {
     if (slides.length <= 1) return;
     const interval = setInterval(() => {
       setCurrentSlide(prev => (prev + 1) % slides.length);
-    }, 6000);
+    }, bannerInterval);
     return () => clearInterval(interval);
-  }, [slides.length]);
+  }, [slides.length, bannerInterval]);
 
   const header = settings['site_header'] || {
     logoUrl: "",
@@ -98,7 +95,7 @@ export default function Home() {
 
   const footer = settings['site_footer'] || {
     logoUrl: "",
-    copyRight: "© 2026 Ciara Bonita. Todos los derechos reservados."
+    copyRight: "© 2026 Tienda Deportiva y Accesorios. Todos los derechos reservados."
   };
 
   if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center dark:bg-slate-900"><div className="animate-spin text-primary material-symbols-outlined text-4xl">autorenew</div></div>;
@@ -113,6 +110,18 @@ export default function Home() {
             <div className="relative min-h-[600px] w-full overflow-hidden rounded-3xl group">
               {slides.map((slide: any, idx: number) => {
                 const isVideo = slide.mediaUrl && slide.mediaUrl.match(/\.(mp4|webm|ogg)$/i);
+                const tagline = slide.tagline !== undefined ? slide.tagline : 'TIENDA DEPORTIVA Y ACCESORIOS';
+                const title = slide.title || '';
+                const highlightTitle = slide.highlightTitle !== undefined 
+                  ? slide.highlightTitle 
+                  : (slide.subtitle && slide.subtitle.length < 40 ? slide.subtitle : '');
+                const description = slide.description !== undefined
+                  ? slide.description
+                  : (slide.subtitle && slide.subtitle.length >= 40
+                      ? slide.subtitle
+                      : 'Diseñado para potenciar tu entrenamiento. Indumentaria y accesorios de alto rendimiento para superar tus límites.');
+                const buttonText = slide.buttonText || 'Comprar Colección';
+                const buttonLink = slide.link || '/catalog';
 
                 return (
                   <div
@@ -131,7 +140,7 @@ export default function Home() {
                     ) : (
                       <div
                         className="absolute inset-0 w-full h-full bg-cover bg-center z-0"
-                        style={{ backgroundImage: `url('${slide.mediaUrl.startsWith('http') ? slide.mediaUrl : `${API_URL}${slide.mediaUrl}`}')`, backgroundColor: '#1E293B' }}
+                        style={{ backgroundImage: `url('${slide.mediaUrl ? (slide.mediaUrl.startsWith('http') ? slide.mediaUrl : `${API_URL}${slide.mediaUrl.startsWith('/') ? slide.mediaUrl : `/${slide.mediaUrl}`}`) : ''}')`, backgroundColor: '#1E293B' }}
                       />
                     )}
 
@@ -140,19 +149,35 @@ export default function Home() {
 
                     <div className="relative z-10 max-w-2xl flex flex-col gap-6 transform transition-all duration-1000 delay-300">
                       <div className="flex flex-col gap-3">
-                        <span className="text-primary font-bold tracking-widest uppercase text-sm">Ciara Bonita Collection</span>
-                        <h1 className="text-white text-5xl md:text-7xl font-black leading-[1.1] tracking-tighter drop-shadow-lg">
-                          {(slide.title || '').toUpperCase()} <br /> <span className="text-primary italic font-serif">{(slide.subtitle || '').toUpperCase()}</span>
-                        </h1>
-                        <p className="text-slate-200 text-lg md:text-xl font-medium max-w-lg leading-relaxed drop-shadow-md">
-                          Diseñado para resaltar tu personalidad. Perfumes y accesorios que dejan una huella inolvidable en cada paso.
-                        </p>
+                        {tagline && (
+                          <span className="text-primary font-bold tracking-widest uppercase text-sm">
+                            {tagline}
+                          </span>
+                        )}
+                        {(title || highlightTitle) && (
+                          <h1 className="text-white text-5xl md:text-7xl font-black leading-[1.1] tracking-tighter drop-shadow-lg">
+                            {title && <span>{title.toUpperCase()}</span>}
+                            {title && highlightTitle && <br />}
+                            {highlightTitle && (
+                              <span className="text-primary italic font-serif">
+                                {highlightTitle.toUpperCase()}
+                              </span>
+                            )}
+                          </h1>
+                        )}
+                        {description && (
+                          <p className="text-slate-200 text-lg md:text-xl font-medium max-w-lg leading-relaxed drop-shadow-md">
+                            {description}
+                          </p>
+                        )}
                       </div>
-                      <div className="flex flex-wrap gap-4">
-                        <Link href={slide.link || "/catalog"} className="flex min-w-[160px] cursor-pointer items-center justify-center rounded-full h-14 px-8 bg-primary text-white text-base font-bold hover:scale-105 transition-transform shadow-lg shadow-primary/30">
-                          Comprar Colección
-                        </Link>
-                      </div>
+                      {buttonText && (
+                        <div className="flex flex-wrap gap-4">
+                          <Link href={buttonLink} className="flex min-w-[160px] cursor-pointer items-center justify-center rounded-full h-14 px-8 bg-primary text-white text-base font-bold hover:scale-105 transition-transform shadow-lg shadow-primary/30">
+                            {buttonText}
+                          </Link>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -226,7 +251,7 @@ export default function Home() {
               <div className="flex flex-col items-center text-center mb-12">
                 <span className="text-primary font-bold tracking-widest uppercase text-xs mb-2">Lanzamientos</span>
                 <h2 className="text-slate-900 dark:text-white text-4xl font-black tracking-tight mb-4">Últimos Ingresos</h2>
-                <p className="text-slate-500 max-w-md">Nuestras fragancias más frescas acaban de llegar. Experimenta la próxima generación de cuidado personal.</p>
+                <p className="text-slate-500 max-w-md">Nuestras últimas prendas y accesorios deportivos acaban de llegar. Prepárate para rendir al máximo nivel.</p>
               </div>
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
@@ -312,11 +337,11 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-16">
             <div className="flex flex-col gap-6">
               <div className="flex items-center gap-2 text-primary">
-                <span className="material-symbols-outlined text-3xl font-bold">spa</span>
-                <h2 className="text-white text-2xl font-black italic tracking-tighter">Ciara Bonita</h2>
+                <span className="material-symbols-outlined text-3xl font-bold">sports_score</span>
+                <h2 className="text-white text-2xl font-black italic tracking-tighter">Tienda Deportiva y Accesorios</h2>
               </div>
               <p className="text-slate-400 text-sm leading-relaxed">
-                Resaltando tu belleza a través de fragancias únicas y accesorios de calidad desde 2018.
+                Potenciando tu rendimiento a través de indumentaria deportiva y accesorios de calidad.
               </p>
               <div className="flex gap-4">
                 <a className="h-10 w-10 rounded-full border border-slate-700 flex items-center justify-center hover:bg-primary hover:border-primary transition-all" href="#">
@@ -332,9 +357,9 @@ export default function Home() {
               <h4 className="font-bold mb-6 text-lg">Tienda</h4>
               <ul className="flex flex-col gap-4 text-slate-400 text-sm">
                 <li><a className="hover:text-primary transition-colors" href="#">Más Vendidos</a></li>
-                <li><a className="hover:text-primary transition-colors" href="#">Perfumes</a></li>
-                <li><a className="hover:text-primary transition-colors" href="#">Maquillaje</a></li>
-                <li><a className="hover:text-primary transition-colors" href="#">Accesorios</a></li>
+                <li><a className="hover:text-primary transition-colors" href="/catalog?category=Remeras+y+Musculosas">Ropa Deportiva</a></li>
+                <li><a className="hover:text-primary transition-colors" href="/catalog?category=Zapatillas+Running">Calzado</a></li>
+                <li><a className="hover:text-primary transition-colors" href="/catalog?category=Gorras+y+Viseras">Accesorios</a></li>
               </ul>
             </div>
 

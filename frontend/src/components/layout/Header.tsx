@@ -53,12 +53,16 @@ export default function Header() {
             Colecciones
             <span className="absolute -bottom-2 left-1/2 w-0 h-0.5 bg-primary transition-all group-hover:w-1/2 group-hover:-translate-x-1/2"></span>
           </Link>
-          <Link href="/catalog?category=Perfumes de Mujer" className="text-slate-900 dark:text-slate-100 hover:text-primary transition-colors text-sm font-bold relative group uppercase tracking-widest">
+          <Link href="/catalog?gender=Mujer" className="text-slate-900 dark:text-slate-100 hover:text-primary transition-colors text-sm font-bold relative group uppercase tracking-widest">
             Mujer
             <span className="absolute -bottom-2 left-1/2 w-0 h-0.5 bg-primary transition-all group-hover:w-1/2 group-hover:-translate-x-1/2"></span>
           </Link>
-          <Link href="/catalog?category=Perfumes de Hombre" className="text-slate-900 dark:text-slate-100 hover:text-primary transition-colors text-sm font-bold relative group uppercase tracking-widest">
+          <Link href="/catalog?gender=Hombre" className="text-slate-900 dark:text-slate-100 hover:text-primary transition-colors text-sm font-bold relative group uppercase tracking-widest">
             Hombre
+            <span className="absolute -bottom-2 left-1/2 w-0 h-0.5 bg-primary transition-all group-hover:w-1/2 group-hover:-translate-x-1/2"></span>
+          </Link>
+          <Link href="/catalog?category=Accesorios" className="text-slate-900 dark:text-slate-100 hover:text-primary transition-colors text-sm font-bold relative group uppercase tracking-widest">
+            Accesorios
             <span className="absolute -bottom-2 left-1/2 w-0 h-0.5 bg-primary transition-all group-hover:w-1/2 group-hover:-translate-x-1/2"></span>
           </Link>
           <Link href="/donde-estamos" className="text-slate-900 dark:text-slate-100 hover:text-primary transition-colors text-sm font-bold relative group uppercase tracking-widest">

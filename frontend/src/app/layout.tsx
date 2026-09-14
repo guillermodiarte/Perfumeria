@@ -13,8 +13,8 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Ciara Bonita | Catálogo',
-  description: 'Catálogo de fragancias, maquillaje y accesorios exclusivos.',
+  title: 'Tienda Deportiva y Accesorios | Catálogo',
+  description: 'Catálogo de indumentaria deportiva, calzado y accesorios de alto rendimiento.',
 }
 
 export default function RootLayout({

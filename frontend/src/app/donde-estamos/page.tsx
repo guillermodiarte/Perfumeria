@@ -38,12 +38,12 @@ export default function DondeEstamosPage() {
 
       <main className="flex-1 w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-20 py-16 flex flex-col gap-24">
         
-        {/* Sobre Ciara Bonita */}
+        {/* Sobre Tienda Deportiva y Accesorios */}
         <section className="flex flex-col items-center text-center max-w-4xl mx-auto gap-6">
           <span className="text-primary font-bold tracking-widest uppercase text-sm">Nuestra Historia</span>
-          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">Sobre Ciara Bonita</h2>
+          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">Sobre Tienda Deportiva y Accesorios</h2>
           <p className="text-slate-600 dark:text-slate-400 text-lg leading-relaxed">
-            En Ciara Bonita creemos que cada fragancia cuenta una historia. Nos especializamos en ofrecer perfumes originales y de excelente calidad para quienes buscan destacar su personalidad con aromas únicos. Nuestro objetivo es brindar una experiencia de compra cercana, confiable y personalizada.
+            En Tienda Deportiva y Accesorios creemos que el deporte y la actividad física transforman vidas. Nos especializamos en ofrecer indumentaria deportiva, calzado y accesorios de excelente calidad para quienes buscan superarse día a día. Nuestro objetivo es brindar una experiencia de compra cercana, confiable y personalizada.
           </p>
         </section>
 
@@ -93,7 +93,7 @@ export default function DondeEstamosPage() {
                 </div>
                 <div className="flex items-center gap-4">
                   <Mail className="w-5 h-5 text-slate-400" />
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">contacto@essenceperfumeria.com</span>
+                  <span className="text-slate-700 dark:text-slate-300 font-medium">contacto@tiendadeportiva.com</span>
                 </div>
               </div>
 
@@ -136,7 +136,7 @@ export default function DondeEstamosPage() {
                 Enviar WhatsApp
               </a>
               <a 
-                href="mailto:contacto@essenceperfumeria.com"
+                href="mailto:contacto@tiendadeportiva.com"
                 className="flex-1 flex items-center justify-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-4 rounded-2xl font-bold shadow-lg shadow-slate-900/10 hover:scale-[1.02] transition-transform"
               >
                 <Mail className="w-5 h-5" />
@@ -168,8 +168,8 @@ export default function DondeEstamosPage() {
               <div className="w-16 h-16 bg-white dark:bg-slate-900 rounded-full flex items-center justify-center text-primary shadow-sm mb-2">
                 <ShieldCheck className="w-8 h-8" />
               </div>
-              <h4 className="text-xl font-bold text-slate-900 dark:text-white">Perfumes originales</h4>
-              <p className="text-slate-500">Trabajamos únicamente con productos de calidad, 100% auténticos y garantizados.</p>
+              <h4 className="text-xl font-bold text-slate-900 dark:text-white">Productos originales</h4>
+              <p className="text-slate-500">Trabajamos únicamente con productos de calidad comprobada, 100% garantizados.</p>
             </div>
 
             {/* Card 3 */}
@@ -189,11 +189,11 @@ export default function DondeEstamosPage() {
       {/* Footer minimalista para mantener la estética si la página lo requiere */}
       <footer className="mt-16 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800">
         <div className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center gap-6">
-          <Link href="/" className="flex items-center gap-2 text-primary grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all">
-            <span className="material-symbols-outlined text-2xl font-bold">spa</span>
-            <span className="font-bold tracking-widest uppercase text-sm">Ciara Bonita</span>
+          <Link href="/" className="flex items-center gap-2 text-primary opacity-80 hover:opacity-100 transition-all">
+            <span className="material-symbols-outlined text-2xl font-bold">sports_score</span>
+            <span className="font-bold tracking-widest uppercase text-sm">Tienda Deportiva y Accesorios</span>
           </Link>
-          <p className="text-slate-400 text-sm">© {new Date().getFullYear()} Ciara Bonita. Todos los derechos reservados.</p>
+          <p className="text-slate-400 text-sm">© {new Date().getFullYear()} Tienda Deportiva y Accesorios. Todos los derechos reservados.</p>
         </div>
       </footer>
     </div>

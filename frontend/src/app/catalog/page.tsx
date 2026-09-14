@@ -328,21 +328,21 @@ function CatalogContent() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
             <div className="flex flex-col gap-6">
               <div className="flex items-center gap-2 text-primary">
-                <span className="material-symbols-outlined text-3xl">spa</span>
-                <h2 className="text-xl font-black tracking-tight leading-none text-slate-900 dark:text-white">Ciara Bonita <br /><span className="text-sm font-bold text-primary">Perfumería Exclusiva</span></h2>
+                <span className="material-symbols-outlined text-3xl">sports_score</span>
+                <h2 className="text-xl font-black tracking-tight leading-none text-slate-900 dark:text-white">Tienda Deportiva <br /><span className="text-sm font-bold text-primary">y Accesorios</span></h2>
               </div>
               <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
-                Descubre la esencia que mejor te representa con nuestra selección exclusiva de fragancias y accesorios.
+                Encuentra el equipamiento y la indumentaria que necesitas para superar tus metas deportivas y entrenar con el mejor estilo.
               </p>
             </div>
 
             <div>
               <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider text-sm">Tienda</h4>
               <ul className="flex flex-col gap-4 text-sm text-slate-500 dark:text-slate-400 font-medium">
-                <li><Link className="hover:text-primary transition-colors" href="#">Perfumes</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Maquillaje</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Cuidado Personal</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Accesorios</Link></li>
+                <li><Link className="hover:text-primary transition-colors" href="/catalog?category=Remeras+y+Musculosas">Ropa Deportiva</Link></li>
+                <li><Link className="hover:text-primary transition-colors" href="/catalog?category=Zapatillas+Running">Calzado</Link></li>
+                <li><Link className="hover:text-primary transition-colors" href="/catalog?category=Gorras+y+Viseras">Accesorios</Link></li>
+                <li><Link className="hover:text-primary transition-colors" href="/catalog">Todos los Productos</Link></li>
               </ul>
             </div>
 
@@ -357,7 +357,7 @@ function CatalogContent() {
             </div>
 
             <div>
-              <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider text-sm">Mantente Inspirada</h4>
+              <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider text-sm">Novedades</h4>
               <div className="flex flex-col gap-4">
                 <div className="flex rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
                   <input className="bg-transparent border-none focus:ring-0 text-sm px-4 py-2 w-full text-slate-900 dark:text-white placeholder:text-slate-400" placeholder="Tu correo electrónico" type="email" />
@@ -372,7 +372,7 @@ function CatalogContent() {
             </div>
           </div>
           <div className="mt-16 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-slate-400 dark:text-slate-500 text-sm font-medium">
-            © {new Date().getFullYear()} Ciara Bonita. Todos los derechos reservados.
+            © {new Date().getFullYear()} Tienda Deportiva y Accesorios. Todos los derechos reservados.
           </div>
         </footer>
       </div>

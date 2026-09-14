@@ -128,7 +128,7 @@ export default function ProfileOrdersPage() {
   const buildWhatsappLink = (order: any) => {
     const norm = normalizeStatus(order);
     const delivered = isDelivered(order);
-    let msg = `¡Hola! Me comunico respecto a mi pedido *#${order.order_number}* de Ciara Bonita.`;
+    let msg = `¡Hola! Me comunico respecto a mi pedido *#${order.order_number}* de Tienda Deportiva y Accesorios.`;
     if (delivered && norm === 'approved_partial' && order.remaining_amount > 0) {
       msg += ` Ya recibí el pedido y deseo coordinar la siguiente cuota / saldo restante de *$${order.remaining_amount.toLocaleString()}*.`;
     } else if (norm === 'approved_partial' && order.remaining_amount > 0) {
@@ -449,7 +449,7 @@ export default function ProfileOrdersPage() {
                       <span className="material-symbols-outlined text-amber-600 shrink-0 text-lg">hourglass_top</span>
                       <div>
                         <strong className="block font-bold mb-0.5">Pedido en revisión</strong>
-                        Tu pedido está siendo procesado por el equipo de Ciara Bonita. <span className="underline font-semibold">El stock de tus productos se encuentra retenido y reservado para vos</span> hasta que sea aprobado o coordinemos el pago.
+                        Tu pedido está siendo procesado por el equipo de Tienda Deportiva y Accesorios. <span className="underline font-semibold">El stock de tus productos se encuentra retenido y reservado para vos</span> hasta que sea aprobado o coordinemos el pago.
                       </div>
                     </div>
                   )}

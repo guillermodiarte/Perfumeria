@@ -13,7 +13,7 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
   const [webOrders, setWebOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'delivered' | 'rejected' | 'all'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'to_ship' | 'pickup_pending' | 'shipped' | 'delivered' | 'rejected' | 'all'>('pending');
 
   // Modal Aprobar Pedido
   const [orderToApprove, setOrderToApprove] = useState<any | null>(null);
@@ -22,6 +22,12 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
   const [approvalInstallments, setApprovalInstallments] = useState<number>(3);
   const [approvalNotes, setApprovalNotes] = useState<string>('');
   const [processing, setProcessing] = useState(false);
+
+  // Modal Despachar / Enviar Pedido
+  const [orderToShip, setOrderToShip] = useState<any | null>(null);
+  const [shippingTracking, setShippingTracking] = useState('');
+  const [shippingInvoiceFile, setShippingInvoiceFile] = useState<File | null>(null);
+  const [shippingSubmitting, setShippingSubmitting] = useState(false);
 
   // Modal Rechazar
   const [orderToReject, setOrderToReject] = useState<any | null>(null);
@@ -35,13 +41,13 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
   const [editPaymentStatus, setEditPaymentStatus] = useState<string>('full');
   const [editPaymentType, setEditPaymentType] = useState<'total' | 'partial' | 'cuotas'>('total');
   const [editInstallmentsCount, setEditInstallmentsCount] = useState<number>(1);
-  const [editDeliveryStatus, setEditDeliveryStatus] = useState<'pending' | 'delivered'>('pending');
+  const [editDeliveryStatus, setEditDeliveryStatus] = useState<'pending' | 'shipped' | 'delivered'>('pending');
   const [editNotes, setEditNotes] = useState<string>('');
 
   // Modal Eliminar
   const [orderToDelete, setOrderToDelete] = useState<any | null>(null);
 
-  const getToken = () => apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') : '');
+  const getToken = (): string => apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') ?? '' : '');
 
   const fetchOrders = useCallback(async () => {
     const token = getToken();
@@ -140,7 +146,8 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          status: 'Rechazado'
+          status: 'Rechazado',
+          delivery_status: 'cancelled'
         })
       });
       if (res.ok) {
@@ -154,6 +161,72 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
       showAlert?.('Error de red.');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  // Confirmar despacho / envío con tracking y factura adjunta
+  const handleConfirmShip = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orderToShip) return;
+    setShippingSubmitting(true);
+    const token = getToken();
+
+    try {
+      const formData = new FormData();
+      if (shippingTracking.trim()) {
+        formData.append('tracking_number', shippingTracking.trim());
+      }
+      if (shippingInvoiceFile) {
+        formData.append('invoice_file', shippingInvoiceFile);
+      }
+
+      const res = await fetch(`/api/admin/orders/${orderToShip.order_number}/ship`, {
+        method: 'POST',
+        headers: { 'X-API-KEY': token },
+        body: formData,
+      });
+
+      if (res.ok) {
+        showAlert?.(`✓ Pedido #${orderToShip.order_number} marcado como despachado/enviado.`);
+        setOrderToShip(null);
+        setShippingTracking('');
+        setShippingInvoiceFile(null);
+        fetchOrders();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showAlert?.(err.detail || 'Error al despachar el pedido.');
+      }
+    } catch {
+      showAlert?.('Error de red al registrar el envío.');
+    } finally {
+      setShippingSubmitting(false);
+    }
+  };
+
+  // Marcar entregado o retirado
+  const handleMarkDelivered = async (order: any) => {
+    const isPickup = (order.shipping_type || '').toLowerCase() === 'pickup';
+    const actionLabel = isPickup ? 'retirado por el cliente' : 'entregado a domicilio';
+    if (!confirm(`¿Confirmar que el pedido #${order.order_number} ya fue ${actionLabel}?`)) return;
+
+    const token = getToken();
+    try {
+      const res = await fetch(`${API_URL}/api/orders/admin/${order.order_number}/status`, {
+        method: 'PATCH',
+        headers: {
+          'X-API-KEY': token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ delivery_status: 'delivered' }),
+      });
+      if (res.ok) {
+        showAlert?.(`✓ Pedido #${order.order_number} marcado como entregado.`);
+        fetchOrders();
+      } else {
+        showAlert?.('Error al actualizar estado de entrega.');
+      }
+    } catch {
+      showAlert?.('Error de red.');
     }
   };
 
@@ -232,15 +305,32 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
 
     const s = (o.status || '').toLowerCase();
     const d = (o.delivery_status || '').toLowerCase();
+    const isPickup = (o.shipping_type || '').toLowerCase() === 'pickup';
+    const isApproved = s.includes('aprob') || s.includes('pagad');
 
     if (activeTab === 'pending') return s.includes('revis') || s.includes('pend');
-    if (activeTab === 'approved') return (s.includes('aprob') || s.includes('pagad')) && d !== 'delivered';
+    if (activeTab === 'to_ship') return isApproved && !isPickup && d !== 'shipped' && d !== 'delivered';
+    if (activeTab === 'pickup_pending') return isApproved && isPickup && d !== 'delivered';
+    if (activeTab === 'shipped') return d === 'shipped';
     if (activeTab === 'delivered') return d === 'delivered' || s.includes('entreg');
     if (activeTab === 'rejected') return s.includes('rechaz') || s.includes('cancel');
     return true; // 'all'
   });
 
   const pendingCount = webOrders.filter(o => (o.status || '').toLowerCase().includes('revis')).length;
+  const toShipCount = webOrders.filter(o => {
+    const s = (o.status || '').toLowerCase();
+    const d = (o.delivery_status || '').toLowerCase();
+    const isPickup = (o.shipping_type || '').toLowerCase() === 'pickup';
+    return (s.includes('aprob') || s.includes('pagad')) && !isPickup && d !== 'shipped' && d !== 'delivered';
+  }).length;
+  const pickupPendingCount = webOrders.filter(o => {
+    const s = (o.status || '').toLowerCase();
+    const d = (o.delivery_status || '').toLowerCase();
+    const isPickup = (o.shipping_type || '').toLowerCase() === 'pickup';
+    return (s.includes('aprob') || s.includes('pagad')) && isPickup && d !== 'delivered';
+  }).length;
+  const shippedCount = webOrders.filter(o => (o.delivery_status || '').toLowerCase() === 'shipped').length;
 
   return (
     <div className="space-y-6">
@@ -297,15 +387,60 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
             </button>
 
             <button
-              onClick={() => setActiveTab('approved')}
+              onClick={() => setActiveTab('to_ship')}
               className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
-                activeTab === 'approved'
+                activeTab === 'to_ship'
+                  ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <span className="material-symbols-outlined text-base">local_shipping</span>
+              Para Enviar
+              {toShipCount > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'to_ship' ? 'bg-white text-orange-600' : 'bg-orange-500 text-white'
+                }`}>
+                  {toShipCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('pickup_pending')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'pickup_pending'
+                  ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <span className="material-symbols-outlined text-base">storefront</span>
+              Retiro en Local
+              {pickupPendingCount > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'pickup_pending' ? 'bg-white text-cyan-600' : 'bg-cyan-500 text-white'
+                }`}>
+                  {pickupPendingCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('shipped')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'shipped'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
               }`}
             >
-              <span className="material-symbols-outlined text-base">check_circle</span>
-              Aprobados
+              <span className="material-symbols-outlined text-base">outbox</span>
+              Enviados
+              {shippedCount > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'shipped' ? 'bg-white text-blue-600' : 'bg-blue-500 text-white'
+                }`}>
+                  {shippedCount}
+                </span>
+              )}
             </button>
 
             <button
@@ -316,7 +451,7 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
               }`}
             >
-              <span className="material-symbols-outlined text-base">local_shipping</span>
+              <span className="material-symbols-outlined text-base">task_alt</span>
               Entregados
             </button>
 
@@ -380,6 +515,8 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
             const statusStr = (order.status || 'En revisión').toLowerCase();
             const isApproved = statusStr.includes('aprob') || statusStr.includes('pagad');
             const isDelivered = (order.delivery_status || '').toLowerCase() === 'delivered';
+            const isShipped = (order.delivery_status || '').toLowerCase() === 'shipped';
+            const isPickup = (order.shipping_type || '').toLowerCase() === 'pickup';
             const isRejected = statusStr.includes('rechaz') || statusStr.includes('cancel');
             const dateStr = new Date(order.created_at).toLocaleDateString('es-AR', {
               day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -439,14 +576,39 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
                           )
                         )}
 
-                        {/* Entrega Badge */}
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          isDelivered 
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' 
-                            : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
-                        }`}>
-                          {isDelivered ? '✓ Entregado' : 'Entrega pendiente'}
-                        </span>
+                        {/* Modalidad Entrega & Estado */}
+                        {isRejected || (order.delivery_status || '').toLowerCase() === 'cancelled' ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400">
+                            <span className="material-symbols-outlined text-xs">block</span>
+                            {isPickup ? 'Retiro Cancelado' : 'Envío Cancelado'}
+                          </span>
+                        ) : isPickup ? (
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
+                            isDelivered 
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' 
+                              : 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/40 dark:text-cyan-300'
+                          }`}>
+                            <span className="material-symbols-outlined text-xs">storefront</span>
+                            {isDelivered ? '✓ Retirado en Local' : 'Espera Retiro en Local'}
+                          </span>
+                        ) : (
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
+                            isDelivered 
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' 
+                              : isShipped
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
+                              : 'bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300'
+                          }`}>
+                            <span className="material-symbols-outlined text-xs">local_shipping</span>
+                            {isDelivered ? '✓ Entregado a Domicilio' : isShipped ? '✈️ Despachado / Enviado' : '📦 Pendiente de Envío'}
+                          </span>
+                        )}
+
+                        {order.shipping_tracking_number && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300" title="Número de Seguimiento">
+                            Guía: {order.shipping_tracking_number}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400 mt-1.5">
@@ -471,7 +633,11 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
                     <div className="text-left lg:text-right">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Pedido</p>
                       <p className="text-xl font-black text-slate-900 dark:text-white">${tot.toLocaleString('es-AR')}</p>
-                      {remaining > 0 ? (
+                      {isRejected ? (
+                        <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                          Pedido Cancelado
+                        </p>
+                      ) : remaining > 0 ? (
                         <p className="text-xs font-bold text-red-500 mt-0.5">
                           Adeuda: ${remaining.toLocaleString('es-AR')}
                         </p>
@@ -515,23 +681,79 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
                         </>
                       )}
 
-                      {/* Botón Editar si ya está Aprobado */}
+                      {/* Botones de Envío / Entrega si está Aprobado */}
                       {isApproved && (
-                        <button
-                          onClick={() => {
-                            setOrderToEdit(order);
-                            setEditPaidAmount(order.paid_amount?.toString() || '0');
-                            setEditPaymentStatus(order.payment_status || 'full');
-                            setEditPaymentType(order.payment_type || 'total');
-                            setEditInstallmentsCount(order.installments_count || 1);
-                            setEditDeliveryStatus(order.delivery_status || 'pending');
-                            setEditNotes(order.admin_notes || '');
-                          }}
-                          className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                          title="Modificar cobro o entrega"
-                        >
-                          <span className="material-symbols-outlined text-lg">edit</span>
-                        </button>
+                        <>
+                          {/* Despachar a domicilio si está pendiente */}
+                          {!isPickup && !isShipped && !isDelivered && (
+                            <button
+                              onClick={() => {
+                                setOrderToShip(order);
+                                setShippingTracking(order.shipping_tracking_number || '');
+                                setShippingInvoiceFile(null);
+                              }}
+                              className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-orange-500/20 transition-all"
+                              title="Despachar pedido y adjuntar factura"
+                            >
+                              <span className="material-symbols-outlined text-sm">local_shipping</span>
+                              Despachar
+                            </button>
+                          )}
+
+                          {/* Marcar Retirado si es retiro en local */}
+                          {isPickup && !isDelivered && (
+                            <button
+                              onClick={() => handleMarkDelivered(order)}
+                              className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-cyan-600/20 transition-all"
+                              title="Marcar como retirado por el cliente"
+                            >
+                              <span className="material-symbols-outlined text-sm">storefront</span>
+                              Retirado
+                            </button>
+                          )}
+
+                          {/* Marcar Entregado si ya fue despachado a domicilio */}
+                          {!isPickup && isShipped && !isDelivered && (
+                            <button
+                              onClick={() => handleMarkDelivered(order)}
+                              className="px-2.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-emerald-600/20 transition-all"
+                              title="Marcar como entregado a destino"
+                            >
+                              <span className="material-symbols-outlined text-sm">task_alt</span>
+                              Entregado
+                            </button>
+                          )}
+
+                          {/* Factura adjunta si existe */}
+                          {order.shipping_invoice_url && (
+                            <a
+                              href={order.shipping_invoice_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Ver Factura o Remito Adjunto"
+                              className="p-2 rounded-xl border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/30 transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-lg">receipt_long</span>
+                            </a>
+                          )}
+
+                          {/* Botón Editar cobro o entrega */}
+                          <button
+                            onClick={() => {
+                              setOrderToEdit(order);
+                              setEditPaidAmount(order.paid_amount?.toString() || '0');
+                              setEditPaymentStatus(order.payment_status || 'full');
+                              setEditPaymentType(order.payment_type || 'total');
+                              setEditInstallmentsCount(order.installments_count || 1);
+                              setEditDeliveryStatus(order.delivery_status || 'pending');
+                              setEditNotes(order.admin_notes || '');
+                            }}
+                            className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                            title="Modificar cobro o entrega"
+                          >
+                            <span className="material-symbols-outlined text-lg">edit</span>
+                          </button>
+                        </>
                       )}
 
                       {/* Botón Eliminar */}
@@ -774,6 +996,110 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
         </div>
       )}
 
+      {/* MODAL: Despachar / Enviar Pedido */}
+      {orderToShip && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-orange-500/10 text-orange-600">
+                  <span className="material-symbols-outlined text-xl">local_shipping</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Despachar Pedido #{orderToShip.order_number}
+                  </h3>
+                  <p className="text-xs text-slate-500">Registrar número de seguimiento y factura/remito</p>
+                </div>
+              </div>
+              <button onClick={() => setOrderToShip(null)} className="text-slate-400 hover:text-slate-600">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Datos del Comprador */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl mb-5 border border-slate-200 dark:border-slate-700/60 space-y-2 text-xs">
+              <p className="font-bold text-slate-800 dark:text-white uppercase tracking-wider text-[10px] text-primary">
+                Datos de Entrega del Comprador
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-slate-400">Cliente:</p>
+                  <p className="font-bold text-slate-800 dark:text-white">{orderToShip.customer?.name || 'Cliente'}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Teléfono:</p>
+                  <p className="font-bold text-slate-800 dark:text-white">{orderToShip.customer?.phone || 'Sin teléfono'}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-slate-400">Dirección de Destino:</p>
+                <p className="font-bold text-slate-800 dark:text-white">
+                  {orderToShip.customer?.address
+                    ? `${orderToShip.customer.address}, ${orderToShip.customer.city || ''}, ${orderToShip.customer.province || ''} (CP: ${orderToShip.customer.postal_code || '-'})`
+                    : 'Sin dirección registrada en el perfil del cliente.'}
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmShip} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Número de Seguimiento / Guía de Transporte (Opcional):
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: OCA-987654321, Correo Argentino..."
+                  value={shippingTracking}
+                  onChange={(e) => setShippingTracking(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Adjuntar Factura o Remito (PDF o Imagen, Opcional):
+                </label>
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  onChange={(e) => setShippingInvoiceFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 file:cursor-pointer"
+                />
+                {orderToShip.shipping_invoice_url && !shippingInvoiceFile && (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Ya tiene una factura adjunta:{' '}
+                    <a href={orderToShip.shipping_invoice_url} target="_blank" rel="noreferrer" className="text-primary underline">
+                      Ver archivo actual
+                    </a>
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOrderToShip(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={shippingSubmitting}
+                  className="flex-[2] py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-orange-600/20 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-base">
+                    {shippingSubmitting ? 'sync' : 'local_shipping'}
+                  </span>
+                  {shippingSubmitting ? 'Guardando despacho...' : 'Confirmar Envío'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: Detalle del Pedido */}
       {orderDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
@@ -786,6 +1112,64 @@ export default function PedidosWebView({ apiKey, showAlert }: PedidosWebViewProp
               <button onClick={() => setOrderDetail(null)} className="text-slate-400 hover:text-slate-600">
                 <span className="material-symbols-outlined">close</span>
               </button>
+            </div>
+
+            {/* Datos de Entrega */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl mb-4 border border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-500">Modalidad:</span>
+                <span className="font-bold text-slate-800 dark:text-white">
+                  {orderDetail.shipping_type === 'pickup' ? '🏪 Retiro en Local' : '🚚 Envío a Domicilio'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-500">Estado de Entrega:</span>
+                <span className={`font-bold ${
+                  (orderDetail.status || '').toLowerCase().includes('rechaz') || (orderDetail.delivery_status || '').toLowerCase() === 'cancelled'
+                    ? 'text-slate-500'
+                    : orderDetail.delivery_status === 'delivered'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : orderDetail.delivery_status === 'shipped'
+                    ? 'text-blue-600 dark:text-blue-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`}>
+                  {(orderDetail.status || '').toLowerCase().includes('rechaz') || (orderDetail.delivery_status || '').toLowerCase() === 'cancelled'
+                    ? 'Cancelado'
+                    : orderDetail.delivery_status === 'delivered'
+                    ? (orderDetail.shipping_type === 'pickup' ? '✓ Retirado' : '✓ Entregado')
+                    : orderDetail.delivery_status === 'shipped'
+                    ? '✈️ Despachado / Enviado'
+                    : (orderDetail.shipping_type === 'pickup' ? '📦 Espera Retiro' : '📦 Pendiente de Despacho')}
+                </span>
+              </div>
+              {orderDetail.customer?.address && (
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-bold text-slate-500">Dirección:</span>
+                  <span className="text-right text-slate-800 dark:text-white">
+                    {orderDetail.customer.address}, {orderDetail.customer.city}, {orderDetail.customer.province} (CP: {orderDetail.customer.postal_code})
+                  </span>
+                </div>
+              )}
+              {orderDetail.shipping_tracking_number && (
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-500">Guía / Seguimiento:</span>
+                  <span className="font-mono font-bold text-primary">{orderDetail.shipping_tracking_number}</span>
+                </div>
+              )}
+              {orderDetail.shipping_invoice_url && (
+                <div className="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-800">
+                  <span className="font-bold text-slate-500">Factura Adjunta:</span>
+                  <a
+                    href={orderDetail.shipping_invoice_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary font-bold underline flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-sm">receipt_long</span>
+                    Ver documento
+                  </a>
+                </div>
+              )}
             </div>
 
             {/* Lista de Items */}

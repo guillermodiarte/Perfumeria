@@ -5,7 +5,7 @@ import { useRef, useState, useEffect } from 'react';
 import { API_URL } from '@/utils/api';
 import CatalogConfig from './CatalogConfig';
 
-type TabType = 'precios' | 'catalogo' | 'respaldos';
+type TabType = 'precios' | 'catalogo' | 'envios' | 'respaldos';
 
 interface ConfiguracionViewProps {
   isSuperAdmin?: boolean;
@@ -33,6 +33,56 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
   const fileInputRefDB = useRef<HTMLInputElement>(null);
   const fileInputRefImages = useRef<HTMLInputElement>(null);
   const fileInputRefJSON = useRef<HTMLInputElement>(null);
+
+  // Shipping Config State
+  const [shippingConfig, setShippingConfig] = useState({ delivery_enabled: true, delivery_cost: 0 });
+  const [loadingShipping, setLoadingShipping] = useState(false);
+  const [savingShipping, setSavingShipping] = useState(false);
+  const [shippingSaveMsg, setShippingSaveMsg] = useState<string | null>(null);
+
+  const fetchShippingConfig = async () => {
+    setLoadingShipping(true);
+    try {
+      const res = await fetch('/api/admin/settings/shipping');
+      if (res.ok) {
+        const data = await res.json();
+        setShippingConfig({
+          delivery_enabled: data.delivery_enabled ?? true,
+          delivery_cost: Number(data.delivery_cost || 0),
+        });
+      }
+    } catch (err) {
+      console.error('Error loading shipping config:', err);
+    } finally {
+      setLoadingShipping(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchShippingConfig();
+  }, []);
+
+  const handleSaveShippingConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingShipping(true);
+    try {
+      const res = await fetch('/api/admin/settings/shipping', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shippingConfig),
+      });
+      if (res.ok) {
+        setShippingSaveMsg('Configuración de envíos guardada exitosamente.');
+        setTimeout(() => setShippingSaveMsg(null), 3000);
+      } else {
+        alert('Error al guardar configuración de envíos');
+      }
+    } catch {
+      alert('Error de conexión con el servidor');
+    } finally {
+      setSavingShipping(false);
+    }
+  };
 
   // Wholesale 30-Day Auto Promotion State
   const [wholesaleAutoEnabled, setWholesaleAutoEnabled] = useState(false);
@@ -250,6 +300,18 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
         >
           <span className="material-symbols-outlined text-lg">category</span>
           Categorías y Catálogo
+        </button>
+
+        <button
+          onClick={() => setActiveTab('envios')}
+          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+            activeTab === 'envios'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <span className="material-symbols-outlined text-lg">local_shipping</span>
+          Envíos y Entregas
         </button>
 
         {isSuperAdmin && (
@@ -481,7 +543,117 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
         </div>
       )}
 
-      {/* TAB 3: RESPALDOS Y SISTEMA */}
+      {/* TAB: ENVÍOS Y ENTREGAS */}
+      {activeTab === 'envios' && (
+        <div className="animate-in fade-in duration-200 max-w-3xl space-y-6">
+          <div>
+            <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary text-2xl">local_shipping</span>
+              Configuración de Envíos y Entregas
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Define los métodos de entrega disponibles para los clientes al comprar en la tienda online y sus costos.
+            </p>
+          </div>
+
+          {shippingSaveMsg && (
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-2xl flex items-center gap-3 font-semibold text-sm">
+              <span className="material-symbols-outlined text-emerald-500">check_circle</span>
+              {shippingSaveMsg}
+            </div>
+          )}
+
+          <form onSubmit={handleSaveShippingConfig} className="space-y-6">
+            {/* Delivery a Domicilio Card */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                    <span className="material-symbols-outlined">home_pin</span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-800 dark:text-white text-base">Envío a Domicilio</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Envío directo a la dirección indicada por el comprador.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shippingConfig.delivery_enabled}
+                    onChange={(e) => setShippingConfig({ ...shippingConfig, delivery_enabled: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-primary"></div>
+                </label>
+              </div>
+
+              {shippingConfig.delivery_enabled && (
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                  <label className="block text-sm font-bold text-slate-800 dark:text-white">
+                    Costo de Envío a Domicilio ($ ARS)
+                  </label>
+                  <div className="relative max-w-xs">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="100"
+                      value={shippingConfig.delivery_cost}
+                      onChange={(e) => setShippingConfig({ ...shippingConfig, delivery_cost: Math.max(0, Number(e.target.value) || 0) })}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-8 pr-4 py-2.5 font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="0"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm text-primary">info</span>
+                    {shippingConfig.delivery_cost === 0
+                      ? 'Actualmente configurado como Envío Gratis para todos los pedidos.'
+                      : `Al cliente se le sumarán $${shippingConfig.delivery_cost.toLocaleString('es-AR')} al total del pedido.`}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Retiro en Local Card (Siempre disponible) */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <span className="material-symbols-outlined">storefront</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-slate-800 dark:text-white text-base">Retiro en Local</h4>
+                    <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">
+                      Siempre Gratis
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    El cliente coordina para retirar su compra directamente por el local comercial sin costo adicional.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={savingShipping}
+                className="px-6 py-3 bg-primary text-white font-bold text-sm rounded-xl hover:bg-primary/90 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-lg">
+                  {savingShipping ? 'sync' : 'save'}
+                </span>
+                {savingShipping ? 'Guardando...' : 'Guardar Configuración'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* TAB: RESPALDOS Y SISTEMA */}
       {activeTab === 'respaldos' && isSuperAdmin && (
         <div className="animate-in fade-in duration-200 space-y-6">
           <div>

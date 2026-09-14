@@ -29,6 +29,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
 
   useEffect(() => {
     setMounted(true);
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
 
   const product = products.find(p => p.id === params.id);
@@ -362,8 +363,8 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
         <footer className="mt-16 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800">
           <div className="px-6 lg:px-20 py-12 grid grid-cols-1 md:grid-cols-3 gap-10">
             <div className="flex flex-col gap-4">
-              <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-lg italic"><span className="material-symbols-outlined text-primary">spa</span> Ciara Bonita</h3>
-              <p className="text-slate-500 text-sm leading-relaxed max-w-sm">Elegancia, calidad y exclusividad. Fragancias creadas para destacar tu personalidad todos los días.</p>
+              <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-lg italic"><span className="material-symbols-outlined text-primary">sports_score</span> Tienda Deportiva y Accesorios</h3>
+              <p className="text-slate-500 text-sm leading-relaxed max-w-sm">Rendimiento, comodidad y durabilidad. Productos pensados para acompañarte en cada entrenamiento y actividad física.</p>
             </div>
             <div>
               <h4 className="font-bold text-slate-900 dark:text-white mb-4">Ayuda</h4>

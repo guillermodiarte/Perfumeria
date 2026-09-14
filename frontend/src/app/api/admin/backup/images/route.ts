@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     const zipBuffer = zip.toBuffer();
 
     const timestamp = new Date().toISOString().split('T')[0];
-    return new NextResponse(zipBuffer, {
+    return new NextResponse(new Uint8Array(zipBuffer), {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="multimedia_perfumeria_${timestamp}.zip"`,

@@ -20,82 +20,76 @@ export interface VariantGroupConfig {
 
 export const DEFAULT_VARIANT_GROUPS: VariantGroupConfig[] = [
   {
-    id: 'perfumes',
-    name: 'Tamaños de Perfumería',
+    id: 'talles_ropa',
+    name: 'Talles de Ropa Deportiva',
     options: [
-      { value: '30ml', description: 'Travel Size' },
-      { value: '50ml', description: 'Estándar' },
-      { value: '75ml', description: 'Mediano' },
-      { value: '100ml', description: 'Grande' },
-      { value: '150ml', description: 'Extra Grande' },
-      { value: '200ml', description: 'Familiar' }
+      { value: 'XS', description: 'Extra Small' },
+      { value: 'S', description: 'Small' },
+      { value: 'M', description: 'Medium' },
+      { value: 'L', description: 'Large' },
+      { value: 'XL', description: 'Extra Large' },
+      { value: 'XXL', description: 'Doble Extra Large' }
+    ]
+  },
+  {
+    id: 'calzado',
+    name: 'Talles de Calzado',
+    options: [
+      { value: '38', description: '38 AR' },
+      { value: '39', description: '39 AR' },
+      { value: '40', description: '40 AR' },
+      { value: '41', description: '41 AR' },
+      { value: '42', description: '42 AR' },
+      { value: '43', description: '43 AR' },
+      { value: '44', description: '44 AR' }
     ]
   },
   {
     id: 'accesorios',
-    name: 'Talles de Accesorios',
+    name: 'Talles / Medidas de Accesorios',
     options: [
-      { value: 'Único', description: 'Ajustable o Estándar' },
-      { value: 'S', description: 'Pequeño' },
-      { value: 'M', description: 'Mediano' },
-      { value: 'L', description: 'Grande' }
+      { value: 'Único', description: 'Ajustable o Talle Único' },
+      { value: 'Chico', description: 'Medida Pequeña' },
+      { value: 'Grande', description: 'Medida Grande' }
     ]
   }
 ];
 
-export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
+export const CATEGORIAS_DEPORTIVAS: CategoryConfig[] = [
   {
-    grupo: 'Perfumería',
-    variantGroupId: 'perfumes',
+    grupo: 'Ropa Deportiva',
+    variantGroupId: 'talles_ropa',
     opciones: [
-      'Perfumes de Mujer',
-      'Unisex',
-      'Body Splash / Body Mist',
-      'Set de Regalo'
-    ]
-  },
-  {
-    grupo: 'Maquillaje',
-    variantGroupId: 'accesorios',
-    opciones: [
-      'Ojos',
-      'Labios',
-      'Rostro',
-      'Paletas',
-      'Brochas y Accesorios'
-    ]
-  },
-  {
-    grupo: 'Cuidado de la Piel',
-    variantGroupId: 'none',
-    opciones: [
-      'Limpieza Facial',
-      'Hidratación',
-      'Tratamiento Anti-age',
-      'Protectores Solares'
-    ]
-  },
-  {
-    grupo: 'Cuidado Personal',
-    variantGroupId: 'perfumes',
-    opciones: [
-      'Cuidado Capilar',
-      'Higiene Corporal',
-      'Desodorantes'
+      'Remeras y Musculosas',
+      'Calzas y Shorts',
+      'Camperas y Buzos',
+      'Tops Deportivos',
+      'Conjuntos'
     ]
   },
   {
     grupo: 'Accesorios',
     variantGroupId: 'accesorios',
     opciones: [
-      'Collares y Cadenas',
-      'Anillos',
-      'Aritos',
-      'Pulseras',
-      'Relojes'
+      'Gorras y Viseras',
+      'Botellas y Shakers',
+      'Mochilas y Bolsos',
+      'Medias y Muñequeras',
+      'Equipamiento y Fitness'
+    ]
+  },
+  {
+    grupo: 'Calzado',
+    variantGroupId: 'calzado',
+    opciones: [
+      'Zapatillas Running',
+      'Zapatillas Training',
+      'Ojotas y Sandalias Deportivas'
     ]
   }
 ];
+
+export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = CATEGORIAS_DEPORTIVAS;
 
 // Legacy constants (removed in favor of VariantGroupConfig)
 
@@ -142,6 +136,7 @@ export interface SaleRecord {
   color: string;
   clientName: string;
   clientPhone: string;
+  clientEmail?: string;
   quantity: number;
   unitSalePrice: number;
   revenue: number;
@@ -205,6 +200,7 @@ export interface StockFlowState {
       pendingAmount: number;
       installmentsCount?: number;
       notes?: string;
+      clientEmail?: string;
     }
   ) => string;
 
@@ -244,65 +240,20 @@ export interface StockFlowState {
   importData: (data: any) => void;
 }
 
-// Initial Mock Data with Variants
-const MOCK_PRODUCTS: Product[] = [
-  // Body Spray
-  { id: 'b1', name: 'Body Splash Tropical 1', sku: 'BODY-01', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/1.jpeg'], variants: [{ id: 'vb1', size: '200ml', color: 'Único', stock: 10 }] },
-  { id: 'b2', name: 'Body Splash Floral 2', sku: 'BODY-02', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/2.jpeg'], variants: [{ id: 'vb2', size: '200ml', color: 'Único', stock: 15 }] },
-  { id: 'b3', name: 'Body Splash Citric 3', sku: 'BODY-03', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/3.jpeg'], variants: [{ id: 'vb3', size: '200ml', color: 'Único', stock: 12 }] },
-  { id: 'b4', name: 'Body Splash Sweet 4', sku: 'BODY-04', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/4.jpeg'], variants: [{ id: 'vb4', size: '200ml', color: 'Único', stock: 20 }] },
-  { id: 'b5', name: 'Body Splash Fresh 5', sku: 'BODY-05', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/5.jpeg'], variants: [{ id: 'vb5', size: '200ml', color: 'Único', stock: 8 }] },
-
-  // Labiales
-  { id: 'l1', name: 'Labial Matte 1', sku: 'LAB-01', categoryId: 'Labios', purchasePrice: 4000, salePrice: 8500, imageUrls: ['/uploads/Labiales/1.jpeg'], variants: [{ id: 'vl1', size: 'Único', color: 'Rojo', stock: 25 }] },
-  { id: 'l2', name: 'Labial Matte 2', sku: 'LAB-02', categoryId: 'Labios', purchasePrice: 4000, salePrice: 8500, imageUrls: ['/uploads/Labiales/2.jpeg'], variants: [{ id: 'vl2', size: 'Único', color: 'Rosa', stock: 15 }] },
-  { id: 'l3', name: 'Labial Gloss 3', sku: 'LAB-03', categoryId: 'Labios', purchasePrice: 4500, salePrice: 9000, imageUrls: ['/uploads/Labiales/3.jpeg'], variants: [{ id: 'vl3', size: 'Único', color: 'Nude', stock: 30 }] },
-  { id: 'l4', name: 'Labial Cream 4', sku: 'LAB-04', categoryId: 'Labios', purchasePrice: 4000, salePrice: 8500, imageUrls: ['/uploads/Labiales/4.jpeg'], variants: [{ id: 'vl4', size: 'Único', color: 'Coral', stock: 10 }] },
-  { id: 'l5', name: 'Labial Velvet 5', sku: 'LAB-05', categoryId: 'Labios', purchasePrice: 5000, salePrice: 9500, imageUrls: ['/uploads/Labiales/5.jpeg'], variants: [{ id: 'vl5', size: 'Único', color: 'Vino', stock: 5 }] },
-
-  // Perfumes
-  { id: 'p1', name: 'Perfume Elegance 1', sku: 'PERF-01', categoryId: 'Perfumes de Mujer', purchasePrice: 30000, salePrice: 55000, imageUrls: ['/uploads/Perfumes/1.jpeg'], variants: [{ id: 'vp1', size: '100ml', color: 'Único', stock: 10 }] },
-  { id: 'p2', name: 'Perfume Classic 2', sku: 'PERF-02', categoryId: 'Perfumes de Hombre', purchasePrice: 32000, salePrice: 60000, imageUrls: ['/uploads/Perfumes/2.jpeg'], variants: [{ id: 'vp2', size: '100ml', color: 'Único', stock: 8 }] },
-  { id: 'p3', name: 'Perfume Intense 3', sku: 'PERF-03', categoryId: 'Perfumes de Mujer', purchasePrice: 28000, salePrice: 50000, imageUrls: ['/uploads/Perfumes/3.jpeg'], variants: [{ id: 'vp3', size: '50ml', color: 'Único', stock: 12 }] },
-  { id: 'p4', name: 'Perfume Night 4', sku: 'PERF-04', categoryId: 'Perfumes de Hombre', purchasePrice: 35000, salePrice: 65000, imageUrls: ['/uploads/Perfumes/4.jpeg'], variants: [{ id: 'vp4', size: '100ml', color: 'Único', stock: 6 }] },
-  { id: 'p5', name: 'Perfume Fresh 5', sku: 'PERF-05', categoryId: 'Unisex', purchasePrice: 25000, salePrice: 48000, imageUrls: ['/uploads/Perfumes/5.jpeg'], variants: [{ id: 'vp5', size: '100ml', color: 'Único', stock: 15 }] },
-  { id: 'p6', name: 'Perfume Gold 6', sku: 'PERF-06', categoryId: 'Perfumes de Mujer', purchasePrice: 40000, salePrice: 75000, imageUrls: ['/uploads/Perfumes/6.jpeg'], variants: [{ id: 'vp6', size: '50ml', color: 'Único', stock: 4 }] },
-  { id: 'p7', name: 'Perfume Sport 7', sku: 'PERF-07', categoryId: 'Perfumes de Hombre', purchasePrice: 27000, salePrice: 49000, imageUrls: ['/uploads/Perfumes/7.jpeg'], variants: [{ id: 'vp7', size: '100ml', color: 'Único', stock: 20 }] },
-];
-
-const MOCK_PURCHASES: PurchaseRecord[] = [
-  ...MOCK_PRODUCTS.slice(0, 5).flatMap(p => p.variants.map(v => ({
-    id: `pch-${p.id}`, date: '2026-05-10T10:00:00Z', productId: p.id, productName: p.name,
-    variantId: v.id, size: v.size, color: v.color, quantity: v.stock,
-    unitPurchasePrice: p.purchasePrice, totalCost: v.stock * p.purchasePrice
-  }))),
-  ...MOCK_PRODUCTS.slice(5, 10).flatMap(p => p.variants.map(v => ({
-    id: `pch-${p.id}`, date: '2026-06-15T10:00:00Z', productId: p.id, productName: p.name,
-    variantId: v.id, size: v.size, color: v.color, quantity: v.stock,
-    unitPurchasePrice: p.purchasePrice, totalCost: v.stock * p.purchasePrice
-  }))),
-  ...MOCK_PRODUCTS.slice(10, 17).flatMap(p => p.variants.map(v => ({
-    id: `pch-${p.id}`, date: '2026-07-02T10:00:00Z', productId: p.id, productName: p.name,
-    variantId: v.id, size: v.size, color: v.color, quantity: v.stock,
-    unitPurchasePrice: p.purchasePrice, totalCost: v.stock * p.purchasePrice
-  })))
-];
-
-const MOCK_SALES: SaleRecord[] = [
-  { id: 's-mock-1', ticketId: 'TICK-MOCK-1', date: '2026-05-20T14:30:00Z', productId: 'p1', productName: 'Perfume Elegance 1', variantId: 'vp1', size: '100ml', color: 'Único', clientName: 'María Gómez', clientPhone: '1123456789', quantity: 2, unitSalePrice: 55000, revenue: 110000, status: 'Pagada' },
-  { id: 's-mock-2', ticketId: 'TICK-MOCK-2', date: '2026-06-10T11:00:00Z', productId: 'l1', productName: 'Labial Matte 1', variantId: 'vl1', size: 'Único', color: 'Rojo', clientName: 'Consumidor Final', clientPhone: '', quantity: 1, unitSalePrice: 8500, revenue: 8500, status: 'Pagada' },
-  { id: 's-mock-3', ticketId: 'TICK-MOCK-3', date: '2026-06-25T16:15:00Z', productId: 'b1', productName: 'Body Splash Tropical 1', variantId: 'vb1', size: '200ml', color: 'Único', clientName: 'Juan Perez', clientPhone: '', quantity: 3, unitSalePrice: 12000, revenue: 36000, status: 'Pagada' },
-];
+// Initial Mock Data (Limpiado: Catálogo vacío)
+const MOCK_PRODUCTS: Product[] = [];
+const MOCK_PURCHASES: PurchaseRecord[] = [];
+const MOCK_SALES: SaleRecord[] = [];
 
 export const useStockFlowStore = create<StockFlowState>()(
   persist(
     (set) => ({
       globalMarkupPrc: 50,
       wholesaleConfig: { minQuantity: 3, discountPercentage: 15 },
-      products: MOCK_PRODUCTS,
-      purchases: MOCK_PURCHASES,
-      sales: MOCK_SALES,
-      categoriesConfig: CATEGORIAS_PERFUMERIA,
+      products: [],
+      purchases: [],
+      sales: [],
+      categoriesConfig: CATEGORIAS_DEPORTIVAS,
       variantGroupsConfig: DEFAULT_VARIANT_GROUPS,
 
       setGlobalMarkup: (prc) => set({ globalMarkupPrc: prc }),
@@ -428,6 +379,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               color: pColor,
               clientName,
               clientPhone,
+              clientEmail: paymentOptions?.clientEmail || '',
               quantity: item.quantity,
               unitSalePrice: unitPrice,
               revenue: itemRevenue,
@@ -467,8 +419,8 @@ export const useStockFlowStore = create<StockFlowState>()(
               paidAmount: newPaid,
               pendingAmount: newPending,
               remainingAmount: newPending,
-              status: isFullyPaid ? 'Pagada' : 'Pendiente',
-              paymentStatus: isFullyPaid ? 'full' : 'partial',
+              status: (isFullyPaid ? 'Pagada' : 'Pendiente') as SaleRecord['status'],
+              paymentStatus: (isFullyPaid ? 'full' : 'partial') as SaleRecord['paymentStatus'],
               adminNotes: note ? (s.adminNotes ? `${s.adminNotes} | ${note}` : note) : s.adminNotes
             };
           });
@@ -812,7 +764,16 @@ export const useStockFlowStore = create<StockFlowState>()(
       }
     }),
     {
-      name: 'perfumeria-data-v5',
+      name: 'tienda-deportiva-data-v1',
+      onRehydrateStorage: () => () => {
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem('perfumeria-data-v8');
+            localStorage.removeItem('perfumeria-data-v7');
+            localStorage.removeItem('perfumeria-cart-storage');
+          } catch (e) {}
+        }
+      }
     }
   )
 );

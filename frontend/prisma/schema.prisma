@@ -94,6 +94,11 @@ model Order {
   payment_type                String?     @default("total")
   installments_count          Int?        @default(1)
   last_installment_paid_month String?
+  shipping_type               String?     @default("delivery")
+  shipping_cost               Float?      @default(0)
+  shipping_tracking_number    String?
+  shipping_invoice_url        String?
+  shipped_at                  String?
   customer                    Customer?   @relation(fields: [user_id], references: [id])
   items                       OrderItem[]
 

@@ -27,14 +27,14 @@ def seed():
             db.add(new_admin)
             db.commit()
 
-        new_admin_email = "ciarabonita.cosmetic@gmail.com"
-        new_admin_pass = "ciarabonita26"
+        new_admin_email = "tiendadeportiva.contacto@gmail.com"
+        new_admin_pass = "tiendadeportiva26"
         new_admin_user = db.query(Admin).filter(Admin.email == new_admin_email).first()
         if not new_admin_user:
-            print("Creando Admin CiaraBonita...")
+            print("Creando Admin Tienda Deportiva...")
             from app.auth import get_password_hash
             hashed = get_password_hash(new_admin_pass)
-            new_admin2 = Admin(email=new_admin_email, password_hash=hashed, role="admin", name="Ciara Bonita")
+            new_admin2 = Admin(email=new_admin_email, password_hash=hashed, role="admin", name="Tienda Deportiva y Accesorios")
             db.add(new_admin2)
             db.commit()
 
@@ -44,9 +44,10 @@ def seed():
             'home_banner': { 
                 "slides": [
                     {
-                        "title": "DESCUBRE TU ESENCIA", 
-                        "subtitle": "FRAGANCIAS EXCLUSIVAS",
-                        "mediaUrl": "https://images.unsplash.com/photo-1594035910387-fea47794261f?w=1600&q=80",
+                        "tagline": "TIENDA DEPORTIVA Y ACCESORIOS",
+                        "title": "ENTRENA AL MÁXIMO", 
+                        "subtitle": "INDUMENTARIA DEPORTIVA",
+                        "mediaUrl": "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=1600&q=80",
                         "link": "/catalog"
                     }
                 ]
@@ -62,7 +63,7 @@ def seed():
             },
             'site_footer': { 
                 "logoUrl": "", 
-                "copyRight": "© 2024 Essence Perfumería. Todos los derechos reservados." 
+                "copyRight": "© 2026 Tienda Deportiva y Accesorios. Todos los derechos reservados." 
             }
         }
         
