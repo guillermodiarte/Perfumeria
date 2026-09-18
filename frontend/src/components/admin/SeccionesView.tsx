@@ -6,6 +6,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
   const [activeEditor, setActiveEditor] = useState<string | null>(null);
   const [settings, setSettings] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   // States for banner editor
   const [bannerSlides, setBannerSlides] = useState<any[]>([]);
@@ -158,6 +159,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
   const saveSettings = async (key: string, value: any) => {
     try {
       setSaving(true);
+      setSaveSuccess(null);
       const res = await fetch(`${apiUrl}/api/admin/settings/${key}`, {
         method: 'PUT',
         headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
@@ -167,9 +169,9 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
         if (key === 'site_header') {
           useSiteSettingsStore.getState().setHeaderSettings(value);
         }
-        showAlert("Sección actualizada con éxito");
         await fetchSettings();
-        setActiveEditor(null);
+        setSaveSuccess('¡Cambios guardados exitosamente! La sección fue actualizada.');
+        setTimeout(() => setSaveSuccess(null), 5000);
       } else {
         showAlert("Error al actualizar la sección");
       }
@@ -181,7 +183,18 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
   };
 
   const renderBannerEditor = () => (
-    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+    <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+      {/* Success Banner */}
+      {saveSuccess && (
+        <div className="flex items-center gap-3 px-6 py-4 bg-emerald-500 text-white font-semibold text-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <span className="material-symbols-outlined text-xl">check_circle</span>
+          {saveSuccess}
+          <button type="button" onClick={() => setSaveSuccess(null)} className="ml-auto text-white/80 hover:text-white">
+            <span className="material-symbols-outlined text-lg">close</span>
+          </button>
+        </div>
+      )}
+      <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
           <span className="material-symbols-outlined text-blue-500">view_carousel</span> Editar Banner Principal
@@ -390,17 +403,29 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
       </div>
 
       <div className="mt-8 flex justify-end gap-3">
-        <button onClick={() => setActiveEditor(null)} disabled={saving} className="px-4 py-2 font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg disabled:opacity-50">Cancelar</button>
+        <button onClick={() => setActiveEditor(null)} disabled={saving} className="px-4 py-2 font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg disabled:opacity-50">← Volver a Secciones</button>
         <button onClick={() => saveSettings('home_banner', { slides: bannerSlides, interval: bannerInterval })} disabled={saving} className="px-4 py-2 font-bold bg-primary text-white hover:bg-primary/90 rounded-lg disabled:opacity-50 flex items-center gap-2">
           {saving && <span className="material-symbols-outlined animate-spin text-[18px]">autorenew</span>}
           Guardar Cambios
         </button>
       </div>
+      </div>
     </div>
   );
 
   const renderCategoriesEditor = () => (
-    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+    <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+      {/* Success Banner */}
+      {saveSuccess && (
+        <div className="flex items-center gap-3 px-6 py-4 bg-emerald-500 text-white font-semibold text-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <span className="material-symbols-outlined text-xl">check_circle</span>
+          {saveSuccess}
+          <button type="button" onClick={() => setSaveSuccess(null)} className="ml-auto text-white/80 hover:text-white">
+            <span className="material-symbols-outlined text-lg">close</span>
+          </button>
+        </div>
+      )}
+      <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
           <span className="material-symbols-outlined text-purple-500">category</span> Editar Categorías Destacadas
@@ -457,14 +482,26 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
       </div>
 
       <div className="mt-8 flex justify-end gap-3">
-        <button onClick={() => setActiveEditor(null)} className="px-4 py-2 font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">Cancelar</button>
+        <button onClick={() => setActiveEditor(null)} className="px-4 py-2 font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">← Volver a Secciones</button>
         <button onClick={() => saveSettings('home_categories', { categories: categoryCards })} className="px-4 py-2 font-bold bg-primary text-white hover:bg-primary/90 rounded-lg">Guardar Cambios</button>
+      </div>
       </div>
     </div>
   );
 
   const renderHeaderEditor = () => (
-    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm max-w-4xl mx-auto space-y-8">
+    <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-0 overflow-hidden">
+      {/* Success Banner */}
+      {saveSuccess && (
+        <div className="flex items-center gap-3 px-6 py-4 bg-emerald-500 text-white font-semibold text-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <span className="material-symbols-outlined text-xl">check_circle</span>
+          {saveSuccess}
+          <button type="button" onClick={() => setSaveSuccess(null)} className="ml-auto text-white/80 hover:text-white">
+            <span className="material-symbols-outlined text-lg">close</span>
+          </button>
+        </div>
+      )}
+      <div className="p-6 md:p-8 space-y-8">
       {/* Header Bar */}
       <div className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-700">
         <div>
@@ -740,7 +777,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
           onClick={() => setActiveEditor(null)}
           className="px-5 py-2.5 font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition"
         >
-          Cancelar
+          ← Volver a Secciones
         </button>
         <button
           type="button"
@@ -753,6 +790,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
           </span>
           <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>
         </button>
+      </div>
       </div>
     </div>
   );
