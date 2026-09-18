@@ -59,6 +59,9 @@ export default function AdminDashboard() {
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const showAlert = (msg: string) => setAlertMessage(msg);
 
+  // Key counter to force reset SeccionesView when clicking menu item again
+  const [sectionsKey, setSectionsKey] = useState(0);
+
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [sectionData, setSectionData] = useState<any>({});
 
@@ -638,7 +641,10 @@ export default function AdminDashboard() {
           </button>
 
           {currentAdminRole === 'super_admin' && (
-            <button onClick={() => setActiveView('sections')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'sections' ? 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <button
+              onClick={() => { setActiveView('sections'); setSectionsKey(k => k + 1); }}
+              className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'sections' ? 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}
+            >
               <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'sections' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/30' : 'bg-pink-100 dark:bg-pink-950/60 text-pink-500'}`}>
                 <span className="material-symbols-outlined text-[18px]">web</span>
               </span>
@@ -813,7 +819,7 @@ export default function AdminDashboard() {
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ProductosView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : (activeView === 'sections' && currentAdminRole === 'super_admin') ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
-                <SeccionesView apiKey={apiKey} apiUrl={API_URL} showAlert={showAlert} />
+                <SeccionesView key={sectionsKey} apiKey={apiKey} apiUrl={API_URL} showAlert={showAlert} />
               </div>
             ) : activeView === 'media' ? (
               <div className="space-y-6">
