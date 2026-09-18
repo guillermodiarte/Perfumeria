@@ -10,10 +10,32 @@ type TabType = 'precios' | 'catalogo' | 'envios' | 'empresa' | 'respaldos';
 
 interface ConfiguracionViewProps {
   isSuperAdmin?: boolean;
+  apiKey?: string;
+  showAlert?: (msg: string) => void;
 }
 
-export default function ConfiguracionView({ isSuperAdmin = false }: ConfiguracionViewProps) {
+export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAlert }: ConfiguracionViewProps) {
   const [activeTab, setActiveTab] = useState<TabType>('precios');
+
+  // Modal dialog state (replaces browser alerts with rich modals)
+  const [modalState, setModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'error' | 'success' | 'info';
+  } | null>(null);
+
+  const showModal = (title: string, message: string, type: 'error' | 'success' | 'info' = 'info') => {
+    setModalState({ isOpen: true, title, message, type });
+  };
+
+  const getAuthToken = () => {
+    if (apiKey) return apiKey;
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lyg_api_key') || '';
+    }
+    return '';
+  };
 
   useEffect(() => {
     if (!isSuperAdmin && (activeTab === 'respaldos' || activeTab === 'empresa')) {
@@ -44,7 +66,13 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
   const fetchShippingConfig = async () => {
     setLoadingShipping(true);
     try {
-      const res = await fetch('/api/admin/settings/shipping');
+      const token = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['X-API-KEY'] = token;
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const res = await fetch(`${API_URL || ''}/api/admin/settings/shipping`, { headers });
       if (res.ok) {
         const data = await res.json();
         setShippingConfig({
@@ -68,7 +96,13 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
   const fetchCompanyConfig = async () => {
     setLoadingCompany(true);
     try {
-      const res = await fetch('/api/admin/settings/company_info');
+      const token = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['X-API-KEY'] = token;
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const res = await fetch(`${API_URL || ''}/api/admin/settings/company_info`, { headers });
       if (res.ok) {
         const data = await res.json();
         if (data && data.value) {
@@ -91,19 +125,29 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
     e.preventDefault();
     setSavingShipping(true);
     try {
-      const res = await fetch('/api/admin/settings/shipping', {
+      const token = getAuthToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['X-API-KEY'] = token;
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const res = await fetch(`${API_URL || ''}/api/admin/settings/shipping`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(shippingConfig),
       });
       if (res.ok) {
         setShippingSaveMsg('Configuración de envíos guardada exitosamente.');
-        setTimeout(() => setShippingSaveMsg(null), 3000);
+        setTimeout(() => setShippingSaveMsg(null), 3500);
+        showModal('Configuración Guardada', 'La configuración de envíos se guardó exitosamente.', 'success');
       } else {
-        alert('Error al guardar configuración de envíos');
+        const errData = await res.json().catch(() => ({}));
+        showModal('Error al guardar', errData.detail || 'Error al guardar la configuración de envíos.', 'error');
       }
     } catch {
-      alert('Error de conexión con el servidor');
+      showModal('Error de Conexión', 'No se pudo conectar con el servidor para guardar la configuración de envíos.', 'error');
     } finally {
       setSavingShipping(false);
     }
@@ -113,19 +157,29 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
     e.preventDefault();
     setSavingCompany(true);
     try {
-      const res = await fetch('/api/admin/settings/company_info', {
+      const token = getAuthToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['X-API-KEY'] = token;
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const res = await fetch(`${API_URL || ''}/api/admin/settings/company_info`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ value: companyConfig }),
       });
       if (res.ok) {
         setCompanySaveMsg('Datos de la empresa guardados correctamente.');
         setTimeout(() => setCompanySaveMsg(null), 3500);
+        showModal('¡Guardado Exitoso!', 'Los datos de la empresa y contacto se guardaron correctamente.', 'success');
       } else {
-        alert('Error al guardar datos de la empresa');
+        const errData = await res.json().catch(() => ({}));
+        showModal('Error al guardar', errData.detail || 'Ocurrió un error al guardar los datos de la empresa. Verifica tus permisos.', 'error');
       }
     } catch {
-      alert('Error de conexión con el servidor');
+      showModal('Error de Conexión', 'No se pudo establecer conexión con el servidor para guardar los datos.', 'error');
     } finally {
       setSavingCompany(false);
     }
@@ -142,9 +196,9 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
   const fetchWholesaleAutoSetting = async () => {
     setLoadingWholesaleAuto(true);
     try {
-      const adminToken = localStorage.getItem('lyg_api_key') || '';
+      const adminToken = getAuthToken();
       const res = await fetch(`${API_URL}/api/admin/settings/wholesale-auto`, {
-        headers: { 'X-API-KEY': adminToken }
+        headers: { 'X-API-KEY': adminToken, 'Authorization': `Bearer ${adminToken}` }
       });
       if (res.ok) {
         const data = await res.json();
@@ -167,12 +221,13 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
   const handleUpdateWholesaleAuto = async (enabled: boolean, minQty: number) => {
     setSavingWholesaleAuto(true);
     try {
-      const adminToken = localStorage.getItem('lyg_api_key') || '';
+      const adminToken = getAuthToken();
       const res = await fetch(`${API_URL}/api/admin/settings/wholesale-auto`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-KEY': adminToken
+          'X-API-KEY': adminToken,
+          'Authorization': `Bearer ${adminToken}`,
         },
         body: JSON.stringify({ enabled, min_quantity: minQty })
       });
@@ -183,11 +238,11 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
         setSaveSuccessMessage('Configuración de mayoristas guardada exitosamente.');
         setTimeout(() => setSaveSuccessMessage(null), 3500);
       } else {
-        const err = await res.json();
-        alert(err.detail || 'Error al guardar la configuración');
+        const err = await res.json().catch(() => ({}));
+        showModal('Error al guardar', err.detail || 'Error al guardar la configuración de mayoristas.', 'error');
       }
     } catch (e) {
-      alert('Error de conexión al servidor');
+      showModal('Error de Conexión', 'Error de conexión al servidor al actualizar la configuración.', 'error');
     } finally {
       setSavingWholesaleAuto(false);
     }
@@ -220,9 +275,9 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
       try {
         const json = JSON.parse(evt.target?.result as string);
         importData(json);
-        alert('Catálogo restaurado exitosamente');
+        showModal('Catálogo Restaurado', 'Catálogo y datos restaurados exitosamente.', 'success');
       } catch (err) {
-        alert('Error al leer el archivo JSON');
+        showModal('Error en Archivo', 'El archivo seleccionado no contiene un formato JSON válido.', 'error');
       }
     };
     reader.readAsText(file);
@@ -232,8 +287,10 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
   // --- DB EXPORT / IMPORT ---
   const handleExportDB = async () => {
     try {
-      const adminToken = localStorage.getItem('lyg_api_key') || '';
-      const res = await fetch(`${API_URL}/api/admin/backup/db`, { headers: { 'X-API-KEY': adminToken } });
+      const adminToken = getAuthToken();
+      const res = await fetch(`${API_URL}/api/admin/backup/db`, {
+        headers: { 'X-API-KEY': adminToken, 'Authorization': `Bearer ${adminToken}` }
+      });
       if (!res.ok) throw new Error('Error al descargar');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -242,7 +299,9 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
       a.download = `perfumeria_db_${new Date().toISOString().split('T')[0]}.db`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { alert('Error descargando base de datos'); }
+    } catch (e) {
+      showModal('Error de Descarga', 'Error al descargar la copia de seguridad de la base de datos.', 'error');
+    }
   };
 
   const handleImportDB = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -251,25 +310,35 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
     const formData = new FormData();
     formData.append('file', file);
     setLoading(true);
-    const adminToken = localStorage.getItem('lyg_api_key') || '';
+    const adminToken = getAuthToken();
     try {
       const res = await fetch(`${API_URL}/api/admin/backup/db`, {
         method: 'POST',
-        headers: { 'X-API-KEY': adminToken },
+        headers: { 'X-API-KEY': adminToken, 'Authorization': `Bearer ${adminToken}` },
         body: formData
       });
-      if (res.ok) alert('Base de datos restaurada');
-      else alert('Error al restaurar BD');
-    } catch (err) { alert('Error de red'); }
-    finally { setLoading(false); e.target.value = ''; }
+      if (res.ok) {
+        showModal('Base de Datos Restaurada', 'La base de datos SQLite se restauró exitosamente.', 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showModal('Error al Restaurar', err.detail || 'Error al restaurar la base de datos.', 'error');
+      }
+    } catch (err) {
+      showModal('Error de Red', 'Error de conexión de red al restaurar la base de datos.', 'error');
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
   };
 
   // --- IMAGES EXPORT / IMPORT ---
   const handleExportImages = async () => {
     try {
       setLoading(true);
-      const adminToken = localStorage.getItem('lyg_api_key') || '';
-      const res = await fetch(`${API_URL}/api/admin/backup/images`, { headers: { 'X-API-KEY': adminToken } });
+      const adminToken = getAuthToken();
+      const res = await fetch(`${API_URL}/api/admin/backup/images`, {
+        headers: { 'X-API-KEY': adminToken, 'Authorization': `Bearer ${adminToken}` }
+      });
       if (!res.ok) throw new Error('Error al descargar');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -278,8 +347,11 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
       a.download = `perfumeria_imagenes_${new Date().toISOString().split('T')[0]}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { alert('Error descargando imágenes'); }
-    finally { setLoading(false); }
+    } catch (e) {
+      showModal('Error de Descarga', 'Error al generar o descargar el paquete de imágenes.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleImportImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,17 +360,25 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
     const formData = new FormData();
     formData.append('file', file);
     setLoading(true);
-    const adminToken = localStorage.getItem('lyg_api_key') || '';
+    const adminToken = getAuthToken();
     try {
       const res = await fetch(`${API_URL}/api/admin/backup/images`, {
         method: 'POST',
-        headers: { 'X-API-KEY': adminToken },
+        headers: { 'X-API-KEY': adminToken, 'Authorization': `Bearer ${adminToken}` },
         body: formData
       });
-      if (res.ok) alert('Imágenes restauradas');
-      else alert('Error al restaurar Imágenes');
-    } catch (err) { alert('Error de red'); }
-    finally { setLoading(false); e.target.value = ''; }
+      if (res.ok) {
+        showModal('Imágenes Restauradas', 'El paquete de imágenes se restauró exitosamente.', 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showModal('Error al Restaurar', err.detail || 'Error al restaurar el paquete de imágenes.', 'error');
+      }
+    } catch (err) {
+      showModal('Error de Red', 'Error de red al subir el paquete de imágenes.', 'error');
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
   };
 
   return (
@@ -1227,6 +1307,50 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dialog Window */}
+      {modalState?.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl border border-slate-100 dark:border-slate-700 text-center transform transition-all scale-100 animate-scale-up">
+            <div
+              className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
+                modalState.type === 'error'
+                  ? 'bg-rose-500/10 text-rose-500'
+                  : modalState.type === 'success'
+                  ? 'bg-emerald-500/10 text-emerald-500'
+                  : 'bg-primary/10 text-primary'
+              }`}
+            >
+              <span className="material-symbols-outlined text-3xl">
+                {modalState.type === 'error'
+                  ? 'error'
+                  : modalState.type === 'success'
+                  ? 'check_circle'
+                  : 'info'}
+              </span>
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2">
+              {modalState.title}
+            </h3>
+            <p className="text-slate-600 dark:text-slate-300 font-medium text-sm leading-relaxed mb-6">
+              {modalState.message}
+            </p>
+            <button
+              type="button"
+              onClick={() => setModalState(null)}
+              className={`w-full py-3 text-white font-bold rounded-xl shadow-lg transition-all ${
+                modalState.type === 'error'
+                  ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/30'
+                  : modalState.type === 'success'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30'
+                  : 'bg-primary hover:bg-primary/90 shadow-primary/30'
+              }`}
+            >
+              Aceptar
+            </button>
           </div>
         </div>
       )}

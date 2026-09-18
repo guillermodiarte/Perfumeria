@@ -985,7 +985,13 @@ export default function AdminDashboard() {
             ) : activeView === 'finanzas' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><FinanzasView /></div>
             ) : activeView === 'configuracion' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><ConfiguracionView isSuperAdmin={currentAdminRole === 'super_admin'} /></div>
+              <div className="max-w-[1600px] w-full px-2 mx-auto">
+                <ConfiguracionView
+                  isSuperAdmin={currentAdminRole === 'super_admin'}
+                  apiKey={apiKey}
+                  showAlert={showAlert}
+                />
+              </div>
             ) : activeView === 'users' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <ClientesView apiKey={apiKey} onPendingCountChange={setPendingCount} />
