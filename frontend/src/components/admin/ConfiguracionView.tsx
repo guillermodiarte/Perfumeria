@@ -883,6 +883,32 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                       placeholder="Descripción de la empresa visible en 'Dónde estamos' y otras secciones"
                     />
                   </div>
+
+                  {/* Acceso a Identidad Web, Favicon y WhatsApp */}
+                  <div className="p-4 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-pink-950/20 dark:to-purple-950/20 border border-pink-200/80 dark:border-pink-800/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-pink-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-pink-500/20">
+                        <span className="material-symbols-outlined text-lg">share</span>
+                      </div>
+                      <div>
+                        <h5 className="font-bold text-slate-900 dark:text-white text-xs">Favicon, Barra de Título y WhatsApp</h5>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Configura la imagen para compartir en WhatsApp, el favicon y el texto de la pestaña con simuladores en vivo.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const btn = document.getElementById('btn-nav-sections');
+                        if (btn) btn.click();
+                      }}
+                      className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-pink-600 dark:text-pink-300 font-bold text-xs rounded-lg border border-pink-200 dark:border-pink-800/60 shadow-sm shrink-0 flex items-center gap-1 self-start sm:self-auto"
+                    >
+                      <span className="material-symbols-outlined text-sm">open_in_new</span>
+                      <span>Configurar en Secciones</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* 2. Ubicación & Google Maps */}

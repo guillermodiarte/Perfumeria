@@ -7,6 +7,11 @@ export interface SiteHeaderSettings {
   facebookUrl?: string;
   instagramUrl?: string;
   whatsapp?: string;
+  faviconUrl?: string;
+  siteTitle?: string;
+  siteDescription?: string;
+  ogImageUrl?: string;
+  ogTitle?: string;
 }
 
 interface SiteSettingsState {
@@ -24,6 +29,11 @@ export const useSiteSettingsStore = create<SiteSettingsState>((set, get) => ({
     facebookUrl: '#',
     instagramUrl: '#',
     whatsapp: '5493704747426',
+    faviconUrl: '/uploads/Logo/logo.webp',
+    siteTitle: 'Ciara Bonita | Catálogo de Fragancias',
+    siteDescription: 'Catálogo de fragancias exclusivas, maquillaje y accesorios.',
+    ogImageUrl: '/uploads/Banners/1.webp',
+    ogTitle: 'Ciara Bonita | Fragancias Exclusivas',
   },
   loaded: false,
   fetchHeaderSettings: async () => {
@@ -41,6 +51,11 @@ export const useSiteSettingsStore = create<SiteSettingsState>((set, get) => ({
             facebookUrl: val.facebookUrl ?? state.header.facebookUrl,
             instagramUrl: val.instagramUrl ?? state.header.instagramUrl,
             whatsapp: val.whatsapp ?? state.header.whatsapp,
+            faviconUrl: val.faviconUrl ?? state.header.faviconUrl,
+            siteTitle: val.siteTitle ?? state.header.siteTitle,
+            siteDescription: val.siteDescription ?? state.header.siteDescription,
+            ogImageUrl: val.ogImageUrl ?? state.header.ogImageUrl,
+            ogTitle: val.ogTitle ?? state.header.ogTitle,
           },
           loaded: true,
         }));

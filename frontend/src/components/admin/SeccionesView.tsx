@@ -23,9 +23,17 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
     facebookUrl: '#',
     instagramUrl: '#',
     whatsapp: '5493704747426',
+    faviconUrl: '/uploads/Logo/logo.webp',
+    siteTitle: 'Ciara Bonita | Catálogo de Fragancias',
+    siteDescription: 'Catálogo de fragancias exclusivas, maquillaje y accesorios.',
+    ogImageUrl: '/uploads/Banners/1.webp',
+    ogTitle: 'Ciara Bonita | Fragancias Exclusivas',
   });
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingFavicon, setUploadingFavicon] = useState(false);
+  const [uploadingOgImage, setUploadingOgImage] = useState(false);
   const [previewTheme, setPreviewTheme] = useState<'light' | 'dark'>('light');
+  const [activeIdentityTab, setActiveIdentityTab] = useState<'whatsapp' | 'browser' | 'logo' | 'socials'>('whatsapp');
 
   const [uploadingSlideIdx, setUploadingSlideIdx] = useState<number | null>(null);
   const [uploadingCatIdx, setUploadingCatIdx] = useState<number | null>(null);
@@ -126,6 +134,11 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
         facebookUrl: currentHeader.facebookUrl ?? '#',
         instagramUrl: currentHeader.instagramUrl ?? '#',
         whatsapp: currentHeader.whatsapp ?? '5493704747426',
+        faviconUrl: currentHeader.faviconUrl || currentHeader.logoUrl || '/uploads/Logo/logo.webp',
+        siteTitle: currentHeader.siteTitle || 'Ciara Bonita | Catálogo de Fragancias',
+        siteDescription: currentHeader.siteDescription || 'Catálogo de fragancias exclusivas, maquillaje y accesorios.',
+        ogImageUrl: currentHeader.ogImageUrl || '/uploads/Banners/1.webp',
+        ogTitle: currentHeader.ogTitle || currentHeader.siteTitle || 'Ciara Bonita | Fragancias Exclusivas',
       });
     }
   };
@@ -138,7 +151,10 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
     try {
       const res = await fetch(`${apiUrl}/api/admin/media?category=${folder}`, {
         method: 'POST',
-        headers: { 'X-API-KEY': apiKey },
+        headers: {
+          'X-API-KEY': apiKey,
+          'Authorization': `Bearer ${apiKey}`,
+        },
         body: formData
       });
       if (res.ok) {
@@ -162,7 +178,11 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
       setSaveSuccess(null);
       const res = await fetch(`${apiUrl}/api/admin/settings/${key}`, {
         method: 'PUT',
-        headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+        headers: {
+          'X-API-KEY': apiKey,
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ value })
       });
       if (res.ok) {
@@ -170,7 +190,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
           useSiteSettingsStore.getState().setHeaderSettings(value);
         }
         await fetchSettings();
-        setSaveSuccess('¡Cambios guardados exitosamente! La sección fue actualizada.');
+        setSaveSuccess('¡Cambios guardados exitosamente! La configuración fue actualizada.');
         setTimeout(() => setSaveSuccess(null), 5000);
       } else {
         showAlert("Error al actualizar la sección");
@@ -501,296 +521,727 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
           </button>
         </div>
       )}
-      <div className="p-6 md:p-8 space-y-8">
-      {/* Header Bar */}
-      <div className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-700">
-        <div>
-          <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
-            <span className="material-symbols-outlined text-pink-500">dock_to_bottom</span>
-            Editar Logotipo y Cabecera
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Personaliza el logotipo principal de la tienda, ajusta su tamaño exacto y gestiona enlaces de redes sociales.
-          </p>
-        </div>
-        <button
-          onClick={() => setActiveEditor(null)}
-          className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg"
-        >
-          <span className="material-symbols-outlined">close</span>
-        </button>
-      </div>
 
-      {/* BLOQUE 1: LOGOTIPO */}
-      <div className="p-6 bg-slate-50/70 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="p-6 md:p-8 space-y-8">
+        {/* Header Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200 dark:border-slate-700">
           <div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-xl">image</span>
-              Logotipo Principal
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Las imágenes subidas se optimizan y convierten automáticamente a WebP de alta velocidad.
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary text-2xl">share</span>
+              <h2 className="text-xl font-bold dark:text-white">
+                Identidad Web, Favicon y Redes
+              </h2>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Personaliza la vista previa al compartir por WhatsApp, el icono y título de la pestaña del navegador, el logotipo principal y los canales de contacto.
             </p>
           </div>
-          {/* Theme switcher for preview */}
-          <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold shrink-0">
-            <button
-              type="button"
-              onClick={() => setPreviewTheme('light')}
-              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1 ${
-                previewTheme === 'light'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <span className="material-symbols-outlined text-sm">light_mode</span> Claro
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreviewTheme('dark')}
-              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1 ${
-                previewTheme === 'dark'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <span className="material-symbols-outlined text-sm">dark_mode</span> Oscuro
-            </button>
-          </div>
+          <button
+            onClick={() => setActiveEditor(null)}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition self-start sm:self-auto"
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
         </div>
 
-        {/* Live Preview Container */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-            <span>Previsualización en tiempo real</span>
-            <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
-              Altura: {headerSettings.logoHeight}px (Ancho proporcional automático)
-            </span>
-          </div>
-
-          <div
-            className={`w-full min-h-[140px] rounded-2xl p-6 flex items-center justify-center border transition-colors ${
-              previewTheme === 'light'
-                ? 'bg-gradient-to-b from-white to-slate-100 border-slate-200'
-                : 'bg-gradient-to-b from-slate-900 to-slate-950 border-slate-800'
+        {/* Sub-tabs Navigation */}
+        <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-100 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={() => setActiveIdentityTab('whatsapp')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+              activeIdentityTab === 'whatsapp'
+                ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/25'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            {headerSettings.logoUrl ? (
-              <img
-                src={getMediaSrc(headerSettings.logoUrl)}
-                alt="Previsualización Logo"
-                style={{
-                  height: `${headerSettings.logoHeight}px`,
-                  width: 'auto',
-                  maxHeight: '120px',
-                }}
-                className="object-contain select-none transition-all duration-200 drop-shadow-md"
-              />
-            ) : (
-              <div className="text-center text-slate-400 text-xs">
-                <span className="material-symbols-outlined text-3xl mb-1">image_not_supported</span>
-                <p>No hay logotipo configurado</p>
+            <span className="material-symbols-outlined text-base">chat</span>
+            Compartir en WhatsApp
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveIdentityTab('browser')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+              activeIdentityTab === 'browser'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-base">tab</span>
+            Pestaña y Favicon
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveIdentityTab('logo')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+              activeIdentityTab === 'logo'
+                ? 'bg-primary text-white shadow-md shadow-primary/25'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-base">image</span>
+            Logotipo Principal
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveIdentityTab('socials')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+              activeIdentityTab === 'socials'
+                ? 'bg-purple-600 text-white shadow-md shadow-purple-600/25'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-base">contacts</span>
+            Redes Sociales
+          </button>
+        </div>
+
+        {/* TAB 1: WHATSAPP Y REDES */}
+        {activeIdentityTab === 'whatsapp' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Form Controls */}
+              <div className="lg:col-span-7 space-y-5">
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-start gap-3">
+                  <span className="material-symbols-outlined text-emerald-600 text-xl mt-0.5 shrink-0">check_circle</span>
+                  <div className="text-xs text-emerald-900 dark:text-emerald-300 space-y-1">
+                    <p className="font-bold">Vista previa en WhatsApp y Redes Sociales (Open Graph)</p>
+                    <p className="text-emerald-700/90 dark:text-emerald-400">
+                      Cuando compartas el enlace de tu tienda web en WhatsApp, Telegram o Facebook, los usuarios verán una tarjeta con esta imagen, título y descripción.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Subir Imagen WhatsApp */}
+                <div className="p-5 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Imagen de Portada para WhatsApp
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 transition shadow-sm">
+                      <span className={`material-symbols-outlined text-lg ${uploadingOgImage ? 'animate-spin' : ''}`}>
+                        {uploadingOgImage ? 'progress_activity' : 'cloud_upload'}
+                      </span>
+                      <span>{uploadingOgImage ? 'Comprimiendo a WebP...' : 'Subir Imagen para WhatsApp'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingOgImage}
+                        className="hidden"
+                        onChange={async (e) => {
+                          setUploadingOgImage(true);
+                          try {
+                            const url = await handleFileUpload(e, 'Banners');
+                            if (url) {
+                              setHeaderSettingsState((prev) => ({ ...prev, ogImageUrl: url }));
+                              showAlert('✓ Imagen para WhatsApp cargada y optimizada a WebP exitosamente');
+                            }
+                          } finally {
+                            setUploadingOgImage(false);
+                          }
+                        }}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setHeaderSettingsState((prev) => ({ ...prev, ogImageUrl: prev.logoUrl || '/uploads/Logo/logo.webp' }))}
+                      className="px-3 py-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                    >
+                      Usar Logotipo
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setHeaderSettingsState((prev) => ({ ...prev, ogImageUrl: '/uploads/Banners/1.webp' }))}
+                      className="px-3 py-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                    >
+                      Usar Banner 1
+                    </button>
+                  </div>
+
+                  <div className="pt-2">
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                      O ingresar ruta directa / URL:
+                    </label>
+                    <input
+                      type="text"
+                      value={headerSettings.ogImageUrl || ''}
+                      onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, ogImageUrl: e.target.value }))}
+                      placeholder="/uploads/Banners/1.webp o https://..."
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white font-mono"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Recomendado: proporción horizontal 1.91:1 (ej. 1200 x 630 px) o cuadrada. Se comprime y convierte automáticamente a formato WebP ultraliviano.
+                  </p>
+                </div>
+
+                {/* Título y Descripción para WhatsApp */}
+                <div className="p-5 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Título en la Tarjeta de WhatsApp
+                    </label>
+                    <input
+                      type="text"
+                      value={headerSettings.ogTitle || ''}
+                      onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, ogTitle: e.target.value }))}
+                      placeholder="Ej: Ciara Bonita | Fragancias Exclusivas"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs text-slate-900 dark:text-white font-bold"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Si lo dejas vacío, usará automáticamente el título configurado para la pestaña del navegador.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Descripción al Compartir (Resumen visible)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={headerSettings.siteDescription || ''}
+                      onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, siteDescription: e.target.value }))}
+                      placeholder="Ej: Catálogo exclusivo de fragancias, maquillaje y accesorios. Descubre promociones mayoristas y envíos a todo el país."
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs text-slate-900 dark:text-white"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Texto explicativo de 1 o 2 renglones que acompaña al link en la tarjeta compartida.
+                    </p>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Upload & Logo Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-              Subir nueva imagen para el logotipo
-            </label>
-            <div className="flex items-center gap-2">
-              <label className="cursor-pointer flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl font-bold text-xs hover:bg-primary/90 transition shadow-sm">
-                <span className={`material-symbols-outlined text-lg ${uploadingLogo ? 'animate-spin' : ''}`}>
-                  {uploadingLogo ? 'progress_activity' : 'cloud_upload'}
-                </span>
-                <span>{uploadingLogo ? 'Comprimiendo a WebP...' : 'Seleccionar Imagen (PNG / JPG / WebP)'}</span>
+              {/* Live WhatsApp Chat Simulator */}
+              <div className="lg:col-span-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-emerald-500 text-sm">visibility</span>
+                    Simulador en vivo de WhatsApp
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Vista Móvil
+                  </span>
+                </div>
+
+                {/* WhatsApp Phone Mockup */}
+                <div className="w-full bg-[#efeae2] dark:bg-[#0b141a] rounded-3xl p-4 border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden font-sans">
+                  {/* WhatsApp Chat Header */}
+                  <div className="flex items-center gap-2.5 pb-3 border-b border-black/5 dark:border-white/5 mb-3">
+                    <div className="w-8 h-8 rounded-full bg-[#00a884] text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                      CB
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                        Cliente / Amigo
+                      </p>
+                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                        en línea
+                      </p>
+                    </div>
+                    <span className="material-symbols-outlined text-slate-400 text-base">more_vert</span>
+                  </div>
+
+                  {/* Chat Message Bubble */}
+                  <div className="bg-[#d9fdd3] dark:bg-[#005c4b] rounded-2xl rounded-tr-none p-3 shadow-sm border border-emerald-500/10 space-y-2 max-w-[92%] ml-auto">
+                    {/* Embedded Open Graph Card */}
+                    <div className="rounded-xl overflow-hidden bg-white/80 dark:bg-black/30 border border-black/5 dark:border-white/10 space-y-0">
+                      {headerSettings.ogImageUrl ? (
+                        <div className="relative aspect-[1.91/1] w-full bg-slate-900 overflow-hidden">
+                          <img
+                            src={getMediaSrc(headerSettings.ogImageUrl)}
+                            alt="Preview WhatsApp"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <div className="aspect-[1.91/1] w-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-400 text-xs">
+                          Sin imagen configurada
+                        </div>
+                      )}
+
+                      <div className="p-2.5 space-y-1">
+                        <p className="text-[11px] font-bold text-slate-900 dark:text-white leading-snug line-clamp-1">
+                          {headerSettings.ogTitle || headerSettings.siteTitle || 'Ciara Bonita | Catálogo de Fragancias'}
+                        </p>
+                        <p className="text-[10px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">
+                          {headerSettings.siteDescription || 'Catálogo de fragancias exclusivas, maquillaje y accesorios.'}
+                        </p>
+                        <p className="text-[9px] text-slate-400 dark:text-slate-400 flex items-center gap-1 pt-0.5">
+                          <span className="material-symbols-outlined text-[10px]">link</span>
+                          ciarabonita.com
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Chat Text */}
+                    <div className="flex items-end justify-between gap-3 pt-1">
+                      <span className="text-[11px] text-emerald-700 dark:text-emerald-300 underline font-medium">
+                        https://ciarabonita.com
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0 text-[10px] text-slate-500 dark:text-slate-400">
+                        <span>12:45</span>
+                        <span className="text-blue-500 font-bold">✓✓</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: PESTAÑA DEL NAVEGADOR Y FAVICON */}
+        {activeIdentityTab === 'browser' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Form Controls */}
+              <div className="lg:col-span-7 space-y-5">
+                <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl flex items-start gap-3">
+                  <span className="material-symbols-outlined text-blue-600 text-xl mt-0.5 shrink-0">tab</span>
+                  <div className="text-xs text-blue-900 dark:text-blue-300 space-y-1">
+                    <p className="font-bold">Pestaña del Navegador y Favicon</p>
+                    <p className="text-blue-700/90 dark:text-blue-400">
+                      Personaliza el nombre de la página que ven los visitantes en la barra superior de su navegador (Chrome, Safari, Edge) y el icono favicon de la pestaña.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Texto en la barra del navegador */}
+                <div className="p-5 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Texto en la Barra del Navegador (Título de la Web / &lt;title&gt;)
+                  </label>
+                  <input
+                    type="text"
+                    value={headerSettings.siteTitle || ''}
+                    onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, siteTitle: e.target.value }))}
+                    placeholder="Ej: Ciara Bonita | Catálogo de Fragancias"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs text-slate-900 dark:text-white font-bold"
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    Aparece en la pestaña del navegador de los clientes, en los marcadores de favoritos y en los resultados de Google.
+                  </p>
+                </div>
+
+                {/* Favicon */}
+                <div className="p-5 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Favicon de la Pestaña (Icono del Sitio)
+                  </label>
+
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 flex items-center justify-center shadow-inner shrink-0">
+                      {headerSettings.faviconUrl ? (
+                        <img
+                          src={getMediaSrc(headerSettings.faviconUrl)}
+                          alt="Favicon Preview"
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <span className="material-symbols-outlined text-slate-400 text-2xl">public</span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 flex-1">
+                      <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition shadow-sm">
+                        <span className={`material-symbols-outlined text-lg ${uploadingFavicon ? 'animate-spin' : ''}`}>
+                          {uploadingFavicon ? 'progress_activity' : 'cloud_upload'}
+                        </span>
+                        <span>{uploadingFavicon ? 'Comprimiendo a WebP...' : 'Subir nuevo Favicon'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={uploadingFavicon}
+                          className="hidden"
+                          onChange={async (e) => {
+                            setUploadingFavicon(true);
+                            try {
+                              const url = await handleFileUpload(e, 'Logo');
+                              if (url) {
+                                setHeaderSettingsState((prev) => ({ ...prev, faviconUrl: url }));
+                                showAlert('✓ Nuevo Favicon cargado y optimizado a WebP exitosamente');
+                              }
+                            } finally {
+                              setUploadingFavicon(false);
+                            }
+                          }}
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => setHeaderSettingsState((prev) => ({ ...prev, faviconUrl: prev.logoUrl || '/uploads/Logo/logo.webp' }))}
+                        className="px-3 py-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                      >
+                        Usar Logotipo como Favicon
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-1">
+                    <input
+                      type="text"
+                      value={headerSettings.faviconUrl || ''}
+                      onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, faviconUrl: e.target.value }))}
+                      placeholder="/uploads/Logo/logo.webp o https://..."
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white font-mono"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Recomendado: imagen cuadrada (32x32 px o mayor). Admite fondo transparente, PNG o WebP.
+                  </p>
+                </div>
+              </div>
+
+              {/* Live Browser Tab Simulator */}
+              <div className="lg:col-span-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-blue-500 text-sm">visibility</span>
+                    Simulador en vivo del Navegador
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Google Chrome
+                  </span>
+                </div>
+
+                {/* Chrome Window Mockup */}
+                <div className="w-full bg-slate-200 dark:bg-slate-900 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-xl overflow-hidden">
+                  {/* Top Bar with window controls and tab */}
+                  <div className="bg-slate-300/80 dark:bg-slate-950 px-3 pt-3 flex items-center gap-3">
+                    {/* Window dots */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="w-3 h-3 rounded-full bg-rose-400 inline-block"></span>
+                      <span className="w-3 h-3 rounded-full bg-amber-400 inline-block"></span>
+                      <span className="w-3 h-3 rounded-full bg-emerald-400 inline-block"></span>
+                    </div>
+
+                    {/* Active Tab */}
+                    <div className="flex items-center gap-2 bg-white dark:bg-slate-800 px-3.5 py-1.5 rounded-t-xl max-w-[260px] flex-1 shadow-sm">
+                      {headerSettings.faviconUrl ? (
+                        <img
+                          src={getMediaSrc(headerSettings.faviconUrl)}
+                          alt="Tab Favicon"
+                          className="w-4 h-4 object-contain shrink-0"
+                        />
+                      ) : (
+                        <span className="material-symbols-outlined text-xs text-slate-400">public</span>
+                      )}
+                      <span className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                        {headerSettings.siteTitle || 'Ciara Bonita | Catálogo'}
+                      </span>
+                      <span className="text-xs text-slate-400 ml-auto shrink-0 cursor-pointer">×</span>
+                    </div>
+                  </div>
+
+                  {/* Address Bar */}
+                  <div className="bg-white dark:bg-slate-800 px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-slate-400 text-sm">arrow_back</span>
+                    <span className="material-symbols-outlined text-slate-400 text-sm">arrow_forward</span>
+                    <span className="material-symbols-outlined text-slate-400 text-sm">refresh</span>
+                    <div className="bg-slate-100 dark:bg-slate-900 rounded-full px-3 py-1 flex items-center gap-1.5 flex-1 text-xs text-slate-700 dark:text-slate-300 font-mono">
+                      <span className="material-symbols-outlined text-emerald-600 text-xs">lock</span>
+                      <span className="text-slate-400">https://</span>
+                      <span>ciarabonita.com</span>
+                    </div>
+                  </div>
+
+                  {/* Window Content Preview */}
+                  <div className="p-6 bg-slate-50 dark:bg-slate-900/60 min-h-[140px] flex flex-col items-center justify-center text-center">
+                    <span className="text-xs font-bold text-slate-500 mb-1">
+                      {headerSettings.siteTitle || 'Ciara Bonita | Catálogo'}
+                    </span>
+                    <p className="text-[11px] text-slate-400 max-w-xs">
+                      {headerSettings.siteDescription || 'Catálogo de fragancias exclusivas, maquillaje y accesorios.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: LOGOTIPO PRINCIPAL */}
+        {activeIdentityTab === 'logo' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="p-6 bg-slate-50/70 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary text-xl">image</span>
+                    Logotipo Principal de la Tienda
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Las imágenes subidas se optimizan y convierten automáticamente a WebP de alta velocidad.
+                  </p>
+                </div>
+                {/* Theme switcher for preview */}
+                <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTheme('light')}
+                    className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                      previewTheme === 'light'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-sm">light_mode</span> Claro
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTheme('dark')}
+                    className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                      previewTheme === 'dark'
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-sm">dark_mode</span> Oscuro
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Preview Container */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <span>Previsualización en tiempo real</span>
+                  <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
+                    Altura: {headerSettings.logoHeight}px (Ancho proporcional automático)
+                  </span>
+                </div>
+
+                <div
+                  className={`w-full min-h-[140px] rounded-2xl p-6 flex items-center justify-center border transition-colors ${
+                    previewTheme === 'light'
+                      ? 'bg-gradient-to-b from-white to-slate-100 border-slate-200'
+                      : 'bg-gradient-to-b from-slate-900 to-slate-950 border-slate-800'
+                  }`}
+                >
+                  {headerSettings.logoUrl ? (
+                    <img
+                      src={getMediaSrc(headerSettings.logoUrl)}
+                      alt="Previsualización Logo"
+                      style={{
+                        height: `${headerSettings.logoHeight}px`,
+                        width: 'auto',
+                        maxHeight: '120px',
+                      }}
+                      className="object-contain select-none transition-all duration-200 drop-shadow-md"
+                    />
+                  ) : (
+                    <div className="text-center text-slate-400 text-xs">
+                      <span className="material-symbols-outlined text-3xl mb-1">image_not_supported</span>
+                      <p>No hay logotipo configurado</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Upload & Logo Actions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                    Subir nueva imagen para el logotipo
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="cursor-pointer flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl font-bold text-xs hover:bg-primary/90 transition shadow-sm">
+                      <span className={`material-symbols-outlined text-lg ${uploadingLogo ? 'animate-spin' : ''}`}>
+                        {uploadingLogo ? 'progress_activity' : 'cloud_upload'}
+                      </span>
+                      <span>{uploadingLogo ? 'Comprimiendo a WebP...' : 'Seleccionar Imagen (PNG / JPG / WebP)'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingLogo}
+                        className="hidden"
+                        onChange={async (e) => {
+                          setUploadingLogo(true);
+                          try {
+                            const url = await handleFileUpload(e, 'Logo');
+                            if (url) {
+                              setHeaderSettingsState((prev) => ({ ...prev, logoUrl: url }));
+                              showAlert('✓ Nuevo logotipo cargado y optimizado a WebP exitosamente');
+                            }
+                          } finally {
+                            setUploadingLogo(false);
+                          }
+                        }}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setHeaderSettingsState((prev) => ({ ...prev, logoUrl: '/uploads/Logo/logo.webp' }))}
+                      title="Restablecer logo predeterminado"
+                      className="px-3 py-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                    >
+                      <span className="material-symbols-outlined text-base">restart_alt</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    Recomendado: fondo transparente. Se redimensiona y comprime al vuelo.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                    O ingresar URL / Ruta del archivo
+                  </label>
+                  <input
+                    type="text"
+                    value={headerSettings.logoUrl}
+                    onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, logoUrl: e.target.value }))}
+                    placeholder="/uploads/Logo/logo.webp o https://..."
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white font-medium outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+              </div>
+
+              {/* Control de Tamaño (Slider + Input numérico + Presets) */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-primary text-base">aspect_ratio</span>
+                    Tamaño del Logotipo (Altura)
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={24}
+                      max={100}
+                      value={headerSettings.logoHeight}
+                      onChange={(e) => {
+                        const val = Math.max(20, Math.min(120, parseInt(e.target.value) || 48));
+                        setHeaderSettingsState((prev) => ({ ...prev, logoHeight: val }));
+                      }}
+                      className="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-900 dark:text-white"
+                    />
+                    <span className="text-xs font-bold text-slate-400">px</span>
+                  </div>
+                </div>
+
+                {/* Slider */}
                 <input
-                  type="file"
-                  accept="image/*"
-                  disabled={uploadingLogo}
-                  className="hidden"
-                  onChange={async (e) => {
-                    setUploadingLogo(true);
-                    try {
-                      const url = await handleFileUpload(e, 'Logo');
-                      if (url) {
-                        setHeaderSettingsState((prev) => ({ ...prev, logoUrl: url }));
-                        showAlert('✓ Nuevo logotipo cargado y optimizado a WebP exitosamente');
-                      }
-                    } finally {
-                      setUploadingLogo(false);
-                    }
-                  }}
+                  type="range"
+                  min={28}
+                  max={90}
+                  step={2}
+                  value={headerSettings.logoHeight}
+                  onChange={(e) =>
+                    setHeaderSettingsState((prev) => ({ ...prev, logoHeight: parseInt(e.target.value) }))
+                  }
+                  className="w-full accent-primary cursor-pointer h-2 bg-slate-200 dark:bg-slate-700 rounded-lg"
                 />
-              </label>
 
-              <button
-                type="button"
-                onClick={() => setHeaderSettingsState((prev) => ({ ...prev, logoUrl: '/uploads/Logo/logo.webp' }))}
-                title="Restablecer logo predeterminado"
-                className="px-3 py-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-              >
-                <span className="material-symbols-outlined text-base">restart_alt</span>
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1.5">
-              Recomendado: fondo transparente. Se redimensiona y comprime al vuelo.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-              O ingresar URL / Ruta del archivo
-            </label>
-            <input
-              type="text"
-              value={headerSettings.logoUrl}
-              onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, logoUrl: e.target.value }))}
-              placeholder="/uploads/Logo/logo.webp o https://..."
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white font-medium outline-none focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-        </div>
-
-        {/* Control de Tamaño (Slider + Input numérico + Presets) */}
-        <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-primary text-base">aspect_ratio</span>
-              Tamaño del Logotipo (Altura)
-            </label>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                min={24}
-                max={100}
-                value={headerSettings.logoHeight}
-                onChange={(e) => {
-                  const val = Math.max(20, Math.min(120, parseInt(e.target.value) || 48));
-                  setHeaderSettingsState((prev) => ({ ...prev, logoHeight: val }));
-                }}
-                className="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-900 dark:text-white"
-              />
-              <span className="text-xs font-bold text-slate-400">px</span>
+                {/* Quick presets */}
+                <div className="flex items-center gap-2 flex-wrap pt-1">
+                  <span className="text-[11px] font-bold text-slate-400">Preajustes rápidos:</span>
+                  {[
+                    { label: 'Chico (36px)', val: 36 },
+                    { label: 'Estándar (48px)', val: 48 },
+                    { label: 'Mediano (56px)', val: 56 },
+                    { label: 'Grande (68px)', val: 68 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.val}
+                      type="button"
+                      onClick={() => setHeaderSettingsState((prev) => ({ ...prev, logoHeight: preset.val }))}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                        headerSettings.logoHeight === preset.val
+                          ? 'bg-primary text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
+        )}
 
-          {/* Slider */}
-          <input
-            type="range"
-            min={28}
-            max={90}
-            step={2}
-            value={headerSettings.logoHeight}
-            onChange={(e) =>
-              setHeaderSettingsState((prev) => ({ ...prev, logoHeight: parseInt(e.target.value) }))
-            }
-            className="w-full accent-primary cursor-pointer h-2 bg-slate-200 dark:bg-slate-700 rounded-lg"
-          />
+        {/* TAB 4: REDES SOCIALES */}
+        {activeIdentityTab === 'socials' && (
+          <div className="p-6 bg-slate-50/70 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4 animate-in fade-in duration-200">
+            <div>
+              <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <span className="material-symbols-outlined text-purple-500 text-xl">share</span>
+                Redes Sociales y Contacto en Cabecera
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Enlaces mostrados en el menú y accesos directos de la tienda.
+              </p>
+            </div>
 
-          {/* Quick presets */}
-          <div className="flex items-center gap-2 flex-wrap pt-1">
-            <span className="text-[11px] font-bold text-slate-400">Preajustes rápidos:</span>
-            {[
-              { label: 'Chico (36px)', val: 36 },
-              { label: 'Estándar (48px)', val: 48 },
-              { label: 'Mediano (56px)', val: 56 },
-              { label: 'Grande (68px)', val: 68 },
-            ].map((preset) => (
-              <button
-                key={preset.val}
-                type="button"
-                onClick={() => setHeaderSettingsState((prev) => ({ ...prev, logoHeight: preset.val }))}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
-                  headerSettings.logoHeight === preset.val
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                {preset.label}
-              </button>
-            ))}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                  WhatsApp (Número con cód. país)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: 5493704747426"
+                  value={headerSettings.whatsapp || ''}
+                  onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, whatsapp: e.target.value }))}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                  Instagram (URL o Perfil)
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://instagram.com/tu_cuenta"
+                  value={headerSettings.instagramUrl || ''}
+                  onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, instagramUrl: e.target.value }))}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                  Facebook (URL o Página)
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://facebook.com/tu_pagina"
+                  value={headerSettings.facebookUrl || ''}
+                  onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, facebookUrl: e.target.value }))}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-medium"
+                />
+              </div>
+            </div>
           </div>
+        )}
+
+        {/* Botones Guardar / Cancelar */}
+        <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700/80">
+          <button
+            type="button"
+            onClick={() => setActiveEditor(null)}
+            className="px-5 py-2.5 font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition"
+          >
+            ← Volver a Secciones
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => saveSettings('site_header', headerSettings)}
+            className="px-6 py-2.5 font-bold text-xs bg-primary text-white hover:bg-primary/90 rounded-xl transition flex items-center gap-2 shadow-md shadow-primary/20 disabled:opacity-50"
+          >
+            <span className={`material-symbols-outlined text-base ${saving ? 'animate-spin' : ''}`}>
+              {saving ? 'progress_activity' : 'save'}
+            </span>
+            <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>
+          </button>
         </div>
-      </div>
-
-      {/* BLOQUE 2: REDES SOCIALES DE CABECERA */}
-      <div className="p-6 bg-slate-50/70 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
-        <div>
-          <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            <span className="material-symbols-outlined text-purple-500 text-xl">share</span>
-            Redes Sociales y Contacto en Cabecera
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Enlaces mostrados en el menú y accesos directos de la tienda.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
-              WhatsApp (Número con cód. país)
-            </label>
-            <input
-              type="text"
-              placeholder="Ej: 5493704747426"
-              value={headerSettings.whatsapp || ''}
-              onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, whatsapp: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-medium"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
-              Instagram (URL o Perfil)
-            </label>
-            <input
-              type="text"
-              placeholder="https://instagram.com/tu_cuenta"
-              value={headerSettings.instagramUrl || ''}
-              onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, instagramUrl: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-medium"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
-              Facebook (URL o Página)
-            </label>
-            <input
-              type="text"
-              placeholder="https://facebook.com/tu_pagina"
-              value={headerSettings.facebookUrl || ''}
-              onChange={(e) => setHeaderSettingsState((prev) => ({ ...prev, facebookUrl: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-medium"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Botones Guardar / Cancelar */}
-      <div className="flex justify-end gap-3 pt-2">
-        <button
-          type="button"
-          onClick={() => setActiveEditor(null)}
-          className="px-5 py-2.5 font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition"
-        >
-          ← Volver a Secciones
-        </button>
-        <button
-          type="button"
-          disabled={saving}
-          onClick={() => saveSettings('site_header', headerSettings)}
-          className="px-6 py-2.5 font-bold text-xs bg-primary text-white hover:bg-primary/90 rounded-xl transition flex items-center gap-2 shadow-md shadow-primary/20 disabled:opacity-50"
-        >
-          <span className={`material-symbols-outlined text-base ${saving ? 'animate-spin' : ''}`}>
-            {saving ? 'progress_activity' : 'save'}
-          </span>
-          <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>
-        </button>
-      </div>
       </div>
     </div>
   );
@@ -860,20 +1311,26 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
           <span className="material-symbols-outlined absolute right-6 top-6 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
         </div>
 
-        {/* Cabecera MENU */}
+        {/* Identidad Web, Favicon y WhatsApp */}
         <div onClick={() => handleEditSection('site_header')} className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden flex flex-col items-start gap-4">
           <div className="size-12 bg-pink-100 dark:bg-pink-500/20 text-pink-600 dark:text-pink-400 rounded-xl flex items-center justify-center">
-            <span className="material-symbols-outlined">dock_to_bottom</span>
+            <span className="material-symbols-outlined">share</span>
           </div>
           <div>
-            <h3 className="font-bold text-lg dark:text-white mb-1 group-hover:text-primary transition-colors">Logotipo y Cabecera</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">Personaliza el logotipo principal, modifica su tamaño interactivamente y gestiona las redes sociales.</p>
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="font-bold text-lg dark:text-white group-hover:text-primary transition-colors">Identidad Web y WhatsApp</h3>
+              <span className="bg-pink-100 dark:bg-pink-950/60 text-pink-600 dark:text-pink-300 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">
+                Favicon + SEO
+              </span>
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Configura el favicon de la pestaña, el texto en la barra del navegador, el logotipo de la tienda y la imagen de vista previa al compartir por WhatsApp.
+            </p>
           </div>
           <div className="mt-auto pt-4 flex gap-2">
             <span className="w-8 h-1.5 rounded-full bg-pink-500"></span>
-            <span className="w-8 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700"></span>
-            <span className="w-8 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700"></span>
-            <span className="w-8 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700"></span>
+            <span className="w-8 h-1.5 rounded-full bg-emerald-500"></span>
+            <span className="w-8 h-1.5 rounded-full bg-blue-500"></span>
           </div>
           <span className="material-symbols-outlined absolute right-6 top-6 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
         </div>
