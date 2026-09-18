@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getCurrentAdmin } from '@/lib/auth';
 import { getUploadDir } from '@/lib/storage';
+import { optimizeAndSaveFile } from '@/lib/imageOptimizer';
 
 // GET /api/admin/media?category=...
 export async function GET(req: NextRequest) {
@@ -112,13 +113,12 @@ export async function POST(req: NextRequest) {
     const filePath = path.join(categoryDir, safeName);
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
+    const { filename: finalName, sizeKb } = await optimizeAndSaveFile(buffer, file.name, categoryDir);
 
-    const sizeKb = (buffer.length / 1024).toFixed(2);
-    const url = `/uploads/${safeCategory}/${safeName}`;
+    const url = `/uploads/${safeCategory}/${finalName}`;
 
     return NextResponse.json({
-      filename: safeName,
+      filename: finalName,
       category: safeCategory,
       url,
       size: `${sizeKb} KB`,

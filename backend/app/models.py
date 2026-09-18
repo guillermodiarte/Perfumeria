@@ -94,10 +94,15 @@ class Order(Base):
     payment_type = Column(String, default="total") # total, partial, cuotas
     installments_count = Column(Integer, default=1)
     last_installment_paid_month = Column(String, nullable=True)
-    delivery_status = Column(String, default="pending") # pending, delivered
+    delivery_status = Column(String, default="pending") # pending, shipped, delivered
     paid_amount = Column(Numeric(10, 2), default=0.0)
     total = Column(Numeric(10, 2))
     admin_notes = Column(String, nullable=True)
+    shipping_type = Column(String, nullable=True)          # 'delivery' | 'pickup'
+    shipping_cost = Column(Numeric(10, 2), default=0.0)
+    shipping_tracking_number = Column(String, nullable=True)
+    shipping_invoice_url = Column(String, nullable=True)
+    shipped_at = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     customer = relationship("Customer", back_populates="orders")

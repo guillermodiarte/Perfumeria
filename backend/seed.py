@@ -58,7 +58,7 @@ def seed():
                 "showSocials": True, 
                 "facebookUrl": "#", 
                 "instagramUrl": "#",
-                "whatsapp": "5493513146924"
+                "whatsapp": "5493704747426"
             },
             'site_footer': { 
                 "logoUrl": "", 

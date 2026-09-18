@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getCurrentAdmin } from '@/lib/auth';
 import { getUploadDir } from '@/lib/storage';
+import { optimizeAndSaveFile } from '@/lib/imageOptimizer';
 
 // POST /api/admin/upload
 export async function POST(req: NextRequest) {
@@ -19,15 +20,11 @@ export async function POST(req: NextRequest) {
 
     const uploadDir = getUploadDir();
     const destDir = path.join(uploadDir, 'Otros');
-    fs.mkdirSync(destDir, { recursive: true });
-
-    const safeName = file.name.replace(/\.\./g, '').replace(/[\/\\]/g, '');
-    const filePath = path.join(destDir, safeName);
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
+    const { filename: finalName } = await optimizeAndSaveFile(buffer, file.name, destDir);
 
-    const url = `/uploads/Otros/${safeName}`;
+    const url = `/uploads/Otros/${finalName}`;
     return NextResponse.json({ url });
   } catch (error: any) {
     console.error('Error in general upload:', error);

@@ -1,17 +1,54 @@
-import React from 'react';
-import { Great_Vibes, Playfair_Display } from 'next/font/google';
+'use client';
 
-const greatVibes = Great_Vibes({ weight: '400', subsets: ['latin'] });
-const playfair = Playfair_Display({ weight: ['600', '700'], subsets: ['latin'] });
+import React, { useEffect, useState } from 'react';
+import { useSiteSettingsStore } from '@/store/useSiteSettingsStore';
 
-export default function Logo({ className = '' }: { className?: string }) {
+interface LogoProps {
+  className?: string;
+  height?: number;
+  src?: string;
+  alt?: string;
+}
+
+export default function Logo({
+  className = '',
+  height,
+  src,
+  alt = 'Ciara Bonita',
+}: LogoProps) {
+  const { header, loaded, fetchHeaderSettings } = useSiteSettingsStore();
+  const [imgSrc, setImgSrc] = useState<string>(src || header.logoUrl || '/uploads/Logo/logo.webp');
+
+  useEffect(() => {
+    if (!loaded) {
+      fetchHeaderSettings();
+    }
+  }, [loaded, fetchHeaderSettings]);
+
+  useEffect(() => {
+    setImgSrc(src || header.logoUrl || '/uploads/Logo/logo.webp');
+  }, [src, header.logoUrl]);
+
+  const finalHeight = height || header.logoHeight || 48;
+
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <img src="/beso.webp" alt="Kiss" className="w-12 h-12 md:w-14 md:h-14 object-contain flex-shrink-0" />
-      <div className="flex flex-col -space-y-2 lg:-space-y-3 items-center justify-center pt-1">
-         <span className={`${greatVibes.className} text-[#d4af37] text-3xl md:text-4xl leading-none`}>Ciara</span>
-         <span className={`${playfair.className} text-[#b02a66] text-2xl md:text-3xl font-bold leading-none`}>Bonita</span>
-      </div>
+    <div className={`flex items-center justify-center shrink-0 ${className}`}>
+      <img
+        src={imgSrc}
+        alt={alt}
+        style={{
+          height: `${finalHeight}px`,
+          width: 'auto',
+          maxHeight: '100px',
+        }}
+        className="object-contain transition-all duration-200 select-none drop-shadow-sm"
+        onError={() => {
+          // Fallback en caso de que la URL no cargue
+          if (imgSrc !== '/logo.webp') {
+            setImgSrc('/logo.webp');
+          }
+        }}
+      />
     </div>
-  )
+  );
 }

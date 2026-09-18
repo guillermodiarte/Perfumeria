@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { order_number, items } = body;
+    const { order_number, items, shipping_type, shipping_cost } = body;
 
     if (!items || items.length === 0) {
       return NextResponse.json({ detail: 'El carrito está vacío.' }, { status: 400 });
@@ -33,7 +33,9 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    const total = parsedItems.reduce((acc: number, i: any) => acc + i.quantity * i.price, 0);
+    const itemsTotal = parsedItems.reduce((acc: number, i: any) => acc + i.quantity * i.price, 0);
+    const validatedShippingCost = shipping_type === 'pickup' ? 0 : Math.max(0, Number(shipping_cost || 0));
+    const total = itemsTotal + validatedShippingCost;
     const orderNumber = order_number || ('ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase());
 
     const newOrder = await prisma.order.create({
@@ -43,6 +45,8 @@ export async function POST(req: NextRequest) {
         status: 'En revisión',
         payment_status: 'pending',
         delivery_status: 'pending',
+        shipping_type: shipping_type || 'delivery',
+        shipping_cost: validatedShippingCost,
         paid_amount: 0,
         total,
         created_at: new Date(),
@@ -81,6 +85,11 @@ export async function GET(req: NextRequest) {
       installments_count: o.installments_count || 1,
       last_installment_paid_month: o.last_installment_paid_month,
       delivery_status: o.delivery_status || 'pending',
+      shipping_type: o.shipping_type || 'delivery',
+      shipping_cost: Number(o.shipping_cost || 0),
+      shipping_tracking_number: o.shipping_tracking_number,
+      shipping_invoice_url: o.shipping_invoice_url,
+      shipped_at: o.shipped_at,
       total: tot,
       paid_amount: paid,
       remaining_amount: Math.max(0, tot - paid),

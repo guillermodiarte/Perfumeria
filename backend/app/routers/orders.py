@@ -27,16 +27,23 @@ class OrderItemSchema(BaseModel):
 class CreateOrderSchema(BaseModel):
     order_number: Optional[str] = None
     items: List[OrderItemSchema]
+    shipping_type: Optional[str] = 'delivery'  # 'delivery' | 'pickup'
+    shipping_cost: Optional[float] = 0.0
 
 class UpdateOrderStatusSchema(BaseModel):
-    status: Optional[str] = None # "En revisión", "Aprobado", "Rechazado", "Entregado"
-    payment_status: Optional[str] = None # "pending", "partial", "full"
-    payment_type: Optional[str] = None # "total", "partial", "cuotas"
+    status: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_type: Optional[str] = None
     installments_count: Optional[int] = None
     last_installment_paid_month: Optional[str] = None
-    delivery_status: Optional[str] = None # "pending", "delivered"
+    delivery_status: Optional[str] = None  # 'pending' | 'shipped' | 'delivered'
     paid_amount: Optional[float] = None
     admin_notes: Optional[str] = None
+    shipping_type: Optional[str] = None
+    shipping_cost: Optional[float] = None
+    shipping_tracking_number: Optional[str] = None
+    shipping_invoice_url: Optional[str] = None
+    shipped_at: Optional[str] = None
 
 @router.post("")
 def create_order(order_data: CreateOrderSchema, db: Session = Depends(get_db), current_user: Customer = Depends(get_current_customer)):
@@ -76,7 +83,9 @@ def create_order(order_data: CreateOrderSchema, db: Session = Depends(get_db), c
         payment_status="pending",
         delivery_status="pending",
         paid_amount=0.0,
-        total=total
+        total=total,
+        shipping_type=order_data.shipping_type or 'delivery',
+        shipping_cost=order_data.shipping_cost or 0.0
     )
     db.add(new_order)
     db.commit()
@@ -156,6 +165,11 @@ def get_all_orders_admin(db: Session = Depends(get_db), current_admin: Admin = D
             "paid_amount": paid,
             "remaining_amount": remaining,
             "admin_notes": o.admin_notes,
+            "shipping_type": o.shipping_type or "delivery",
+            "shipping_cost": float(o.shipping_cost) if o.shipping_cost is not None else 0.0,
+            "shipping_tracking_number": o.shipping_tracking_number,
+            "shipping_invoice_url": o.shipping_invoice_url,
+            "shipped_at": o.shipped_at,
             "created_at": o.created_at,
             "customer": {
                 "id": cust.id if cust else None,
@@ -189,6 +203,9 @@ def update_order_status_admin(order_number: str, data: UpdateOrderStatusSchema, 
     
     if data.status is not None:
         order.status = data.status
+        s_norm = str(data.status).lower()
+        if ("rechaz" in s_norm or "cancel" in s_norm) and data.delivery_status is None:
+            order.delivery_status = "cancelled"
     if data.payment_status is not None:
         order.payment_status = data.payment_status
     if data.payment_type is not None:
@@ -203,6 +220,16 @@ def update_order_status_admin(order_number: str, data: UpdateOrderStatusSchema, 
         order.paid_amount = data.paid_amount
     if data.admin_notes is not None:
         order.admin_notes = data.admin_notes
+    if data.shipping_type is not None:
+        order.shipping_type = data.shipping_type
+    if data.shipping_cost is not None:
+        order.shipping_cost = data.shipping_cost
+    if data.shipping_tracking_number is not None:
+        order.shipping_tracking_number = data.shipping_tracking_number
+    if data.shipping_invoice_url is not None:
+        order.shipping_invoice_url = data.shipping_invoice_url
+    if data.shipped_at is not None:
+        order.shipped_at = data.shipped_at
 
     # Verificar si al aprobar se renueva la cuenta mayorista automática (por 30 días)
     now_approved = (order.status or "").lower().startswith("aprob")

@@ -15,10 +15,26 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
     });
 
     const createEmptyProduct = () => ({
-        productId: 'NEW', newProductName: '', newProductSku: '', categoryId: categoriesConfig[0]?.opciones[0] || 'Perfumes de Mujer', targetGender: 'Unisex' as const,
+        productId: `NEW-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        newProductName: '',
+        newProductSku: '',
+        categoryId: categoriesConfig[0]?.opciones[0] || 'Perfumes de Mujer',
+        targetGender: 'Unisex' as const,
         newProductImageUrls: [] as string[],
         _uploading: false,
-        variants: [createEmptyVariant()]
+        variants: [createEmptyVariant()],
+        // Descriptive / marketing fields
+        description: '',
+        tag: 'Alta Demanda',
+        showTag: false,
+        // Olfactory / feature attributes
+        olfactoryNotes: '',
+        duration: '',
+        intensity: '',
+        family: '',
+        showFeatures: false,
+        // UI accordion
+        _showDetails: false,
     });
 
     const [products, setProducts] = useState([createEmptyProduct()]);
@@ -67,27 +83,57 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
         }
     };
 
-    const handleSave = () => {
-        if (products.some(p => p.productId === 'NEW' && !p.newProductName)) {
-            showAlert("Asegúrate de rellenar el Nombre para los productos.");
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+    const allVariants = products.flatMap(p => p.variants);
+    const zeroCostCount = allVariants.filter(v => Number(v.unitPurchasePrice) <= 0).length;
+    const totalQuantity = allVariants.reduce((sum, v) => sum + (Number(v.quantity) || 0), 0);
+    const totalInvestment = allVariants.reduce((sum, v) => sum + ((Number(v.quantity) || 0) * (Number(v.unitPurchasePrice) || 0)), 0);
+
+    const handleOpenConfirm = () => {
+        if (products.some(p => !p.newProductName || !p.newProductName.trim())) {
+            showAlert("Asegúrate de rellenar el Nombre para todos los productos.");
             return;
         }
-        
+
+        const hasInvalidQty = products.some(p => p.variants.some(v => !v.quantity || Number(v.quantity) <= 0));
+        if (hasInvalidQty) {
+            showAlert("Todas las variantes deben tener una cantidad de stock mayor a 0.");
+            return;
+        }
+
+        setShowConfirmModal(true);
+    };
+
+    const handleConfirmSave = () => {
         const flattenedItems: any[] = [];
 
         products.forEach(p => {
             p.variants.forEach(v => {
+                // Destructure variant.description (variant flavour/colour label) separately to avoid collision with product.description
+                const { description: variantDesc, ...variantRest } = v as any;
                 flattenedItems.push({
+                    ...variantRest,
                     productId: p.productId,
-                    newProductName: p.newProductName,
-                    newProductSku: p.newProductSku,
+                    newProductName: p.newProductName.trim(),
+                    newProductSku: p.newProductSku?.trim() || '',
                     categoryId: p.categoryId,
-                    newProductImageUrls: p.newProductImageUrls,
-                    color: (v as any).description || '',
-                    ...v
+                    targetGender: p.targetGender || 'Unisex',
+                    newProductImageUrls: p.newProductImageUrls || [],
+                    color: variantDesc || '',
+                    // Product-level descriptive fields (override any same-named variant field)
+                    description: p.description || undefined,
+                    tag: p.tag || undefined,
+                    showTag: p.showTag,
+                    olfactoryNotes: p.olfactoryNotes || undefined,
+                    duration: p.duration || undefined,
+                    intensity: p.intensity || undefined,
+                    family: p.family || undefined,
+                    showFeatures: p.showFeatures,
                 });
             });
         });
+
 
         const formattedItems = flattenedItems.map(item => {
             const group = categoriesConfig.find(g => g.opciones.includes(item.categoryId));
@@ -111,6 +157,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
         registerPurchases(formattedItems);
         showAlert("Compras registradas con éxito. Las variantes y el stock fueron actualizados.");
         setProducts([createEmptyProduct()]);
+        setShowConfirmModal(false);
     };
 
     return (
@@ -125,7 +172,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                         Ingresa stock seleccionando variantes específicas. PV calculado al {globalMarkupPrc}%.
                     </p>
                 </div>
-                <button onClick={handleSave} className="w-full md:w-auto bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-primary-dark transition shadow-lg shadow-primary/20 shrink-0">
+                <button onClick={handleOpenConfirm} className="w-full md:w-auto bg-primary text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-primary-dark transition shadow-lg shadow-primary/20 shrink-0">
                     <span className="material-symbols-outlined">save</span> Finalizar Ingreso
                 </button>
             </div>
@@ -175,8 +222,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                                         onChange={e => {
                                             const val = e.target.value;
                                             updateProduct(pIdx, 'newProductName', val);
-                                            const existing = productsStore.find(p => p.name.toLowerCase() === val.toLowerCase());
+                                            const existing = productsStore.find(p => p.name.trim().toLowerCase() === val.trim().toLowerCase());
                                             if (existing) {
+                                                updateProduct(pIdx, 'productId', existing.id);
                                                 updateProduct(pIdx, 'categoryId', existing.categoryId);
                                                 updateProduct(pIdx, 'newProductSku', existing.sku);
                                                 if (prod.variants.length > 0) {
@@ -185,8 +233,22 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                                                 }
                                                 updateProduct(pIdx, 'newProductImageUrls', existing.imageUrls || []);
                                                 if (existing.targetGender) updateProduct(pIdx, 'targetGender', existing.targetGender);
+                                                // Auto-fill descriptive / feature fields
+                                                if (existing.description !== undefined) updateProduct(pIdx, 'description', existing.description);
+                                                if (existing.tag !== undefined) updateProduct(pIdx, 'tag', existing.tag);
+                                                if (existing.showTag !== undefined) updateProduct(pIdx, 'showTag', existing.showTag);
+                                                if (existing.olfactoryNotes !== undefined) updateProduct(pIdx, 'olfactoryNotes', existing.olfactoryNotes);
+                                                if (existing.duration !== undefined) updateProduct(pIdx, 'duration', existing.duration);
+                                                if (existing.intensity !== undefined) updateProduct(pIdx, 'intensity', existing.intensity);
+                                                if (existing.family !== undefined) updateProduct(pIdx, 'family', existing.family);
+                                                if (existing.showFeatures !== undefined) updateProduct(pIdx, 'showFeatures', existing.showFeatures);
+                                            } else {
+                                                if (!prod.productId || !prod.productId.startsWith('NEW-')) {
+                                                    updateProduct(pIdx, 'productId', `NEW-${Date.now()}-${pIdx}`);
+                                                }
                                             }
                                         }}
+
                                     />
                                     <datalist id={`product-names-${pIdx}`}>
                                         {productsStore.map(p => <option key={p.id} value={p.name} />)}
@@ -350,14 +412,309 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                                 <span className="material-symbols-outlined text-[18px]">add_circle</span> Añadir Variante
                             </button>
                         </div>
+
+                        {/* ── Detalles Adicionales accordion ── */}
+                        <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                            <button
+                                type="button"
+                                className="w-full flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors"
+                                onClick={() => updateProduct(pIdx, '_showDetails', !(prod as any)._showDetails)}
+                            >
+                                <span className="flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-[18px] text-primary">auto_awesome</span>
+                                    Descripción Premium & Atributos
+                                    {((prod.tag && prod.showTag) || prod.description || prod.showFeatures) && (
+                                        <span className="text-[10px] bg-primary/15 text-primary px-2 py-0.5 rounded-full font-black uppercase tracking-wider">Configurado</span>
+                                    )}
+                                </span>
+                                <span className={`material-symbols-outlined text-lg transition-transform duration-200 ${(prod as any)._showDetails ? 'rotate-180' : ''}`}>expand_more</span>
+                            </button>
+
+                            {(prod as any)._showDetails && (
+                                <div className="p-4 space-y-5 bg-white dark:bg-slate-800/30">
+
+                                    {/* Badge / Tag section */}
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Insignia del Producto</label>
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateProduct(pIdx, 'showTag', !prod.showTag)}
+                                                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${prod.showTag ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
+                                                >
+                                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${prod.showTag ? 'translate-x-5' : 'translate-x-0'}`} />
+                                                </button>
+                                                <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Mostrar insignia</span>
+                                            </div>
+                                            {prod.showTag && (
+                                                <select
+                                                    className="flex-1 min-w-[160px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-medium"
+                                                    value={prod.tag || 'Alta Demanda'}
+                                                    onChange={e => updateProduct(pIdx, 'tag', e.target.value)}
+                                                >
+                                                    <option>Alta Demanda</option>
+                                                    <option>Recomendado</option>
+                                                    <option>Más Vendido</option>
+                                                    <option>Nuevo</option>
+                                                    <option>Edición Limitada</option>
+                                                    <option>Oferta Especial</option>
+                                                </select>
+                                            )}
+                                            {prod.showTag && prod.tag && (
+                                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-full">
+                                                    <span className="material-symbols-outlined text-[14px]">local_fire_department</span>
+                                                    {prod.tag}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Description */}
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Descripción Premium</label>
+                                        <textarea
+                                            rows={3}
+                                            placeholder="Ej: Creada con las esencias más puras para brindarte una experiencia olfativa inigualable..."
+                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white resize-none focus:ring-2 focus:ring-primary outline-none transition-all"
+                                            value={prod.description || ''}
+                                            onChange={e => updateProduct(pIdx, 'description', e.target.value)}
+                                        />
+                                    </div>
+
+                                    {/* Olfactory / Feature attributes */}
+                                    <div className="flex flex-col gap-3">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Atributos (Notas Olfativas, Duración, etc.)</label>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateProduct(pIdx, 'showFeatures', !prod.showFeatures)}
+                                                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${prod.showFeatures ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
+                                                >
+                                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ${prod.showFeatures ? 'translate-x-4' : 'translate-x-0'}`} />
+                                                </button>
+                                                <span className="text-xs text-slate-500 dark:text-slate-400">{prod.showFeatures ? 'Visible en tienda' : 'Oculto en tienda'}</span>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {[
+                                                { key: 'olfactoryNotes', label: 'Notas Olfativas', placeholder: 'Ej: Cítricas, Florales, Amaderadas', icon: 'air' },
+                                                { key: 'duration', label: 'Duración', placeholder: 'Ej: Alta (+8 horas)', icon: 'schedule' },
+                                                { key: 'intensity', label: 'Intensidad', placeholder: 'Ej: Moderada - Fuerte', icon: 'auto_awesome' },
+                                                { key: 'family', label: 'Familia Olfativa', placeholder: 'Ej: Amaderada Especiada', icon: 'water_drop' },
+                                            ].map(({ key, label, placeholder, icon }) => (
+                                                <div key={key} className="flex flex-col gap-1">
+                                                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
+                                                        <span className="material-symbols-outlined text-[13px]">{icon}</span>
+                                                        {label}
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder={placeholder}
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-primary outline-none transition-all"
+                                                        value={(prod as any)[key] || ''}
+                                                        onChange={e => updateProduct(pIdx, key as any, e.target.value)}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                </div>
+                            )}
+                        </div>
+
                     </div>
                 ))}
+
 
                 <button onClick={addProductLine} className="w-full py-4 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center justify-center gap-2">
                     <span className="material-symbols-outlined text-xl">add_circle</span> Añadir nuevo producto a este ingreso
                 </button>
 
             </div>
+
+            {/* MODAL DE CONFIRMACIÓN Y DETALLE DE INGRESO */}
+            {showConfirmModal && (
+                <div 
+                    className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => setShowConfirmModal(false)}
+                >
+                    <div 
+                        className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-3xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="size-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-2xl">receipt_long</span>
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-900 dark:text-white">
+                                        Revisar Detalle del Ingreso
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Verifica los productos, variantes y costos antes de finalizar el ingreso al inventario.
+                                    </p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setShowConfirmModal(false)}
+                                className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+                                title="Volver a editar"
+                            >
+                                <span className="material-symbols-outlined text-xl">close</span>
+                            </button>
+                        </div>
+
+                        {/* Advertencia de Costo Cero (si aplica) */}
+                        {zeroCostCount > 0 && (
+                            <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-2xl flex items-start gap-3 text-amber-900 dark:text-amber-200">
+                                <span className="material-symbols-outlined text-amber-500 text-2xl shrink-0 mt-0.5">warning</span>
+                                <div className="text-xs space-y-1">
+                                    <p className="font-bold text-sm">
+                                        {zeroCostCount === 1 
+                                            ? 'Atención: Hay 1 variante con costo de compra en $0' 
+                                            : `Atención: Hay ${zeroCostCount} variantes con costo de compra en $0`}
+                                    </p>
+                                    <p className="text-amber-800 dark:text-amber-300">
+                                        ¿Es correcto que ingresen con costo $0? Si fue un error u omisión, haz clic en <strong>"Volver a editar"</strong> para corregir el valor antes de finalizar.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Metric cards */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Productos</span>
+                                <span className="text-lg font-black text-slate-900 dark:text-white">{products.length}</span>
+                            </div>
+                            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Unidades</span>
+                                <span className="text-lg font-black text-primary">{totalQuantity} un.</span>
+                            </div>
+                            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Inversión Total</span>
+                                <span className="text-lg font-black text-slate-900 dark:text-white">${totalInvestment.toLocaleString('es-AR')}</span>
+                            </div>
+                        </div>
+
+                        {/* Listado de Productos y Variantes con scroll */}
+                        <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+                            {products.map((p, pIdx) => {
+                                const group = categoriesConfig.find(g => g.opciones.includes(p.categoryId));
+                                const variantGroup = (group && group.variantGroupId !== 'none')
+                                    ? variantGroupsConfig.find(vg => vg.id === group.variantGroupId)
+                                    : null;
+
+                                const prodTotalQty = p.variants.reduce((acc, v) => acc + (Number(v.quantity) || 0), 0);
+                                const prodTotalCost = p.variants.reduce((acc, v) => acc + ((Number(v.quantity) || 0) * (Number(v.unitPurchasePrice) || 0)), 0);
+
+                                return (
+                                    <div key={pIdx} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-3">
+                                        <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700/60 pb-2.5">
+                                            <div className="flex items-center gap-3">
+                                                {p.newProductImageUrls && p.newProductImageUrls.length > 0 ? (
+                                                    <img src={p.newProductImageUrls[0]} alt="" className="size-11 object-cover rounded-xl border border-slate-200 dark:border-slate-700" />
+                                                ) : (
+                                                    <div className="size-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+                                                        <span className="material-symbols-outlined text-xl">inventory_2</span>
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                                                        {p.newProductName || 'Sin Nombre'}
+                                                    </h4>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                        {p.categoryId} • {p.targetGender || 'Unisex'} {p.newProductSku ? `• SKU: ${p.newProductSku}` : ''}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                                    {prodTotalQty} un. • ${prodTotalCost.toLocaleString('es-AR')}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left text-xs">
+                                                <thead>
+                                                    <tr className="text-slate-400 border-b border-slate-200/60 dark:border-slate-700/40">
+                                                        <th className="pb-1.5 font-semibold">Talle / Tamaño</th>
+                                                        <th className="pb-1.5 font-semibold">Descripción</th>
+                                                        <th className="pb-1.5 font-semibold text-center">Cant.</th>
+                                                        <th className="pb-1.5 font-semibold text-right">Costo Unit.</th>
+                                                        <th className="pb-1.5 font-semibold text-right">P. Venta</th>
+                                                        <th className="pb-1.5 font-semibold text-right">Subtotal</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                    {p.variants.map((v, vIdx) => {
+                                                        let sizeLabel = 'Único';
+                                                        if (variantGroup) {
+                                                            const opt = variantGroup.options[v.sizeIndex || 0];
+                                                            if (opt) sizeLabel = opt.description ? `${opt.value} (${opt.description})` : opt.value;
+                                                        }
+                                                        const isZeroCost = Number(v.unitPurchasePrice) <= 0;
+                                                        const subtotal = (Number(v.quantity) || 0) * (Number(v.unitPurchasePrice) || 0);
+
+                                                        return (
+                                                            <tr key={vIdx} className={isZeroCost ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}>
+                                                                <td className="py-2 font-bold text-slate-800 dark:text-slate-200">{sizeLabel}</td>
+                                                                <td className="py-2 text-slate-600 dark:text-slate-400">{(v as any).description || '-'}</td>
+                                                                <td className="py-2 text-center font-bold text-slate-900 dark:text-white">{v.quantity}</td>
+                                                                <td className="py-2 text-right font-mono">
+                                                                    {isZeroCost ? (
+                                                                        <span className="inline-flex items-center gap-1 font-bold text-amber-600 dark:text-amber-400">
+                                                                            $0 <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 px-1 py-0.2 rounded font-black">Costo $0</span>
+                                                                        </span>
+                                                                    ) : (
+                                                                        `$${Number(v.unitPurchasePrice).toLocaleString('es-AR')}`
+                                                                    )}
+                                                                </td>
+                                                                <td className="py-2 text-right font-mono text-slate-600 dark:text-slate-400">
+                                                                    ${Number(v.manualSalePrice).toLocaleString('es-AR')}
+                                                                </td>
+                                                                <td className="py-2 text-right font-bold font-mono text-slate-800 dark:text-slate-200">
+                                                                    ${subtotal.toLocaleString('es-AR')}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Footer Buttons */}
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                            <button
+                                type="button"
+                                onClick={() => setShowConfirmModal(false)}
+                                className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-bold text-sm transition-colors flex items-center justify-center gap-2"
+                            >
+                                <span className="material-symbols-outlined text-lg">arrow_back</span>
+                                Volver a editar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmSave}
+                                className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-sm shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2"
+                            >
+                                <span className="material-symbols-outlined text-lg">check_circle</span>
+                                Aceptar y Confirmar Ingreso
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

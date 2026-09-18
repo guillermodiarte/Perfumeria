@@ -209,7 +209,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   
   const handleSaveEdit = () => {
       if(editingProduct && editForm) {
-          // Flatten variant sizes if they use indices
+          // Flatten variant sizes if they use indices and ensure prices are numbers
           const formattedVariants = editForm.variants.map((item: any) => {
               const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
               let finalSize = item.size;
@@ -223,15 +223,39 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                       }
                   }
               }
-              return { ...item, size: finalSize };
+              const unitCost = (item.unitPurchasePrice !== undefined && item.unitPurchasePrice !== '') ? Number(item.unitPurchasePrice) : (Number(editForm.purchasePrice) || 0);
+              const salePr = (item.manualSalePrice !== undefined && item.manualSalePrice !== '') ? Number(item.manualSalePrice) : (Number(editForm.salePrice) || 0);
+              return { 
+                ...item, 
+                size: finalSize,
+                unitPurchasePrice: unitCost,
+                manualSalePrice: salePr,
+                stock: Number(item.stock) || 0
+              };
           });
-          
+
+          const validSalePrices = formattedVariants.map((v: any) => v.manualSalePrice).filter((pr: number) => pr > 0);
+          const computedSalePrice = validSalePrices.length > 0 ? Math.min(...validSalePrices) : (Number(editForm.salePrice) || 0);
+
+          const validPurchasePrices = formattedVariants.map((v: any) => v.unitPurchasePrice).filter((pr: number) => pr > 0);
+          const computedPurchasePrice = validPurchasePrices.length > 0 ? Math.min(...validPurchasePrices) : (Number(editForm.purchasePrice) || 0);
+
           updateProduct(editingProduct.id, {
               name: editForm.name,
               sku: editForm.sku,
               categoryId: editForm.categoryId,
               targetGender: editForm.targetGender,
-              imageUrls: editForm.imageUrls
+              purchasePrice: computedPurchasePrice,
+              salePrice: computedSalePrice,
+              imageUrls: editForm.imageUrls,
+              description: editForm.description,
+              tag: editForm.tag,
+              showTag: editForm.showTag,
+              olfactoryNotes: editForm.olfactoryNotes,
+              duration: editForm.duration,
+              intensity: editForm.intensity,
+              family: editForm.family,
+              showFeatures: editForm.showFeatures,
           }, formattedVariants);
 
           showAlert('Producto y finanzas actualizados con éxito.');
@@ -347,39 +371,66 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                  <h4 className="text-lg font-black text-slate-900 dark:text-white leading-tight pr-14 mt-1">{p.name}</h4>
                                  <div className="text-xs text-slate-400 font-mono mt-1 mb-4">{p.sku}</div>
                                  
-                                 <div className="flex gap-4">
-                                      <div>
-                                          <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">P. Compra</p>
-                                          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">${p.purchasePrice}</p>
-                                      </div>
-                                      <div>
-                                          <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">P. Venta</p>
-                                          <p className="text-sm font-black text-slate-900 dark:text-white">${p.salePrice}</p>
-                                      </div>
-                                 </div>
+                                 {(() => {
+                                     const variantSalePrices = p.variants?.map(v => v.manualSalePrice).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
+                                     const minSale = variantSalePrices.length > 0 ? Math.min(...variantSalePrices) : p.salePrice;
+                                     const maxSale = variantSalePrices.length > 0 ? Math.max(...variantSalePrices) : p.salePrice;
+                                     const salePriceDisplay = variantSalePrices.length > 1 && minSale !== maxSale 
+                                         ? `$${minSale.toLocaleString("es-AR")} - $${maxSale.toLocaleString("es-AR")}`
+                                         : `$${(p.salePrice || minSale || 0).toLocaleString("es-AR")}`;
+
+                                     const variantPurchasePrices = p.variants?.map(v => v.unitPurchasePrice).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
+                                     const minPurch = variantPurchasePrices.length > 0 ? Math.min(...variantPurchasePrices) : p.purchasePrice;
+                                     const maxPurch = variantPurchasePrices.length > 0 ? Math.max(...variantPurchasePrices) : p.purchasePrice;
+                                     const purchasePriceDisplay = variantPurchasePrices.length > 1 && minPurch !== maxPurch
+                                         ? `$${minPurch.toLocaleString("es-AR")} - $${maxPurch.toLocaleString("es-AR")}`
+                                         : `$${(p.purchasePrice || minPurch || 0).toLocaleString("es-AR")}`;
+
+                                     return (
+                                         <div className="flex gap-4">
+                                              <div>
+                                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">P. Compra</p>
+                                                  <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{purchasePriceDisplay}</p>
+                                              </div>
+                                              <div>
+                                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">P. Venta</p>
+                                                  <p className="text-sm font-black text-slate-900 dark:text-white">{salePriceDisplay}</p>
+                                              </div>
+                                         </div>
+                                     );
+                                 })()}
                                  
                                  <div className="mt-auto pt-4 flex flex-col">
                                      <div className="flex items-center justify-between mb-3 border-t border-slate-100 dark:border-slate-700 pt-3">
                                          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Stock / Variantes</p>
-                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${totalStock > 0 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>{totalStock > 0 ? `${totalStock} Disp.` : 'Agotado'}</span>
+                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${totalStock > 0 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}`}>{totalStock > 0 ? `${totalStock} Disp.` : "Agotado"}</span>
                                      </div>
                                      <div className="flex flex-wrap gap-2">
                                          {p.variants.map(v => (
-                                             <div key={v.id} className="flex flex-col flex-1 min-w-[60px] bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-center">
+                                             <div key={v.id} className="flex flex-col flex-1 min-w-[70px] bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-center">
                                                  <div className="flex flex-col justify-center items-center mb-1">
                                                      {(v as any).description && (
-                                                         <span className="text-[10px] font-bold text-slate-500 truncate max-w-[70px]" title={(v as any).description}>{(v as any).description}</span>
+                                                         <span className="text-[10px] font-bold text-slate-500 truncate max-w-[80px]" title={(v as any).description}>{(v as any).description}</span>
                                                      )}
                                                      <span 
                                                          className="text-xs font-black text-slate-700 dark:text-slate-300 cursor-help"
-                                                         title={(v.size.includes('MER:') || v.size.includes('ARG:') || v.size.includes('INT:')) ? v.size : undefined}
+                                                         title={(v.size.includes("MER:") || v.size.includes("ARG:") || v.size.includes("INT:")) ? v.size : undefined}
                                                      >
-                                                         {v.size.includes('MER:') ? v.size.split(' ')[0].replace('MER:', 'T:') : 
-                                                          v.size.includes('ARG:') ? v.size.split(' ')[0].replace('ARG:', 'T:') : 
-                                                          v.size.includes('INT:') ? v.size.split(' ')[0].replace('INT:', 'T:') : v.size}
+                                                         {v.size.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "T:") : 
+                                                          v.size.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
+                                                          v.size.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : v.size}
                                                      </span>
                                                  </div>
-                                                 <span className={`text-sm font-black ${v.stock > 0 ? 'text-primary' : 'text-red-500'}`}>{v.stock}</span>
+                                                 <div className="flex items-center justify-between text-[11px] font-bold mt-0.5">
+                                                     <span className="text-[10px] text-slate-400 font-medium">Stock:</span>
+                                                     <span className={v.stock > 0 ? "text-primary" : "text-red-500"}>{v.stock}</span>
+                                                 </div>
+                                                 <div className="flex items-center justify-between text-[11px] mt-1 pt-1 border-t border-slate-200 dark:border-slate-700">
+                                                     <span className="text-[9px] text-slate-400 font-bold uppercase">PV:</span>
+                                                     <span className="font-extrabold text-green-600 dark:text-green-400">
+                                                         ${((v.manualSalePrice !== undefined && v.manualSalePrice > 0) ? v.manualSalePrice : (p.salePrice || 0)).toLocaleString("es-AR")}
+                                                     </span>
+                                                 </div>
                                              </div>
                                          ))}
                                          {p.variants.length === 0 && (
@@ -526,7 +577,95 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                         </div>
                     </div>
 
+                    {/* ── Badge / Tag ── */}
+                    <div className="mt-4 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                        <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 dark:bg-slate-900/60">
+                            <span className="material-symbols-outlined text-primary text-[18px]">local_fire_department</span>
+                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Insignia del Producto</span>
+                        </div>
+                        <div className="p-4 flex flex-wrap items-center gap-4">
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditForm((prev: any) => ({ ...prev, showTag: !prev.showTag }))}
+                                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${editForm.showTag ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
+                                >
+                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${editForm.showTag ? 'translate-x-5' : 'translate-x-0'}`} />
+                                </button>
+                                <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Mostrar insignia en tienda</span>
+                            </div>
+                            {editForm.showTag && (
+                                <select
+                                    className="flex-1 min-w-[160px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white"
+                                    value={editForm.tag || 'Alta Demanda'}
+                                    onChange={e => setEditForm((prev: any) => ({ ...prev, tag: e.target.value }))}
+                                >
+                                    <option>Alta Demanda</option>
+                                    <option>Recomendado</option>
+                                    <option>Más Vendido</option>
+                                    <option>Nuevo</option>
+                                    <option>Edición Limitada</option>
+                                    <option>Oferta Especial</option>
+                                </select>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* ── Description ── */}
+                    <div className="mt-4">
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Descripción Premium (visible en la tienda)</label>
+                        <textarea
+                            rows={4}
+                            placeholder="Ej: Creada con las esencias más puras para brindarte una experiencia olfativa inigualable..."
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all resize-none"
+                            value={editForm.description || ''}
+                            onChange={e => setEditForm((prev: any) => ({ ...prev, description: e.target.value }))}
+                        />
+                    </div>
+
+                    {/* ── Olfactory / Feature Attributes ── */}
+                    <div className="mt-4 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                        <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-900/60">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-primary text-[18px]">water_drop</span>
+                                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Atributos Olfativos / Especificaciones</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditForm((prev: any) => ({ ...prev, showFeatures: !prev.showFeatures }))}
+                                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${editForm.showFeatures ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
+                                >
+                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${editForm.showFeatures ? 'translate-x-5' : 'translate-x-0'}`} />
+                                </button>
+                                <span className="text-xs text-slate-500">{editForm.showFeatures ? 'Visible' : 'Oculto'}</span>
+                            </div>
+                        </div>
+                        <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {[
+                                { key: 'olfactoryNotes', label: 'Notas Olfativas', placeholder: 'Ej: Cítricas, Florales, Amaderadas', icon: 'air' },
+                                { key: 'duration', label: 'Duración', placeholder: 'Ej: Alta (+8 horas)', icon: 'schedule' },
+                                { key: 'intensity', label: 'Intensidad', placeholder: 'Ej: Moderada - Fuerte', icon: 'auto_awesome' },
+                                { key: 'family', label: 'Familia Olfativa', placeholder: 'Ej: Amaderada Especiada', icon: 'water_drop' },
+                            ].map(({ key, label, placeholder, icon }) => (
+                                <div key={key}>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                                        <span className="material-symbols-outlined text-[14px]">{icon}</span> {label}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder={placeholder}
+                                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all"
+                                        value={(editForm as any)[key] || ''}
+                                        onChange={e => setEditForm((prev: any) => ({ ...prev, [key]: e.target.value }))}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Variants */}
+
                     <div className="mt-2 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
                         <label className="block text-xs font-bold text-slate-500">Variantes (Stock y Precios)</label>
                         <p className="text-xs text-slate-400 italic mb-2">Nota: Modificar el stock ajustará retroactivamente las facturas de registro en Finanzas.</p>

@@ -49,6 +49,7 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
     variantGroupId: 'perfumes',
     opciones: [
       'Perfumes de Mujer',
+      'Perfumes de Hombre',
       'Unisex',
       'Body Splash / Body Mist',
       'Set de Regalo'
@@ -104,6 +105,8 @@ export interface ProductVariant {
   size: string;
   color: string;
   stock: number;
+  unitPurchasePrice?: number;  // Costo de compra por variante
+  manualSalePrice?: number;    // Precio de venta por variante
 }
 
 export interface Product {
@@ -116,6 +119,16 @@ export interface Product {
   salePrice: number;
   imageUrls?: string[];
   variants: ProductVariant[];
+  // Descriptive / marketing fields
+  description?: string;        // Descripción premium del producto
+  tag?: string;                // Insignia: 'Alta Demanda', 'Recomendado', 'Nuevo', 'Edición Limitada', 'Más Vendido', 'Oferta'
+  showTag?: boolean;           // Mostrar u ocultar la insignia en la tienda
+  // Olfactory / feature attributes
+  olfactoryNotes?: string;     // Ej: 'Cítricas, Florales'
+  duration?: string;           // Ej: 'Alta (+8 horas)'
+  intensity?: string;          // Ej: 'Moderada - Fuerte'
+  family?: string;             // Ej: 'Amaderada Especiada'
+  showFeatures?: boolean;      // Mostrar u ocultar el bloque de especificaciones en la tienda
 }
 
 export interface PurchaseRecord {
@@ -142,6 +155,7 @@ export interface SaleRecord {
   color: string;
   clientName: string;
   clientPhone: string;
+  clientEmail?: string;
   quantity: number;
   unitSalePrice: number;
   revenue: number;
@@ -188,6 +202,15 @@ export interface StockFlowState {
     quantity: number;
     unitPurchasePrice: number;
     manualSalePrice: number;
+    // New descriptive / feature fields
+    description?: string;
+    tag?: string;
+    showTag?: boolean;
+    olfactoryNotes?: string;
+    duration?: string;
+    intensity?: string;
+    family?: string;
+    showFeatures?: boolean;
   }[]) => void;
 
   registerSale: (
@@ -205,6 +228,7 @@ export interface StockFlowState {
       pendingAmount: number;
       installmentsCount?: number;
       notes?: string;
+      clientEmail?: string;
     }
   ) => string;
 
@@ -245,54 +269,258 @@ export interface StockFlowState {
 }
 
 // Initial Mock Data with Variants
+// Initial Authentic Perfumes Catalog
 const MOCK_PRODUCTS: Product[] = [
-  // Body Spray
-  { id: 'b1', name: 'Body Splash Tropical 1', sku: 'BODY-01', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/1.jpeg'], variants: [{ id: 'vb1', size: '200ml', color: 'Único', stock: 10 }] },
-  { id: 'b2', name: 'Body Splash Floral 2', sku: 'BODY-02', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/2.jpeg'], variants: [{ id: 'vb2', size: '200ml', color: 'Único', stock: 15 }] },
-  { id: 'b3', name: 'Body Splash Citric 3', sku: 'BODY-03', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/3.jpeg'], variants: [{ id: 'vb3', size: '200ml', color: 'Único', stock: 12 }] },
-  { id: 'b4', name: 'Body Splash Sweet 4', sku: 'BODY-04', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/4.jpeg'], variants: [{ id: 'vb4', size: '200ml', color: 'Único', stock: 20 }] },
-  { id: 'b5', name: 'Body Splash Fresh 5', sku: 'BODY-05', categoryId: 'Body Splash', purchasePrice: 6000, salePrice: 12000, imageUrls: ['/uploads/BodySpray/5.jpeg'], variants: [{ id: 'vb5', size: '200ml', color: 'Único', stock: 8 }] },
-
-  // Labiales
-  { id: 'l1', name: 'Labial Matte 1', sku: 'LAB-01', categoryId: 'Labios', purchasePrice: 4000, salePrice: 8500, imageUrls: ['/uploads/Labiales/1.jpeg'], variants: [{ id: 'vl1', size: 'Único', color: 'Rojo', stock: 25 }] },
-  { id: 'l2', name: 'Labial Matte 2', sku: 'LAB-02', categoryId: 'Labios', purchasePrice: 4000, salePrice: 8500, imageUrls: ['/uploads/Labiales/2.jpeg'], variants: [{ id: 'vl2', size: 'Único', color: 'Rosa', stock: 15 }] },
-  { id: 'l3', name: 'Labial Gloss 3', sku: 'LAB-03', categoryId: 'Labios', purchasePrice: 4500, salePrice: 9000, imageUrls: ['/uploads/Labiales/3.jpeg'], variants: [{ id: 'vl3', size: 'Único', color: 'Nude', stock: 30 }] },
-  { id: 'l4', name: 'Labial Cream 4', sku: 'LAB-04', categoryId: 'Labios', purchasePrice: 4000, salePrice: 8500, imageUrls: ['/uploads/Labiales/4.jpeg'], variants: [{ id: 'vl4', size: 'Único', color: 'Coral', stock: 10 }] },
-  { id: 'l5', name: 'Labial Velvet 5', sku: 'LAB-05', categoryId: 'Labios', purchasePrice: 5000, salePrice: 9500, imageUrls: ['/uploads/Labiales/5.jpeg'], variants: [{ id: 'vl5', size: 'Único', color: 'Vino', stock: 5 }] },
-
-  // Perfumes
-  { id: 'p1', name: 'Perfume Elegance 1', sku: 'PERF-01', categoryId: 'Perfumes de Mujer', purchasePrice: 30000, salePrice: 55000, imageUrls: ['/uploads/Perfumes/1.jpeg'], variants: [{ id: 'vp1', size: '100ml', color: 'Único', stock: 10 }] },
-  { id: 'p2', name: 'Perfume Classic 2', sku: 'PERF-02', categoryId: 'Perfumes de Hombre', purchasePrice: 32000, salePrice: 60000, imageUrls: ['/uploads/Perfumes/2.jpeg'], variants: [{ id: 'vp2', size: '100ml', color: 'Único', stock: 8 }] },
-  { id: 'p3', name: 'Perfume Intense 3', sku: 'PERF-03', categoryId: 'Perfumes de Mujer', purchasePrice: 28000, salePrice: 50000, imageUrls: ['/uploads/Perfumes/3.jpeg'], variants: [{ id: 'vp3', size: '50ml', color: 'Único', stock: 12 }] },
-  { id: 'p4', name: 'Perfume Night 4', sku: 'PERF-04', categoryId: 'Perfumes de Hombre', purchasePrice: 35000, salePrice: 65000, imageUrls: ['/uploads/Perfumes/4.jpeg'], variants: [{ id: 'vp4', size: '100ml', color: 'Único', stock: 6 }] },
-  { id: 'p5', name: 'Perfume Fresh 5', sku: 'PERF-05', categoryId: 'Unisex', purchasePrice: 25000, salePrice: 48000, imageUrls: ['/uploads/Perfumes/5.jpeg'], variants: [{ id: 'vp5', size: '100ml', color: 'Único', stock: 15 }] },
-  { id: 'p6', name: 'Perfume Gold 6', sku: 'PERF-06', categoryId: 'Perfumes de Mujer', purchasePrice: 40000, salePrice: 75000, imageUrls: ['/uploads/Perfumes/6.jpeg'], variants: [{ id: 'vp6', size: '50ml', color: 'Único', stock: 4 }] },
-  { id: 'p7', name: 'Perfume Sport 7', sku: 'PERF-07', categoryId: 'Perfumes de Hombre', purchasePrice: 27000, salePrice: 49000, imageUrls: ['/uploads/Perfumes/7.jpeg'], variants: [{ id: 'vp7', size: '100ml', color: 'Único', stock: 20 }] },
+  {
+    id: 'p-asad-zanzibar',
+    name: 'Lattafa Asad Zanzibar Eau De Parfum 100ml',
+    sku: 'LAT-ZAN-100',
+    categoryId: 'Perfumes de Hombre',
+    targetGender: 'Hombre',
+    purchasePrice: 42000,
+    salePrice: 68000,
+    imageUrls: ['/uploads/Perfumes/1.webp'],
+    variants: [{ id: 'v-p1', size: '100ml', color: 'Azul', stock: 10 }]
+  },
+  {
+    id: 'p-surprise',
+    name: 'Mega Collection Surprise Eau De Parfum 100ml',
+    sku: 'MC-SUR-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 28000,
+    salePrice: 45000,
+    imageUrls: ['/uploads/Perfumes/26.webp'],
+    variants: [{ id: 'v-p2', size: '100ml', color: 'Rosa', stock: 10 }]
+  },
+  {
+    id: 'p-yara-tous',
+    name: 'Lattafa Yara Tous Eau De Parfum 100ml',
+    sku: 'LAT-TOUS-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 38000,
+    salePrice: 62000,
+    imageUrls: ['/uploads/Perfumes/3.webp'],
+    variants: [{ id: 'v-p3', size: '100ml', color: 'Amarillo Mango', stock: 10 }]
+  },
+  {
+    id: 'p-eclaire',
+    name: 'Lattafa Eclaire Eau De Parfum 100ml',
+    sku: 'LAT-ECL-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 45000,
+    salePrice: 75000,
+    imageUrls: ['/uploads/Perfumes/4.webp'],
+    variants: [{ id: 'v-p4', size: '100ml', color: 'Dorado Caramelo', stock: 10 }]
+  },
+  {
+    id: 'p-drive-for-man',
+    name: 'Mega Collection Drive For Man Parfum 100ml',
+    sku: 'MC-DRV-100',
+    categoryId: 'Perfumes de Hombre',
+    targetGender: 'Hombre',
+    purchasePrice: 30000,
+    salePrice: 48000,
+    imageUrls: ['/uploads/Perfumes/5.webp'],
+    variants: [{ id: 'v-p5', size: '100ml', color: 'Negro', stock: 10 }]
+  },
+  {
+    id: 'p-karseell-oil',
+    name: 'Karseell Maca Essence Oil 50ml',
+    sku: 'KARS-OIL-50',
+    categoryId: 'Cuidado Capilar',
+    targetGender: 'Unisex',
+    purchasePrice: 15000,
+    salePrice: 24000,
+    imageUrls: ['/uploads/Perfumes/6.webp'],
+    variants: [{ id: 'v-p6', size: '50ml', color: 'Ámbar', stock: 10 }]
+  },
+  {
+    id: 'p-layalina',
+    name: 'Ard Al Zaafaran Layalina Eau De Parfum 100ml',
+    sku: 'AAZ-LAY-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 34000,
+    salePrice: 55000,
+    imageUrls: ['/uploads/Perfumes/7.webp'],
+    variants: [{ id: 'v-p7', size: '100ml', color: 'Dorado', stock: 10 }]
+  },
+  {
+    id: 'p-ajmal-bloom',
+    name: 'Ard Al Zaafaran Ajmal Ehsaas Bloom 100ml',
+    sku: 'AAZ-BLOOM-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 32000,
+    salePrice: 52000,
+    imageUrls: ['/uploads/Perfumes/8.webp'],
+    variants: [{ id: 'v-p8', size: '100ml', color: 'Blanco Floral', stock: 10 }]
+  },
+  {
+    id: 'p-karseell-set',
+    name: 'Karseell Maca Essence Repair Travel Set',
+    sku: 'KARS-SET-TRV',
+    categoryId: 'Set de Regalo',
+    targetGender: 'Unisex',
+    purchasePrice: 26000,
+    salePrice: 42000,
+    imageUrls: ['/uploads/Perfumes/9.webp'],
+    variants: [{ id: 'v-p9', size: 'Travel Set', color: 'Dorado', stock: 10 }]
+  },
+  {
+    id: 'p-asad-bourbon',
+    name: 'Lattafa Asad Bourbon Eau De Parfum 100ml',
+    sku: 'LAT-BRB-100',
+    categoryId: 'Perfumes de Hombre',
+    targetGender: 'Hombre',
+    purchasePrice: 44000,
+    salePrice: 72000,
+    imageUrls: ['/uploads/Perfumes/10.webp'],
+    variants: [{ id: 'v-p10', size: '100ml', color: 'Marrón Bourbon', stock: 10 }]
+  },
+  {
+    id: 'p-pure-seduction',
+    name: "Victoria's Secret Pure Seduction Mist 250ml",
+    sku: 'VS-SED-250',
+    categoryId: 'Body Splash / Body Mist',
+    targetGender: 'Mujer',
+    purchasePrice: 20000,
+    salePrice: 35000,
+    imageUrls: ['/uploads/Perfumes/11.webp'],
+    variants: [{ id: 'v-p11', size: '250ml', color: 'Rojo Pasión', stock: 10 }]
+  },
+  {
+    id: 'p-yara-moi',
+    name: 'Lattafa Yara Moi Eau De Parfum 100ml',
+    sku: 'LAT-MOI-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 38000,
+    salePrice: 62000,
+    imageUrls: ['/uploads/Perfumes/12.webp'],
+    variants: [{ id: 'v-p12', size: '100ml', color: 'Blanco Caramelo', stock: 10 }]
+  },
+  {
+    id: 'p-yara-elixir',
+    name: 'Lattafa Yara Elixir Eau De Parfum 100ml',
+    sku: 'LAT-ELX-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 42000,
+    salePrice: 69000,
+    imageUrls: ['/uploads/Perfumes/13.webp'],
+    variants: [{ id: 'v-p13', size: '100ml', color: 'Rose Gold', stock: 10 }]
+  },
+  {
+    id: 'p-yara-pink',
+    name: 'Lattafa Yara Pink Eau De Parfum 100ml',
+    sku: 'LAT-YARA-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 37000,
+    salePrice: 60000,
+    imageUrls: [
+      '/uploads/Perfumes/14.webp',
+      '/uploads/Perfumes/22.webp'
+    ],
+    variants: [{ id: 'v-p14', size: '100ml', color: 'Rosa Pastel', stock: 10 }]
+  },
+  {
+    id: 'p-yara-candy',
+    name: 'Lattafa Yara Candy Eau De Parfum 100ml',
+    sku: 'LAT-CND-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 42000,
+    salePrice: 69000,
+    imageUrls: ['/uploads/Perfumes/21.webp'],
+    variants: [{ id: 'v-p21', size: '100ml', color: 'Rojo Carmesí', stock: 10 }]
+  },
+  {
+    id: 'p-bad-femme',
+    name: 'Maison Alhambra B.A.D Femme Eau De Parfum 100ml',
+    sku: 'MA-BAD-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 35000,
+    salePrice: 58000,
+    imageUrls: ['/uploads/Perfumes/15.webp'],
+    variants: [{ id: 'v-p15', size: '100ml', color: 'Negro & Dorado', stock: 10 }]
+  },
+  {
+    id: 'p-shams-pink',
+    name: 'Ard Al Zaafaran Shams Al Emarat Pink Blush 100ml',
+    sku: 'AAZ-SHAMS-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 33000,
+    salePrice: 54000,
+    imageUrls: ['/uploads/Perfumes/17.webp'],
+    variants: [{ id: 'v-p16', size: '100ml', color: 'Rosa Rubor', stock: 10 }]
+  },
+  {
+    id: 'p-vogue-night',
+    name: 'Maison Alhambra Vogue Night Eau De Parfum 100ml',
+    sku: 'MA-VOG-100',
+    categoryId: 'Perfumes de Hombre',
+    targetGender: 'Hombre',
+    purchasePrice: 34000,
+    salePrice: 56000,
+    imageUrls: ['/uploads/Perfumes/18.webp'],
+    variants: [{ id: 'v-p17', size: '100ml', color: 'Negro Noche', stock: 10 }]
+  },
+  {
+    id: 'p-petra',
+    name: 'Lattafa Petra Eau De Parfum 100ml',
+    sku: 'LAT-PET-100',
+    categoryId: 'Unisex',
+    targetGender: 'Unisex',
+    purchasePrice: 40000,
+    salePrice: 65000,
+    imageUrls: ['/uploads/Perfumes/19.webp'],
+    variants: [{ id: 'v-p18', size: '100ml', color: 'Marfil & Oro', stock: 10 }]
+  },
+  {
+    id: 'p-cristalite-pink',
+    name: 'Mega Collection Cristalite Pink Crystal 100ml',
+    sku: 'MC-CRIS-100',
+    categoryId: 'Perfumes de Mujer',
+    targetGender: 'Mujer',
+    purchasePrice: 28000,
+    salePrice: 46000,
+    imageUrls: ['/uploads/Perfumes/20.webp'],
+    variants: [{ id: 'v-p19', size: '100ml', color: 'Cristal Rosa', stock: 10 }]
+  },
+  {
+    id: 'p-khamrah',
+    name: 'Lattafa Khamrah Eau De Parfum 100ml',
+    sku: 'LAT-KHM-100',
+    categoryId: 'Unisex',
+    targetGender: 'Unisex',
+    purchasePrice: 48000,
+    salePrice: 78000,
+    imageUrls: ['/uploads/Perfumes/24.webp'],
+    variants: [{ id: 'v-p20', size: '100ml', color: 'Ámbar Cristal', stock: 10 }]
+  }
 ];
 
-const MOCK_PURCHASES: PurchaseRecord[] = [
-  ...MOCK_PRODUCTS.slice(0, 5).flatMap(p => p.variants.map(v => ({
-    id: `pch-${p.id}`, date: '2026-05-10T10:00:00Z', productId: p.id, productName: p.name,
-    variantId: v.id, size: v.size, color: v.color, quantity: v.stock,
-    unitPurchasePrice: p.purchasePrice, totalCost: v.stock * p.purchasePrice
-  }))),
-  ...MOCK_PRODUCTS.slice(5, 10).flatMap(p => p.variants.map(v => ({
-    id: `pch-${p.id}`, date: '2026-06-15T10:00:00Z', productId: p.id, productName: p.name,
-    variantId: v.id, size: v.size, color: v.color, quantity: v.stock,
-    unitPurchasePrice: p.purchasePrice, totalCost: v.stock * p.purchasePrice
-  }))),
-  ...MOCK_PRODUCTS.slice(10, 17).flatMap(p => p.variants.map(v => ({
-    id: `pch-${p.id}`, date: '2026-07-02T10:00:00Z', productId: p.id, productName: p.name,
-    variantId: v.id, size: v.size, color: v.color, quantity: v.stock,
-    unitPurchasePrice: p.purchasePrice, totalCost: v.stock * p.purchasePrice
-  })))
-];
+const MOCK_PURCHASES: PurchaseRecord[] = MOCK_PRODUCTS.flatMap(p => p.variants.map(v => ({
+  id: `pch-${p.id}`,
+  date: '2026-09-14T10:00:00Z',
+  productId: p.id,
+  productName: p.name,
+  variantId: v.id,
+  size: v.size,
+  color: v.color,
+  quantity: v.stock,
+  unitPurchasePrice: p.purchasePrice,
+  totalCost: v.stock * p.purchasePrice
+})));
 
-const MOCK_SALES: SaleRecord[] = [
-  { id: 's-mock-1', ticketId: 'TICK-MOCK-1', date: '2026-05-20T14:30:00Z', productId: 'p1', productName: 'Perfume Elegance 1', variantId: 'vp1', size: '100ml', color: 'Único', clientName: 'María Gómez', clientPhone: '1123456789', quantity: 2, unitSalePrice: 55000, revenue: 110000, status: 'Pagada' },
-  { id: 's-mock-2', ticketId: 'TICK-MOCK-2', date: '2026-06-10T11:00:00Z', productId: 'l1', productName: 'Labial Matte 1', variantId: 'vl1', size: 'Único', color: 'Rojo', clientName: 'Consumidor Final', clientPhone: '', quantity: 1, unitSalePrice: 8500, revenue: 8500, status: 'Pagada' },
-  { id: 's-mock-3', ticketId: 'TICK-MOCK-3', date: '2026-06-25T16:15:00Z', productId: 'b1', productName: 'Body Splash Tropical 1', variantId: 'vb1', size: '200ml', color: 'Único', clientName: 'Juan Perez', clientPhone: '', quantity: 3, unitSalePrice: 12000, revenue: 36000, status: 'Pagada' },
-];
+const MOCK_SALES: SaleRecord[] = [];
 
 export const useStockFlowStore = create<StockFlowState>()(
   persist(
@@ -314,68 +542,155 @@ export const useStockFlowStore = create<StockFlowState>()(
         set((state) => {
           const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
           const newPurchaseRecords: PurchaseRecord[] = [];
+          const newProductMap = new Map<string, Product>();
 
           newPurchases.forEach(purchase => {
             let targetProductId = purchase.productId;
-            let targetProductName = purchase.newProductName || 'Producto Desconocido';
+            let targetProductName = purchase.newProductName?.trim() || 'Producto';
             let targetVariantId = Math.random().toString(36).substr(2, 9);
 
-            if (purchase.productId.startsWith('NEW-')) {
-              const existingIndex = updatedProducts.findIndex(p => p.id === purchase.productId);
+            // 1. Check if this purchase belongs to a new product already created in this current batch
+            let existingProd: Product | undefined;
+            if (purchase.productId && newProductMap.has(purchase.productId)) {
+              existingProd = newProductMap.get(purchase.productId);
+            }
 
-              if (existingIndex !== -1) {
-                  const prod = updatedProducts[existingIndex];
-                  // Append variant to the product created in this session
-                  prod.variants.push({
-                      id: targetVariantId, size: purchase.size, color: purchase.color, stock: purchase.quantity
-                  });
+            // 2. Check if product exists in updatedProducts by ID (if not a temporary 'NEW' ID)
+            if (!existingProd && purchase.productId && !purchase.productId.startsWith('NEW')) {
+              existingProd = updatedProducts.find(p => p.id === purchase.productId);
+            }
+
+            // 3. Check if product exists by Name (case-insensitive)
+            if (!existingProd && purchase.newProductName?.trim()) {
+              existingProd = updatedProducts.find(
+                p => p.name.trim().toLowerCase() === purchase.newProductName!.trim().toLowerCase()
+              );
+            }
+
+            if (existingProd) {
+              // --- PRODUCT ALREADY EXISTS (OR CREATED IN BATCH) ---
+              targetProductId = existingProd.id;
+              targetProductName = existingProd.name;
+
+              // Update prices to latest purchase/sale price
+              if (purchase.unitPurchasePrice !== undefined) {
+                existingProd.purchasePrice = Number(purchase.unitPurchasePrice) || 0;
+              }
+              if (purchase.manualSalePrice !== undefined) {
+                existingProd.salePrice = Number(purchase.manualSalePrice) || 0;
+              }
+
+              // Update category, sku, gender if provided
+              if (purchase.categoryId) existingProd.categoryId = purchase.categoryId;
+              if (purchase.newProductSku) existingProd.sku = purchase.newProductSku;
+              if (purchase.targetGender) existingProd.targetGender = purchase.targetGender;
+
+              // Update descriptive/feature fields if provided
+              if (purchase.description !== undefined) existingProd.description = purchase.description;
+              if (purchase.tag !== undefined) existingProd.tag = purchase.tag;
+              if (purchase.showTag !== undefined) existingProd.showTag = purchase.showTag;
+              if (purchase.olfactoryNotes !== undefined) existingProd.olfactoryNotes = purchase.olfactoryNotes;
+              if (purchase.duration !== undefined) existingProd.duration = purchase.duration;
+              if (purchase.intensity !== undefined) existingProd.intensity = purchase.intensity;
+              if (purchase.family !== undefined) existingProd.family = purchase.family;
+              if (purchase.showFeatures !== undefined) existingProd.showFeatures = purchase.showFeatures;
+
+              // Append new images if any
+              if (purchase.newProductImageUrls && purchase.newProductImageUrls.length > 0) {
+                const currentImages = existingProd.imageUrls || [];
+                const mergedImages = Array.from(new Set([...currentImages, ...purchase.newProductImageUrls]));
+                existingProd.imageUrls = mergedImages;
+              }
+
+              // Check if variant with same size & color exists
+              const pSize = (purchase.size || 'Único').trim().toLowerCase();
+              const pColor = (purchase.color || '').trim().toLowerCase();
+
+              const varIndex = existingProd.variants.findIndex(
+                v => (v.size || 'Único').trim().toLowerCase() === pSize && (v.color || '').trim().toLowerCase() === pColor
+              );
+
+              if (varIndex !== -1) {
+                existingProd.variants[varIndex].stock += Number(purchase.quantity) || 0;
+                // Update per-variant price if provided
+                if (purchase.unitPurchasePrice !== undefined) {
+                  existingProd.variants[varIndex].unitPurchasePrice = Number(purchase.unitPurchasePrice) || 0;
+                }
+                if (purchase.manualSalePrice !== undefined) {
+                  existingProd.variants[varIndex].manualSalePrice = Number(purchase.manualSalePrice) || 0;
+                }
+                targetVariantId = existingProd.variants[varIndex].id;
               } else {
-                  updatedProducts.push({
-                    id: purchase.productId,
-                    name: purchase.newProductName!,
-                    sku: purchase.newProductSku || '',
-                    categoryId: purchase.categoryId,
-                    imageUrls: purchase.newProductImageUrls || [],
-                    purchasePrice: purchase.unitPurchasePrice,
-                    salePrice: purchase.manualSalePrice,
-                    variants: [
-                        { id: targetVariantId, size: purchase.size, color: purchase.color, stock: purchase.quantity }
-                    ]
-                  });
+                targetVariantId = Math.random().toString(36).substr(2, 9);
+                existingProd.variants.push({
+                  id: targetVariantId,
+                  size: purchase.size || 'Único',
+                  color: purchase.color || '',
+                  stock: Number(purchase.quantity) || 0,
+                  unitPurchasePrice: Number(purchase.unitPurchasePrice) || 0,
+                  manualSalePrice: Number(purchase.manualSalePrice) || 0,
+                });
               }
             } else {
-              // Update existing product
-              const productIndex = updatedProducts.findIndex(p => p.id === purchase.productId);
-              if (productIndex !== -1) {
-                const prod = updatedProducts[productIndex];
-                targetProductName = prod.name;
-                prod.purchasePrice = purchase.unitPurchasePrice;
-                prod.salePrice = purchase.manualSalePrice;
-                
-                // Find if variant exists
-                const varIndex = prod.variants.findIndex(v => v.size === purchase.size && v.color === purchase.color);
-                if (varIndex !== -1) {
-                    prod.variants[varIndex].stock += purchase.quantity;
-                    targetVariantId = prod.variants[varIndex].id;
-                } else {
-                    prod.variants.push({
-                        id: targetVariantId, size: purchase.size, color: purchase.color, stock: purchase.quantity
-                    });
-                }
+              // --- COMPLETELY NEW PRODUCT ---
+              const createdProductId = 'prod-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+              targetProductId = createdProductId;
+              targetProductName = purchase.newProductName?.trim() || 'Nuevo Producto';
+              targetVariantId = Math.random().toString(36).substr(2, 9);
+
+              const newProduct: Product = {
+                id: createdProductId,
+                name: targetProductName,
+                sku: purchase.newProductSku || '',
+                categoryId: purchase.categoryId || 'Perfumes de Mujer',
+                targetGender: purchase.targetGender || 'Unisex',
+                purchasePrice: Number(purchase.unitPurchasePrice) || 0,
+                salePrice: Number(purchase.manualSalePrice) || 0,
+                imageUrls: purchase.newProductImageUrls || [],
+                description: purchase.description,
+                tag: purchase.tag,
+                showTag: purchase.showTag,
+                olfactoryNotes: purchase.olfactoryNotes,
+                duration: purchase.duration,
+                intensity: purchase.intensity,
+                family: purchase.family,
+                showFeatures: purchase.showFeatures,
+                variants: [
+                  {
+                    id: targetVariantId,
+                    size: purchase.size || 'Único',
+                    color: purchase.color || '',
+                    stock: Number(purchase.quantity) || 0,
+                    unitPurchasePrice: Number(purchase.unitPurchasePrice) || 0,
+                    manualSalePrice: Number(purchase.manualSalePrice) || 0,
+                  }
+                ]
+
+              };
+
+              updatedProducts.push(newProduct);
+
+              // Map temporary ID and name so subsequent variants in the same batch attach to this product
+              if (purchase.productId) {
+                newProductMap.set(purchase.productId, newProduct);
+              }
+              if (purchase.newProductName?.trim()) {
+                newProductMap.set(purchase.newProductName.trim().toLowerCase(), newProduct);
               }
             }
-            
+
+            // Create purchase history record
             newPurchaseRecords.push({
-              id: Math.random().toString(36).substr(2, 9),
+              id: 'pch-' + Math.random().toString(36).substr(2, 9),
               date: new Date().toISOString(),
               productId: targetProductId,
               productName: targetProductName,
               variantId: targetVariantId,
-              size: purchase.size,
-              color: purchase.color,
-              quantity: purchase.quantity,
-              unitPurchasePrice: purchase.unitPurchasePrice,
-              totalCost: purchase.quantity * purchase.unitPurchasePrice
+              size: purchase.size || 'Único',
+              color: purchase.color || '',
+              quantity: Number(purchase.quantity) || 0,
+              unitPurchasePrice: Number(purchase.unitPurchasePrice) || 0,
+              totalCost: (Number(purchase.quantity) || 0) * (Number(purchase.unitPurchasePrice) || 0)
             });
           });
 
@@ -428,6 +743,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               color: pColor,
               clientName,
               clientPhone,
+              clientEmail: paymentOptions?.clientEmail || '',
               quantity: item.quantity,
               unitSalePrice: unitPrice,
               revenue: itemRevenue,
@@ -467,8 +783,8 @@ export const useStockFlowStore = create<StockFlowState>()(
               paidAmount: newPaid,
               pendingAmount: newPending,
               remainingAmount: newPending,
-              status: isFullyPaid ? 'Pagada' : 'Pendiente',
-              paymentStatus: isFullyPaid ? 'full' : 'partial',
+              status: (isFullyPaid ? 'Pagada' : 'Pendiente') as SaleRecord['status'],
+              paymentStatus: (isFullyPaid ? 'full' : 'partial') as SaleRecord['paymentStatus'],
               adminNotes: note ? (s.adminNotes ? `${s.adminNotes} | ${note}` : note) : s.adminNotes
             };
           });
@@ -812,7 +1128,44 @@ export const useStockFlowStore = create<StockFlowState>()(
       }
     }),
     {
-      name: 'perfumeria-data-v5',
+      name: 'perfumeria-data-v8',
+      onRehydrateStorage: () => (state) => {
+        if (!state || !Array.isArray(state.purchases) || !Array.isArray(state.products)) return;
+        const existingProducts = [...state.products];
+        let hasChanges = false;
+
+        state.purchases.forEach(pch => {
+          if (!pch.productName || pch.quantity <= 0) return;
+          const found = existingProducts.find(
+            p => p.id === pch.productId || p.name.trim().toLowerCase() === pch.productName.trim().toLowerCase()
+          );
+          if (!found) {
+            hasChanges = true;
+            const newId = pch.productId && !pch.productId.startsWith('NEW') ? pch.productId : 'prod-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+            existingProducts.push({
+              id: newId,
+              name: pch.productName,
+              sku: '',
+              categoryId: 'Perfumes de Mujer',
+              targetGender: 'Unisex',
+              purchasePrice: pch.unitPurchasePrice || 0,
+              salePrice: Number(((pch.unitPurchasePrice || 0) * 1.5).toFixed(2)) || 0,
+              variants: [
+                {
+                  id: pch.variantId || Math.random().toString(36).substr(2, 9),
+                  size: pch.size || 'Único',
+                  color: pch.color || '',
+                  stock: pch.quantity || 1
+                }
+              ]
+            });
+          }
+        });
+
+        if (hasChanges) {
+          useStockFlowStore.setState({ products: existingProducts });
+        }
+      }
     }
   )
 );

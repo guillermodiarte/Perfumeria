@@ -3,15 +3,19 @@
 import Link from 'next/link';
 import { MapPin, Phone, MessageCircle, Mail, Clock, HeartHandshake, ShieldCheck, UserCheck } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useCompanyInfo } from '@/hooks/useCompanyInfo';
 
 export default function DondeEstamosPage() {
   const [mounted, setMounted] = useState(false);
+  const company = useCompanyInfo();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   if (!mounted) return null;
+
+  const cleanWhatsapp = (company.whatsapp || '').replace(/[^0-9]/g, '');
 
   return (
     <div className="relative flex min-h-screen w-full flex-col bg-white dark:bg-slate-900">
@@ -21,7 +25,7 @@ export default function DondeEstamosPage() {
         {/* Background Image */}
         <div 
           className="absolute inset-0 bg-cover bg-center z-0"
-          style={{ backgroundImage: "url('/uploads/Perfumes/3.jpeg')" }}
+          style={{ backgroundImage: "url('/uploads/Perfumes/3.webp')" }}
         />
         {/* Overlay */}
         <div className="absolute inset-0 bg-black/60 z-10" />
@@ -31,19 +35,19 @@ export default function DondeEstamosPage() {
             ¿Dónde estamos?
           </h1>
           <p className="text-lg md:text-xl font-medium text-slate-200 drop-shadow-md">
-            Conocé nuestro showroom y descubrí nuestras fragancias en persona.
+            {company.tagline || 'Conocé nuestro showroom y descubrí nuestras fragancias en persona.'}
           </p>
         </div>
       </section>
 
       <main className="flex-1 w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-20 py-16 flex flex-col gap-24">
         
-        {/* Sobre Ciara Bonita */}
+        {/* Sobre la Empresa */}
         <section className="flex flex-col items-center text-center max-w-4xl mx-auto gap-6">
           <span className="text-primary font-bold tracking-widest uppercase text-sm">Nuestra Historia</span>
-          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">Sobre Ciara Bonita</h2>
-          <p className="text-slate-600 dark:text-slate-400 text-lg leading-relaxed">
-            En Ciara Bonita creemos que cada fragancia cuenta una historia. Nos especializamos en ofrecer perfumes originales y de excelente calidad para quienes buscan destacar su personalidad con aromas únicos. Nuestro objetivo es brindar una experiencia de compra cercana, confiable y personalizada.
+          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">Sobre {company.name}</h2>
+          <p className="text-slate-600 dark:text-slate-400 text-lg leading-relaxed whitespace-pre-line">
+            {company.description}
           </p>
         </section>
 
@@ -62,8 +66,8 @@ export default function DondeEstamosPage() {
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">Dirección</span>
-                  <p className="text-slate-900 dark:text-white font-medium text-lg">Av. Siempre Viva 1234</p>
-                  <p className="text-slate-500">Córdoba Capital, Argentina</p>
+                  <p className="text-slate-900 dark:text-white font-medium text-lg">{company.address}</p>
+                  <p className="text-slate-500">{company.city}, {company.province}{company.postalCode ? ` (CP: ${company.postalCode})` : ''}</p>
                 </div>
               </div>
 
@@ -74,27 +78,44 @@ export default function DondeEstamosPage() {
                 <div className="flex flex-col">
                   <span className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">Horario</span>
                   <p className="text-slate-900 dark:text-white font-medium">Lunes a Viernes</p>
-                  <p className="text-slate-500 text-sm mb-2">09:00 - 18:00 hs</p>
+                  <p className="text-slate-500 text-sm mb-2">{company.scheduleWeekdays}</p>
                   <p className="text-slate-900 dark:text-white font-medium">Sábados</p>
-                  <p className="text-slate-500 text-sm">09:00 - 13:00 hs</p>
+                  <p className="text-slate-500 text-sm">{company.scheduleSaturday}</p>
                 </div>
               </div>
 
               <div className="h-px bg-slate-200 dark:bg-slate-700 w-full" />
 
               <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-4">
-                  <Phone className="w-5 h-5 text-slate-400" />
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">+54 351 123-4567</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <MessageCircle className="w-5 h-5 text-green-500" />
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">+54 9 351 123-4567</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <Mail className="w-5 h-5 text-slate-400" />
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">contacto@essenceperfumeria.com</span>
-                </div>
+                {company.phone && (
+                  <div className="flex items-center gap-4">
+                    <Phone className="w-5 h-5 text-slate-400" />
+                    <a href={`tel:${company.phone.replace(/\s+/g, '')}`} className="text-slate-700 dark:text-slate-300 font-medium hover:text-primary transition-colors">
+                      {company.phone}
+                    </a>
+                  </div>
+                )}
+                {company.whatsapp && (
+                  <div className="flex items-center gap-4">
+                    <MessageCircle className="w-5 h-5 text-green-500" />
+                    <a 
+                      href={`https://wa.me/${cleanWhatsapp}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-slate-700 dark:text-slate-300 font-medium hover:text-green-600 transition-colors"
+                    >
+                      {company.phone || company.whatsapp}
+                    </a>
+                  </div>
+                )}
+                {company.email && (
+                  <div className="flex items-center gap-4">
+                    <Mail className="w-5 h-5 text-slate-400" />
+                    <a href={`mailto:${company.email}`} className="text-slate-700 dark:text-slate-300 font-medium hover:text-primary transition-colors">
+                      {company.email}
+                    </a>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -103,45 +124,57 @@ export default function DondeEstamosPage() {
           {/* Map Column */}
           <div className="lg:col-span-3 flex flex-col gap-6">
             <div className="w-full h-[450px] bg-slate-100 dark:bg-slate-800 rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm relative group">
-              <iframe
-                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d108920.80373268805!2d-64.26909405626233!3d-31.402283038622144!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x9432985f478f5b69%3A0xb0a24f9a5366b092!2zQ8OzcmRvYmEsIENvbWluYSBkZSBDw7NyZG9iYQ!5e0!3m2!1ses-419!2sar!4v1700000000000!5m2!1ses-419!2sar"
-                width="100%"
-                height="100%"
-                style={{ border: 0 }}
-                allowFullScreen={true}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                className="grayscale opacity-90 group-hover:grayscale-0 group-hover:opacity-100 transition-all duration-700"
-              />
+              {company.googleMapsEmbed ? (
+                <iframe
+                  src={company.googleMapsEmbed}
+                  width="100%"
+                  height="100%"
+                  style={{ border: 0 }}
+                  allowFullScreen={true}
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  className="grayscale opacity-90 group-hover:grayscale-0 group-hover:opacity-100 transition-all duration-700"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-slate-400">
+                  <p>Mapa no configurado</p>
+                </div>
+              )}
             </div>
 
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-4">
-              <a 
-                href="https://maps.google.com" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] transition-transform"
-              >
-                <MapPin className="w-5 h-5" />
-                Cómo llegar
-              </a>
-              <a 
-                href="https://wa.me/5493511234567" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] text-white py-4 rounded-2xl font-bold shadow-lg shadow-[#25D366]/20 hover:scale-[1.02] transition-transform"
-              >
-                <MessageCircle className="w-5 h-5" />
-                Enviar WhatsApp
-              </a>
-              <a 
-                href="mailto:contacto@essenceperfumeria.com"
-                className="flex-1 flex items-center justify-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-4 rounded-2xl font-bold shadow-lg shadow-slate-900/10 hover:scale-[1.02] transition-transform"
-              >
-                <Mail className="w-5 h-5" />
-                Enviar Email
-              </a>
+              {company.googleMapsLink && (
+                <a 
+                  href={company.googleMapsLink} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] transition-transform"
+                >
+                  <MapPin className="w-5 h-5" />
+                  Cómo llegar
+                </a>
+              )}
+              {company.whatsapp && (
+                <a 
+                  href={`https://wa.me/${cleanWhatsapp}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] text-white py-4 rounded-2xl font-bold shadow-lg shadow-[#25D366]/20 hover:scale-[1.02] transition-transform"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  Enviar WhatsApp
+                </a>
+              )}
+              {company.email && (
+                <a 
+                  href={`mailto:${company.email}`}
+                  className="flex-1 flex items-center justify-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-4 rounded-2xl font-bold shadow-lg shadow-slate-900/10 hover:scale-[1.02] transition-transform"
+                >
+                  <Mail className="w-5 h-5" />
+                  Enviar Email
+                </a>
+              )}
             </div>
           </div>
         </section>
@@ -186,14 +219,25 @@ export default function DondeEstamosPage() {
 
       </main>
 
-      {/* Footer minimalista para mantener la estética si la página lo requiere */}
+      {/* Footer */}
       <footer className="mt-16 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800">
-        <div className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center gap-6">
+        <div className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center gap-4">
           <Link href="/" className="flex items-center gap-2 text-primary grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all">
             <span className="material-symbols-outlined text-2xl font-bold">spa</span>
-            <span className="font-bold tracking-widest uppercase text-sm">Ciara Bonita</span>
+            <span className="font-bold tracking-widest uppercase text-sm">{company.name}</span>
           </Link>
-          <p className="text-slate-400 text-sm">© {new Date().getFullYear()} Ciara Bonita. Todos los derechos reservados.</p>
+          <p className="text-slate-400 text-sm">© {new Date().getFullYear()} {company.name}. Todos los derechos reservados.</p>
+          {company.creatorName && (
+            <p className="text-slate-400 text-xs">
+              {company.creatorUrl ? (
+                <a href={company.creatorUrl} target="_blank" rel="noopener noreferrer" className="hover:underline hover:text-primary">
+                  {company.creatorName}
+                </a>
+              ) : (
+                company.creatorName
+              )}
+            </p>
+          )}
         </div>
       </footer>
     </div>

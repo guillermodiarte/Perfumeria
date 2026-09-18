@@ -26,7 +26,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { orderNumbe
     const wasAlreadyApproved = (order.status || '').toLowerCase().startsWith('aprob');
 
     const updateData: any = {};
-    if (body.status !== undefined) updateData.status = body.status;
+    if (body.status !== undefined) {
+      updateData.status = body.status;
+      const sNorm = String(body.status).toLowerCase();
+      if ((sNorm.includes('rechaz') || sNorm.includes('cancel')) && body.delivery_status === undefined) {
+        updateData.delivery_status = 'cancelled';
+      }
+    }
     if (body.payment_status !== undefined) updateData.payment_status = body.payment_status;
     if (body.payment_type !== undefined) updateData.payment_type = body.payment_type;
     if (body.installments_count !== undefined) updateData.installments_count = body.installments_count;
@@ -34,6 +40,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { orderNumbe
     if (body.delivery_status !== undefined) updateData.delivery_status = body.delivery_status;
     if (body.paid_amount !== undefined) updateData.paid_amount = Number(body.paid_amount);
     if (body.admin_notes !== undefined) updateData.admin_notes = body.admin_notes;
+    if (body.shipping_type !== undefined) updateData.shipping_type = body.shipping_type;
+    if (body.shipping_cost !== undefined) updateData.shipping_cost = Number(body.shipping_cost);
+    if (body.shipping_tracking_number !== undefined) updateData.shipping_tracking_number = body.shipping_tracking_number;
+    if (body.shipping_invoice_url !== undefined) updateData.shipping_invoice_url = body.shipping_invoice_url;
+    if (body.shipped_at !== undefined) updateData.shipped_at = body.shipped_at;
 
     // Check if status is changed to approved
     const nowApproved = (body.status || order.status || '').toLowerCase().startsWith('aprob');

@@ -16,13 +16,13 @@ export default function Home() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/settings`);
+        const res = await fetch(`${API_URL}/api/settings`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           const settingsMap: Record<string, any> = {};
           data.forEach((item: any) => {
             // Backward compatibility for old banner format
-            if (item.key === 'home_banner' && !item.value.slides) {
+            if (item.key === 'home_banner' && item.value && !item.value.slides) {
               settingsMap[item.key] = { slides: [{ title: item.value.title || '', subtitle: item.value.subtitle || '', mediaUrl: item.value.videoUrl || '', link: '/catalog' }] };
             } else {
               settingsMap[item.key] = item.value;
@@ -40,30 +40,30 @@ export default function Home() {
   }, [API_URL]);
 
   const dbBanner = settings['home_banner'];
-  const banner = (dbBanner && dbBanner.slides && dbBanner.slides.length > 1) ? dbBanner : {
+  const banner = (dbBanner && Array.isArray(dbBanner.slides) && dbBanner.slides.length > 0) ? dbBanner : {
     slides: [
       {
         title: 'DESCUBRE TU ESENCIA',
         subtitle: 'FRAGANCIAS EXCLUSIVAS',
-        mediaUrl: "/uploads/Perfumes/3.jpeg",
+        mediaUrl: "/uploads/Perfumes/3.webp",
         link: "/catalog"
       },
       {
         title: 'ESENCIA FEMENINA',
         subtitle: 'AROMAS QUE ENAMORAN',
-        mediaUrl: "/uploads/Perfumes/1.jpeg",
+        mediaUrl: "/uploads/Perfumes/1.webp",
         link: "/catalog?category=Perfumes+de+Mujer"
       },
       {
         title: 'CARÁCTER Y ELEGANCIA',
         subtitle: 'PERFUMES DE HOMBRE',
-        mediaUrl: "/uploads/Perfumes/2.jpeg",
+        mediaUrl: "/uploads/Perfumes/2.webp",
         link: "/catalog?category=Perfumes+de+Hombre"
       },
       {
         title: 'DETALLES QUE RESALTAN',
         subtitle: 'LABIALES EXCLUSIVOS',
-        mediaUrl: "/uploads/Labiales/1.jpeg",
+        mediaUrl: "/uploads/Labiales/1.webp",
         link: "/catalog?category=Labios"
       }
     ]
@@ -71,29 +71,32 @@ export default function Home() {
 
   const slides = banner.slides || [];
 
-  const categoriesSetting = settings['home_categories'] || {
-    categories: [
-      { title: 'Perfumes de Mujer', subtitle: 'Fragancias que enamoran', mediaUrl: '/uploads/Perfumes/1.jpeg', link: '/catalog?category=Perfumes+de+Mujer' },
-      { title: 'Perfumes de Hombre', subtitle: 'Carácter y Elegancia', mediaUrl: '/uploads/Perfumes/2.jpeg', link: '/catalog?category=Perfumes+de+Hombre' },
-      { title: 'Labiales Exclusivos', subtitle: 'Detalles que resaltan', mediaUrl: '/uploads/Labiales/1.jpeg', link: '/catalog?category=Labios' }
-    ]
-  };
-  const categoryCards = categoriesSetting.categories || [];
+  const categoriesSetting = settings['home_categories'];
+  const categoryCards = (categoriesSetting && Array.isArray(categoriesSetting.categories) && categoriesSetting.categories.length > 0)
+    ? categoriesSetting.categories
+    : [
+      { title: 'Perfumes de Mujer', subtitle: 'Fragancias que enamoran', mediaUrl: '/uploads/Perfumes/1.webp', link: '/catalog?category=Perfumes+de+Mujer' },
+      { title: 'Perfumes de Hombre', subtitle: 'Carácter y Elegancia', mediaUrl: '/uploads/Perfumes/2.webp', link: '/catalog?category=Perfumes+de+Hombre' },
+      { title: 'Labiales Exclusivos', subtitle: 'Detalles que resaltan', mediaUrl: '/uploads/Labiales/1.webp', link: '/catalog?category=Labios' }
+    ];
+
+  // Carousel transition interval
+  const bannerInterval = (dbBanner && dbBanner.interval) ? Math.max(2, Number(dbBanner.interval)) * 1000 : 6000;
 
   // Auto-advance carousel
   useEffect(() => {
     if (slides.length <= 1) return;
     const interval = setInterval(() => {
       setCurrentSlide(prev => (prev + 1) % slides.length);
-    }, 6000);
+    }, bannerInterval);
     return () => clearInterval(interval);
-  }, [slides.length]);
+  }, [slides.length, bannerInterval]);
 
   const header = settings['site_header'] || {
     logoUrl: "",
     facebookUrl: "#",
     instagramUrl: "#",
-    whatsapp: "5493513146924"
+    whatsapp: "5493704747426"
   };
 
   const footer = settings['site_footer'] || {
@@ -113,6 +116,18 @@ export default function Home() {
             <div className="relative min-h-[600px] w-full overflow-hidden rounded-3xl group">
               {slides.map((slide: any, idx: number) => {
                 const isVideo = slide.mediaUrl && slide.mediaUrl.match(/\.(mp4|webm|ogg)$/i);
+                const tagline = slide.tagline !== undefined ? slide.tagline : 'CIARA BONITA COLLECTION';
+                const title = slide.title || '';
+                const highlightTitle = slide.highlightTitle !== undefined 
+                  ? slide.highlightTitle 
+                  : (slide.subtitle && slide.subtitle.length < 40 ? slide.subtitle : '');
+                const description = slide.description !== undefined
+                  ? slide.description
+                  : (slide.subtitle && slide.subtitle.length >= 40
+                      ? slide.subtitle
+                      : 'Diseñado para resaltar tu personalidad. Perfumes y accesorios que dejan una huella inolvidable en cada paso.');
+                const buttonText = slide.buttonText || 'Comprar Colección';
+                const buttonLink = slide.link || '/catalog';
 
                 return (
                   <div
@@ -131,7 +146,7 @@ export default function Home() {
                     ) : (
                       <div
                         className="absolute inset-0 w-full h-full bg-cover bg-center z-0"
-                        style={{ backgroundImage: `url('${slide.mediaUrl.startsWith('http') ? slide.mediaUrl : `${API_URL}${slide.mediaUrl}`}')`, backgroundColor: '#1E293B' }}
+                        style={{ backgroundImage: `url('${slide.mediaUrl ? (slide.mediaUrl.startsWith('http') ? slide.mediaUrl : `${API_URL}${slide.mediaUrl.startsWith('/') ? slide.mediaUrl : `/${slide.mediaUrl}`}`) : ''}')`, backgroundColor: '#1E293B' }}
                       />
                     )}
 
@@ -140,19 +155,35 @@ export default function Home() {
 
                     <div className="relative z-10 max-w-2xl flex flex-col gap-6 transform transition-all duration-1000 delay-300">
                       <div className="flex flex-col gap-3">
-                        <span className="text-primary font-bold tracking-widest uppercase text-sm">Ciara Bonita Collection</span>
-                        <h1 className="text-white text-5xl md:text-7xl font-black leading-[1.1] tracking-tighter drop-shadow-lg">
-                          {(slide.title || '').toUpperCase()} <br /> <span className="text-primary italic font-serif">{(slide.subtitle || '').toUpperCase()}</span>
-                        </h1>
-                        <p className="text-slate-200 text-lg md:text-xl font-medium max-w-lg leading-relaxed drop-shadow-md">
-                          Diseñado para resaltar tu personalidad. Perfumes y accesorios que dejan una huella inolvidable en cada paso.
-                        </p>
+                        {tagline && (
+                          <span className="text-primary font-bold tracking-widest uppercase text-sm">
+                            {tagline}
+                          </span>
+                        )}
+                        {(title || highlightTitle) && (
+                          <h1 className="text-white text-5xl md:text-7xl font-black leading-[1.1] tracking-tighter drop-shadow-lg">
+                            {title && <span>{title.toUpperCase()}</span>}
+                            {title && highlightTitle && <br />}
+                            {highlightTitle && (
+                              <span className="text-primary italic font-serif">
+                                {highlightTitle.toUpperCase()}
+                              </span>
+                            )}
+                          </h1>
+                        )}
+                        {description && (
+                          <p className="text-slate-200 text-lg md:text-xl font-medium max-w-lg leading-relaxed drop-shadow-md">
+                            {description}
+                          </p>
+                        )}
                       </div>
-                      <div className="flex flex-wrap gap-4">
-                        <Link href={slide.link || "/catalog"} className="flex min-w-[160px] cursor-pointer items-center justify-center rounded-full h-14 px-8 bg-primary text-white text-base font-bold hover:scale-105 transition-transform shadow-lg shadow-primary/30">
-                          Comprar Colección
-                        </Link>
-                      </div>
+                      {buttonText && (
+                        <div className="flex flex-wrap gap-4">
+                          <Link href={buttonLink} className="flex min-w-[160px] cursor-pointer items-center justify-center rounded-full h-14 px-8 bg-primary text-white text-base font-bold hover:scale-105 transition-transform shadow-lg shadow-primary/30">
+                            {buttonText}
+                          </Link>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -258,8 +289,15 @@ export default function Home() {
                         </div>
                         <div className="flex flex-col gap-1">
                           <h4 className="text-slate-900 dark:text-white font-bold text-base truncate" title={product.name}>{product.name}</h4>
-                          <p className="text-slate-500 dark:text-slate-400 text-sm truncate">{colorDesc}</p>
-                          <p className="text-primary font-black mt-1">${product.salePrice.toLocaleString('es-AR')}</p>
+                          {(() => {
+                            const variantPrices = product.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
+                            const minP = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.salePrice || 0);
+                            const maxP = variantPrices.length > 0 ? Math.max(...variantPrices) : (product.salePrice || 0);
+                            const priceDisplay = variantPrices.length > 1 && minP !== maxP
+                              ? `Desde $${minP.toLocaleString('es-AR')}`
+                              : `$${(product.salePrice || minP).toLocaleString('es-AR')}`;
+                            return <p className="text-primary font-black mt-1">{priceDisplay}</p>;
+                          })()}
                         </div>
                       </Link>
                     );

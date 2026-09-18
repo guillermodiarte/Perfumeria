@@ -46,7 +46,7 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
 
   const currentMonth = new Date().toISOString().substring(0, 7); // "YYYY-MM"
 
-  const getToken = () => apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') : '');
+  const getToken = (): string => apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') ?? '' : '');
 
   // Cargar pedidos web
   const fetchWebOrders = useCallback(async () => {

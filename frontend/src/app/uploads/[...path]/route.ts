@@ -25,13 +25,24 @@ export async function GET(req: NextRequest, { params }: { params: { path: string
       return new NextResponse('Forbidden', { status: 403 });
     }
 
-    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    let finalPath = filePath;
+    let ext = path.extname(filePath).toLowerCase();
+
+    // Si se solicita JPG/PNG y existe su equivalente WebP optimizado, servir WebP automáticamente
+    if (['.jpg', '.jpeg', '.png'].includes(ext)) {
+      const webpPath = filePath.substring(0, filePath.lastIndexOf('.')) + '.webp';
+      if (fs.existsSync(webpPath) && fs.statSync(webpPath).isFile()) {
+        finalPath = webpPath;
+        ext = '.webp';
+      }
+    }
+
+    if (!fs.existsSync(finalPath) || !fs.statSync(finalPath).isFile()) {
       return new NextResponse('Not Found', { status: 404 });
     }
 
-    const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    const fileBuffer = fs.readFileSync(filePath);
+    const fileBuffer = fs.readFileSync(finalPath);
 
     return new NextResponse(fileBuffer, {
       headers: {

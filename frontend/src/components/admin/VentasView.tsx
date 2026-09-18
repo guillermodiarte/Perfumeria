@@ -11,6 +11,7 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
 
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
   
   const [selectedParentCategory, setSelectedParentCategory] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -117,7 +118,8 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
       paidAmount: finalPaid,
       pendingAmount: finalPending,
       installmentsCount: paymentType === 'cuotas' ? installmentsCount : 1,
-      notes: saleNotes.trim()
+      notes: saleNotes.trim(),
+      clientEmail: clientEmail.trim()
     });
 
     // Generar PDF y abrir para impresión
@@ -132,6 +134,7 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     setCart([]);
     setClientName('');
     setClientPhone('');
+    setClientEmail('');
     setSelectedParentCategory('');
     setSelectedCategory('');
     setSelectedProductId('');
@@ -154,7 +157,7 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
         </div>
 
         <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cliente (Obligatorio)</label>
                     <div className="relative">
@@ -174,6 +177,17 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
                             type="tel" placeholder="Ej. 1123456789"
                             className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none transition-all dark:text-white font-medium"
                             value={clientPhone} onChange={e => setClientPhone(e.target.value)}
+                        />
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Email (Opcional - Web)</label>
+                    <div className="relative">
+                        <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">mail</span>
+                        <input 
+                            type="email" placeholder="cliente@correo.com"
+                            className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none transition-all dark:text-white font-medium"
+                            value={clientEmail} onChange={e => setClientEmail(e.target.value)}
                         />
                     </div>
                 </div>

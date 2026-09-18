@@ -54,6 +54,16 @@ def _ensure_sqlite_columns():
                 conn.execute(text("ALTER TABLE orders ADD COLUMN paid_amount NUMERIC(10, 2) DEFAULT 0.0"))
             if "admin_notes" not in cols:
                 conn.execute(text("ALTER TABLE orders ADD COLUMN admin_notes VARCHAR"))
+            if "shipping_type" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN shipping_type VARCHAR DEFAULT 'delivery'"))
+            if "shipping_cost" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN shipping_cost NUMERIC(10, 2) DEFAULT 0"))
+            if "shipping_tracking_number" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN shipping_tracking_number VARCHAR"))
+            if "shipping_invoice_url" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN shipping_invoice_url VARCHAR"))
+            if "shipped_at" not in cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN shipped_at VARCHAR"))
 
             # order_items table columns
             res_items = conn.execute(text("PRAGMA table_info(order_items)")).fetchall()
@@ -371,8 +381,18 @@ def create_admin_user(data: CustomerCreateSchema, db: Session = Depends(get_db))
         raise HTTPException(status_code=400, detail="Este correo ya esta registrado")
         
     pwd_hash = get_password_hash(data.password)
-    new_user = Customer(email=data.email, name=data.name, phone=data.phone,
-                        password_hash=pwd_hash, email_verified=True)
+    new_user = Customer(
+        email=data.email, 
+        name=data.name, 
+        phone=data.phone,
+        address=data.address,
+        province=data.province,
+        city=data.city,
+        postal_code=data.postal_code,
+        password_hash=pwd_hash, 
+        email_verified=True,
+        is_approved=True
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)

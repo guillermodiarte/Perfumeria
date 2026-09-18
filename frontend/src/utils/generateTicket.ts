@@ -65,7 +65,7 @@ export function generateTicketPDF(ticketId: string, sales: SaleRecord[], print: 
         margin: { left: 5, right: 5 }
     });
 
-    let currentY = finalY;
+    let currentY = (doc as any).lastAutoTable?.finalY ?? 68;
     // Total
     const total = ticketSales.reduce((acc, s) => acc + s.revenue, 0);
     const firstSale = ticketSales[0];

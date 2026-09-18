@@ -4,8 +4,9 @@ import { useStockFlowStore } from '@/store/useStockStore';
 import { useRef, useState, useEffect } from 'react';
 import { API_URL } from '@/utils/api';
 import CatalogConfig from './CatalogConfig';
+import { COMPANY_DEFAULTS, CompanyInfo } from '@/config/company';
 
-type TabType = 'precios' | 'catalogo' | 'respaldos';
+type TabType = 'precios' | 'catalogo' | 'envios' | 'empresa' | 'respaldos';
 
 interface ConfiguracionViewProps {
   isSuperAdmin?: boolean;
@@ -15,7 +16,7 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
   const [activeTab, setActiveTab] = useState<TabType>('precios');
 
   useEffect(() => {
-    if (!isSuperAdmin && activeTab === 'respaldos') {
+    if (!isSuperAdmin && (activeTab === 'respaldos' || activeTab === 'empresa')) {
       setActiveTab('precios');
     }
   }, [isSuperAdmin, activeTab]);
@@ -33,6 +34,102 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
   const fileInputRefDB = useRef<HTMLInputElement>(null);
   const fileInputRefImages = useRef<HTMLInputElement>(null);
   const fileInputRefJSON = useRef<HTMLInputElement>(null);
+
+  // Shipping Config State
+  const [shippingConfig, setShippingConfig] = useState({ delivery_enabled: true, delivery_cost: 0 });
+  const [loadingShipping, setLoadingShipping] = useState(false);
+  const [savingShipping, setSavingShipping] = useState(false);
+  const [shippingSaveMsg, setShippingSaveMsg] = useState<string | null>(null);
+
+  const fetchShippingConfig = async () => {
+    setLoadingShipping(true);
+    try {
+      const res = await fetch('/api/admin/settings/shipping');
+      if (res.ok) {
+        const data = await res.json();
+        setShippingConfig({
+          delivery_enabled: data.delivery_enabled ?? true,
+          delivery_cost: Number(data.delivery_cost || 0),
+        });
+      }
+    } catch (err) {
+      console.error('Error loading shipping config:', err);
+    } finally {
+      setLoadingShipping(false);
+    }
+  };
+
+  // Company Info State
+  const [companyConfig, setCompanyConfig] = useState<CompanyInfo>(COMPANY_DEFAULTS);
+  const [loadingCompany, setLoadingCompany] = useState(false);
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [companySaveMsg, setCompanySaveMsg] = useState<string | null>(null);
+
+  const fetchCompanyConfig = async () => {
+    setLoadingCompany(true);
+    try {
+      const res = await fetch('/api/admin/settings/company_info');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.value) {
+          setCompanyConfig({ ...COMPANY_DEFAULTS, ...data.value });
+        }
+      }
+    } catch (err) {
+      console.error('Error loading company config:', err);
+    } finally {
+      setLoadingCompany(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchShippingConfig();
+    fetchCompanyConfig();
+  }, []);
+
+  const handleSaveShippingConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingShipping(true);
+    try {
+      const res = await fetch('/api/admin/settings/shipping', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shippingConfig),
+      });
+      if (res.ok) {
+        setShippingSaveMsg('Configuración de envíos guardada exitosamente.');
+        setTimeout(() => setShippingSaveMsg(null), 3000);
+      } else {
+        alert('Error al guardar configuración de envíos');
+      }
+    } catch {
+      alert('Error de conexión con el servidor');
+    } finally {
+      setSavingShipping(false);
+    }
+  };
+
+  const handleSaveCompanyConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingCompany(true);
+    try {
+      const res = await fetch('/api/admin/settings/company_info', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: companyConfig }),
+      });
+      if (res.ok) {
+        setCompanySaveMsg('Datos de la empresa guardados correctamente.');
+        setTimeout(() => setCompanySaveMsg(null), 3500);
+      } else {
+        alert('Error al guardar datos de la empresa');
+      }
+    } catch {
+      alert('Error de conexión con el servidor');
+    } finally {
+      setSavingCompany(false);
+    }
+  };
 
   // Wholesale 30-Day Auto Promotion State
   const [wholesaleAutoEnabled, setWholesaleAutoEnabled] = useState(false);
@@ -251,6 +348,32 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
           <span className="material-symbols-outlined text-lg">category</span>
           Categorías y Catálogo
         </button>
+
+        <button
+          onClick={() => setActiveTab('envios')}
+          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+            activeTab === 'envios'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <span className="material-symbols-outlined text-lg">local_shipping</span>
+          Envíos y Entregas
+        </button>
+
+        {isSuperAdmin && (
+          <button
+            onClick={() => setActiveTab('empresa')}
+            className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+              activeTab === 'empresa'
+                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-lg">storefront</span>
+            Empresa
+          </button>
+        )}
 
         {isSuperAdmin && (
           <button
@@ -481,7 +604,526 @@ export default function ConfiguracionView({ isSuperAdmin = false }: Configuracio
         </div>
       )}
 
-      {/* TAB 3: RESPALDOS Y SISTEMA */}
+      {/* TAB: ENVÍOS Y ENTREGAS */}
+      {activeTab === 'envios' && (
+        <div className="animate-in fade-in duration-200 max-w-3xl space-y-6">
+          <div>
+            <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary text-2xl">local_shipping</span>
+              Configuración de Envíos y Entregas
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Define los métodos de entrega disponibles para los clientes al comprar en la tienda online y sus costos.
+            </p>
+          </div>
+
+          {shippingSaveMsg && (
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-2xl flex items-center gap-3 font-semibold text-sm">
+              <span className="material-symbols-outlined text-emerald-500">check_circle</span>
+              {shippingSaveMsg}
+            </div>
+          )}
+
+          <form onSubmit={handleSaveShippingConfig} className="space-y-6">
+            {/* Delivery a Domicilio Card */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                    <span className="material-symbols-outlined">home_pin</span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-800 dark:text-white text-base">Envío a Domicilio</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Envío directo a la dirección indicada por el comprador.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shippingConfig.delivery_enabled}
+                    onChange={(e) => setShippingConfig({ ...shippingConfig, delivery_enabled: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-primary"></div>
+                </label>
+              </div>
+
+              {shippingConfig.delivery_enabled && (
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                  <label className="block text-sm font-bold text-slate-800 dark:text-white">
+                    Costo de Envío a Domicilio ($ ARS)
+                  </label>
+                  <div className="relative max-w-xs">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="100"
+                      value={shippingConfig.delivery_cost}
+                      onChange={(e) => setShippingConfig({ ...shippingConfig, delivery_cost: Math.max(0, Number(e.target.value) || 0) })}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-8 pr-4 py-2.5 font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="0"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm text-primary">info</span>
+                    {shippingConfig.delivery_cost === 0
+                      ? 'Actualmente configurado como Envío Gratis para todos los pedidos.'
+                      : `Al cliente se le sumarán $${shippingConfig.delivery_cost.toLocaleString('es-AR')} al total del pedido.`}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Retiro en Local Card (Siempre disponible) */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <span className="material-symbols-outlined">storefront</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-slate-800 dark:text-white text-base">Retiro en Local</h4>
+                    <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">
+                      Siempre Gratis
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    El cliente coordina para retirar su compra directamente por el local comercial sin costo adicional.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={savingShipping}
+                className="px-6 py-3 bg-primary text-white font-bold text-sm rounded-xl hover:bg-primary/90 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-lg">
+                  {savingShipping ? 'sync' : 'save'}
+                </span>
+                {savingShipping ? 'Guardando...' : 'Guardar Configuración'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* TAB: DATOS DE LA EMPRESA */}
+      {activeTab === 'empresa' && isSuperAdmin && (
+        <div className="animate-in fade-in duration-200 w-full space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-2xl">storefront</span>
+                Datos de la Empresa y Contacto
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Configura los datos del negocio, información de contacto, ubicación en Google Maps, mensajes de WhatsApp y créditos del sitio.
+              </p>
+            </div>
+            <button
+              onClick={handleSaveCompanyConfig}
+              disabled={savingCompany}
+              className="flex items-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-bold text-sm shadow-md shadow-primary/25 hover:shadow-primary/40 transition-all disabled:opacity-50 self-start sm:self-auto"
+            >
+              <span className="material-symbols-outlined text-lg">
+                {savingCompany ? 'sync' : 'save'}
+              </span>
+              {savingCompany ? 'Guardando...' : 'Guardar Cambios'}
+            </button>
+          </div>
+
+          {companySaveMsg && (
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-2xl flex items-center gap-3 font-semibold text-sm">
+              <span className="material-symbols-outlined text-emerald-500">check_circle</span>
+              {companySaveMsg}
+            </div>
+          )}
+
+          <form onSubmit={handleSaveCompanyConfig} className="space-y-6 w-full">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+              {/* COLUMNA IZQUIERDA */}
+              <div className="space-y-6">
+                {/* 1. Identidad de la Marca */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                    <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                      <span className="material-symbols-outlined text-lg">badge</span>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-base">Identidad de la Marca</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Nombre público, eslogan y presentación</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Nombre del Negocio
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.name}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, name: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Ej: Ciara Bonita"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Eslogan o Subtítulo
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.tagline}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, tagline: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Ej: Fragancias que cuentan historias"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                      Descripción o Historia (Sobre Nosotros)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={companyConfig.description}
+                      onChange={(e) => setCompanyConfig({ ...companyConfig, description: e.target.value })}
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                      placeholder="Descripción de la empresa visible en 'Dónde estamos' y otras secciones"
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Ubicación & Google Maps */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                    <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-lg">pin_drop</span>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-base">Ubicación y Google Maps</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Dirección física y mapa interactivo</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Dirección (Calle y Número)
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.address}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, address: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Ej: Av. Antártida Argentina 1035"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Código Postal
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.postalCode}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, postalCode: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Ej: 3600"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Ciudad / Localidad
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.city}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, city: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Ej: Formosa"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Provincia
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.province}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, province: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Ej: Formosa"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Enlace de Google Maps (Botón "Cómo llegar")
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.googleMapsLink}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, googleMapsLink: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm font-mono"
+                        placeholder="https://maps.app.goo.gl/..."
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        URL de Iframe de Google Maps (Embed para visualizar el mapa)
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.googleMapsEmbed}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, googleMapsEmbed: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 text-xs font-mono"
+                        placeholder="https://www.google.com/maps/embed?pb=..."
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Pegá solo la URL del atributo <code>src="..."</code> del código para insertar mapa de Google Maps.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* COLUMNA DERECHA */}
+              <div className="space-y-6">
+                {/* 3. Contacto & Horarios */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-lg">contacts</span>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-base">Contacto y Horarios</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Canales de atención al cliente</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        WhatsApp para Pedidos
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.whatsapp}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, whatsapp: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono text-sm"
+                        placeholder="5493704747426"
+                        required
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">Solo números con código de país (sin + ni espacios)</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Teléfono Visible Público
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.phone}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, phone: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="+54 9 3704 74-7426"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                      Email de Contacto
+                    </label>
+                    <input
+                      type="email"
+                      value={companyConfig.email}
+                      onChange={(e) => setCompanyConfig({ ...companyConfig, email: e.target.value })}
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      placeholder="contacto@ciarabonita.com"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Horario Lunes a Viernes
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.scheduleWeekdays}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, scheduleWeekdays: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="09:00 - 18:00 hs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Horario Sábados
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.scheduleSaturday}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, scheduleSaturday: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="09:00 - 13:00 hs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Textos de WhatsApp para Pedidos */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                    <div className="w-9 h-9 rounded-xl bg-green-500/10 text-green-600 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-lg">chat</span>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-base">Textos de Pedidos por WhatsApp</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Mensajes predeterminados que se envían al confirmar una compra en el checkout</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                      Saludo Inicial del Pedido
+                    </label>
+                    <input
+                      type="text"
+                      value={companyConfig.whatsappMsgGreeting}
+                      onChange={(e) => setCompanyConfig({ ...companyConfig, whatsappMsgGreeting: e.target.value })}
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      placeholder="¡Hola! Quiero confirmar un pedido 🛒"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                      Pie o Mensaje Final del Pedido (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={companyConfig.whatsappMsgFooter}
+                      onChange={(e) => setCompanyConfig({ ...companyConfig, whatsappMsgFooter: e.target.value })}
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      placeholder="Ej: Aguardo confirmación para realizar el pago."
+                    />
+                  </div>
+                </div>
+
+                {/* 5. Creador de la Página y Redes Sociales */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-lg">code</span>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-base">Datos del Creador y Redes</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Créditos en pie de página y enlaces sociales</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Texto / Nombre del Creador
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.creatorName}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, creatorName: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Ej: Desarrollado por TuEmpresa"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Enlace / Web del Creador
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.creatorUrl}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, creatorUrl: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="https://..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Instagram URL
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.instagramUrl}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, instagramUrl: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="https://instagram.com/..."
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Facebook URL
+                      </label>
+                      <input
+                        type="text"
+                        value={companyConfig.facebookUrl}
+                        onChange={(e) => setCompanyConfig({ ...companyConfig, facebookUrl: e.target.value })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="https://facebook.com/..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Bar: Save Button */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span className="material-symbols-outlined text-base text-primary">info</span>
+                Los cambios guardados se aplicarán de inmediato en toda la tienda online, el checkout y la página "¿Dónde estamos?".
+              </div>
+              <button
+                type="submit"
+                disabled={savingCompany}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-bold text-sm shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-all disabled:opacity-50 flex-shrink-0"
+              >
+                <span className="material-symbols-outlined text-lg">
+                  {savingCompany ? 'sync' : 'save'}
+                </span>
+                {savingCompany ? 'Guardando...' : 'Guardar Datos de la Empresa'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* TAB: RESPALDOS Y SISTEMA */}
       {activeTab === 'respaldos' && isSuperAdmin && (
         <div className="animate-in fade-in duration-200 space-y-6">
           <div>

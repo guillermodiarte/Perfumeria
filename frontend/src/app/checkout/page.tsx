@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { fetchApi, API_URL, parseImageUrl } from '@/utils/api';
 import Link from 'next/link';
+import { useCompanyInfo } from '@/hooks/useCompanyInfo';
 
 export default function CheckoutPage() {
   const { items, removeItem, updateQuantity, clearCart } = useCartStore();
@@ -15,28 +16,39 @@ export default function CheckoutPage() {
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const user = useAuthStore(s => s.user);
+  const company = useCompanyInfo();
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [whatsappUrl, setWhatsappUrl] = useState('');
+
+  const [shippingConfig, setShippingConfig] = useState<{ delivery_enabled: boolean; delivery_cost: number }>({
+    delivery_enabled: true,
+    delivery_cost: 0,
+  });
+  const [shippingType, setShippingType] = useState<'delivery' | 'pickup'>('delivery');
 
   useEffect(() => {
     setMounted(true);
-    // Fetch WhatsApp number configured by Admin from site_header
-    fetch(`${API_URL}/api/settings/site_header`)
+    // Fetch shipping settings
+    fetch('/api/settings/shipping_config')
       .then(res => res.ok ? res.json() : null)
       .then(data => {
-        if (data && data.value && data.value.whatsapp) {
-          const raw = String(data.value.whatsapp).replace(/[^0-9]/g, '');
-          if (raw) setWhatsappUrl(`https://wa.me/${raw}`);
-        } else {
-          setWhatsappUrl(`https://wa.me/5493704747426`);
+        if (data?.value) {
+          try {
+            const val = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+            const enabled = val.delivery_enabled ?? true;
+            setShippingConfig({
+              delivery_enabled: enabled,
+              delivery_cost: Number(val.delivery_cost || 0),
+            });
+            if (!enabled) {
+              setShippingType('pickup');
+            }
+          } catch {}
         }
       })
-      .catch(() => {
-        setWhatsappUrl(`https://wa.me/5493704747426`);
-      });
+      .catch(() => {});
   }, []);
 
   if (!mounted) return null;
@@ -59,40 +71,53 @@ export default function CheckoutPage() {
     );
   }
 
-  const subtotal = items.reduce((acc, item) => acc + (item.product.salePrice * item.quantity), 0);
+  const getItemUnitPrice = (item: any) => {
+    const variant = item.product?.variants?.find((v: any) => v.id === item.variantId || (v.size === item.size && v.color === item.color));
+    return (variant?.manualSalePrice !== undefined && variant.manualSalePrice > 0) ? variant.manualSalePrice : (item.product?.salePrice || 0);
+  };
+
+  const subtotal = items.reduce((acc, item) => acc + (getItemUnitPrice(item) * item.quantity), 0);
 
   const isUserWholesale = !!(user?.is_wholesale || (user?.wholesale_until && new Date(user.wholesale_until) > new Date()));
 
   // Wholesale discount calculation
   const totalDiscount = items.reduce((acc, item) => {
     if (isUserWholesale || item.quantity >= wholesaleConfig.minQuantity) {
-      const itemSubtotal = item.product.salePrice * item.quantity;
+      const itemSubtotal = getItemUnitPrice(item) * item.quantity;
       return acc + (itemSubtotal * (wholesaleConfig.discountPercentage / 100));
     }
     return acc;
   }, 0);
 
-  const total = subtotal - totalDiscount;
+  const activeShippingCost = shippingType === 'delivery' && shippingConfig.delivery_enabled ? shippingConfig.delivery_cost : 0;
+  const total = subtotal - totalDiscount + activeShippingCost;
 
   const buildWhatsappMessage = (orderItems: typeof items, orderTotal: number) => {
     const lines = orderItems.map(item =>
-      `• ${item.product.name} (${item.color} - ${item.size}) x${item.quantity} = $${(item.product.salePrice * item.quantity).toLocaleString()}`
+      `• ${item.product.name} (${item.color ? item.color + ' - ' : ''}${item.size}) x${item.quantity} = $${(getItemUnitPrice(item) * item.quantity).toLocaleString()}`
     );
+    const greeting = company.whatsappMsgGreeting || '¡Hola! Quiero confirmar un pedido 🛒';
     const msg = [
-      `¡Hola! Quiero confirmar un pedido 🛒`,
+      greeting,
       ``,
       `*Cliente:* ${user.name}`,
       `*Teléfono:* ${user.phone}`,
-      user.address ? `*Dirección:* ${user.address}, ${user.city}, ${user.province}` : '',
+      `*Entrega:* ${shippingType === 'delivery' ? '🚚 Envío a Domicilio' : '🏪 Retiro en Local'}`,
+      shippingType === 'delivery' && user.address ? `*Dirección de entrega:* ${user.address}, ${user.city || ''}, ${user.province || ''} (CP: ${user.postal_code || '-'})` : '',
       ``,
       `*Productos:*`,
       ...lines,
       ``,
       totalDiscount > 0 ? `*Descuento mayorista:* -$${totalDiscount.toLocaleString()}` : '',
+      shippingType === 'delivery' ? `*Costo de envío:* ${activeShippingCost === 0 ? 'Gratis' : `$${activeShippingCost.toLocaleString()}`}` : '',
       `*Total: $${orderTotal.toLocaleString()}*`,
-    ].filter(l => l !== null).join('\n');
+      company.whatsappMsgFooter ? `\n${company.whatsappMsgFooter}` : '',
+    ].filter(l => l !== null && l !== '').join('\n');
     return encodeURIComponent(msg);
   };
+
+  const rawWhatsapp = (company.whatsapp || '5493704747426').replace(/[^0-9]/g, '');
+  const whatsappUrl = `https://wa.me/${rawWhatsapp}`;
 
   if (success) {
     return (
@@ -102,21 +127,19 @@ export default function CheckoutPage() {
             <span className="material-symbols-outlined text-4xl">check_circle</span>
           </div>
           <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-2">¡Pedido Confirmado!</h2>
-          <p className="text-slate-500 mb-6">Tu pedido fue registrado. Hacé clic en el botón para enviarnos el detalle por WhatsApp y coordinar el pago y envío.</p>
+          <p className="text-slate-500 mb-6">Tu pedido fue registrado. Hacé clic en el botón para enviarnos el detalle por WhatsApp y coordinar el pago y entrega.</p>
 
-          {whatsappUrl && (
-            <a
-              href={`${whatsappUrl}?text=${buildWhatsappMessage(items.length > 0 ? items : [], total)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full flex items-center justify-center gap-3 bg-green-500 hover:bg-green-600 text-white font-black text-lg py-4 rounded-xl transition-all shadow-lg shadow-green-200 mb-4"
-            >
-              <svg className="size-6" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-              </svg>
-              Enviar pedido por WhatsApp
-            </a>
-          )}
+          <a
+            href={`${whatsappUrl}?text=${buildWhatsappMessage(items.length > 0 ? items : [], total)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-center gap-3 bg-green-500 hover:bg-green-600 text-white font-black text-lg py-4 rounded-xl transition-all shadow-lg shadow-green-200 mb-4"
+          >
+            <svg className="size-6" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+            </svg>
+            Enviar pedido por WhatsApp
+          </a>
 
           <Link href="/catalog" className="w-full text-center text-slate-500 hover:text-primary font-bold py-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-primary/30 transition-colors text-sm">
             Volver a la tienda
@@ -131,6 +154,11 @@ export default function CheckoutPage() {
     if (items.length === 0) return;
     if (!user?.is_approved) {
       setError("Tu cuenta está pendiente de aprobación por un administrador. No podrás realizar compras hasta que sea aprobada.");
+      return;
+    }
+
+    if (shippingType === 'delivery' && !user?.address?.trim()) {
+      setError("Por favor completa tu dirección en 'Mi Perfil' para solicitar envío a domicilio, o elige 'Retiro en Local'.");
       return;
     }
 
@@ -152,8 +180,8 @@ export default function CheckoutPage() {
         image_url: item.product.imageUrls?.[0] || '',
         imageUrl: item.product.imageUrls?.[0] || '',
         quantity: item.quantity,
-        sale_price: item.product.salePrice,
-        salePrice: item.product.salePrice
+        sale_price: getItemUnitPrice(item),
+        salePrice: getItemUnitPrice(item)
       }));
 
       // 1. Create order in Backend
@@ -161,7 +189,11 @@ export default function CheckoutPage() {
       const orderRes = await fetchApi('/api/orders', {
         method: 'POST',
         headers: { 'X-API-KEY': token || '' },
-        body: JSON.stringify({ items: saleItems })
+        body: JSON.stringify({
+          items: saleItems,
+          shipping_type: shippingType,
+          shipping_cost: activeShippingCost,
+        })
       });
 
       // 2. Register sale in Frontend Zustand for Admin Panel (retains stock)
@@ -240,7 +272,8 @@ export default function CheckoutPage() {
                         <button onClick={() => updateQuantity(item.product.id, item.variantId, item.quantity + 1)} className="text-slate-400 hover:text-primary font-bold px-1">+</button>
                       </div>
                       <div className="text-right">
-                        <p className="font-black text-slate-900 dark:text-white">${(item.product.salePrice * item.quantity).toLocaleString()}</p>
+                        <p className="font-black text-slate-900 dark:text-white">${(getItemUnitPrice(item) * item.quantity).toLocaleString()}</p>
+                        <p className="text-xs text-slate-400 font-medium">${getItemUnitPrice(item).toLocaleString()} c/u</p>
                         {(isUserWholesale || item.quantity >= wholesaleConfig.minQuantity) && (
                           <p className="text-[10px] font-bold text-green-500 uppercase">-{wholesaleConfig.discountPercentage}% Mayorista aplicado</p>
                         )}
@@ -261,7 +294,64 @@ export default function CheckoutPage() {
           <form onSubmit={handleConfirm} className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 md:p-8 sticky top-8">
             <h2 className="text-xl font-black text-slate-900 dark:text-white mb-6">Resumen de Compra</h2>
             
-            <div className="flex flex-col gap-3 mb-8 text-sm">
+            {/* Método de Entrega */}
+            <div className="mb-6 space-y-3">
+              <label className="block text-sm font-bold text-slate-900 dark:text-white">
+                ¿Cómo querés recibir tu pedido?
+              </label>
+
+              <div className="grid grid-cols-1 gap-2.5">
+                {shippingConfig.delivery_enabled && (
+                  <button
+                    type="button"
+                    onClick={() => setShippingType('delivery')}
+                    className={`p-3.5 rounded-2xl border text-left flex items-center justify-between transition-all ${
+                      shippingType === 'delivery'
+                        ? 'border-primary bg-primary/5 dark:bg-primary/10 ring-1 ring-primary'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-xl ${shippingType === 'delivery' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                        <span className="material-symbols-outlined text-xl">local_shipping</span>
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-slate-900 dark:text-white">Envío a Domicilio</p>
+                        <p className="text-[11px] text-slate-500">Entrega en tu dirección</p>
+                      </div>
+                    </div>
+                    <span className="font-bold text-xs text-primary">
+                      {shippingConfig.delivery_cost === 0 ? 'Gratis' : `$${shippingConfig.delivery_cost.toLocaleString('es-AR')}`}
+                    </span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShippingType('pickup')}
+                  className={`p-3.5 rounded-2xl border text-left flex items-center justify-between transition-all ${
+                    shippingType === 'pickup'
+                      ? 'border-primary bg-primary/5 dark:bg-primary/10 ring-1 ring-primary'
+                      : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-xl ${shippingType === 'pickup' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                      <span className="material-symbols-outlined text-xl">storefront</span>
+                    </div>
+                    <div>
+                      <p className="font-bold text-sm text-slate-900 dark:text-white">Retiro en Local</p>
+                      <p className="text-[11px] text-slate-500">Coordinamos horario</p>
+                    </div>
+                  </div>
+                  <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                    Gratis
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2.5 mb-6 text-sm">
               <div className="flex justify-between text-slate-500 font-medium">
                 <span>Subtotal</span>
                 <span>${subtotal.toLocaleString()}</span>
@@ -272,7 +362,13 @@ export default function CheckoutPage() {
                   <span>-${totalDiscount.toLocaleString()}</span>
                 </div>
               )}
-              <div className="flex justify-between font-black text-slate-900 dark:text-white text-xl pt-4 border-t border-slate-100 dark:border-slate-700 mt-2">
+              <div className="flex justify-between text-slate-500 font-medium">
+                <span>Envío ({shippingType === 'delivery' ? 'Domicilio' : 'Retiro en Local'})</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {activeShippingCost === 0 ? 'Gratis' : `$${activeShippingCost.toLocaleString('es-AR')}`}
+                </span>
+              </div>
+              <div className="flex justify-between font-black text-slate-900 dark:text-white text-xl pt-4 border-t border-slate-100 dark:border-slate-700 mt-1">
                 <span>Total</span>
                 <span>${total.toLocaleString()}</span>
               </div>
@@ -297,11 +393,16 @@ export default function CheckoutPage() {
                 <p className="font-bold text-slate-900 dark:text-white">{user.name}</p>
                 <p className="text-sm text-slate-500">{user.email}</p>
                 <p className="text-sm text-slate-500 mt-2">{user.phone}</p>
-                {user.address && (
+                {user.address ? (
                   <p className="text-sm text-slate-500 mt-2">
                     {user.address}, {user.city}, {user.province} (CP: {user.postal_code})
                   </p>
-                )}
+                ) : shippingType === 'delivery' ? (
+                  <p className="text-xs text-amber-600 font-bold mt-2 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-sm">warning</span>
+                    No tenés dirección registrada para el envío a domicilio.
+                  </p>
+                ) : null}
                 <Link href="/profile" className="text-xs font-bold text-primary hover:underline block mt-3">
                   Modificar datos
                 </Link>

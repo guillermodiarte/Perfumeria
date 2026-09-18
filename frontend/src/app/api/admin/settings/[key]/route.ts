@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentAdmin } from '@/lib/auth';
+import { revalidatePath } from 'next/cache';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 // GET /api/admin/settings/[key]
 export async function GET(req: NextRequest, { params }: { params: { key: string } }) {
@@ -32,6 +36,11 @@ export async function PUT(req: NextRequest, { params }: { params: { key: string 
       update: { value },
       create: { key: params.key, value },
     });
+
+    try {
+      revalidatePath('/');
+      revalidatePath('/admin');
+    } catch {}
 
     let parsedValue = setting.value;
     try { parsedValue = JSON.parse(setting.value as string); } catch {}

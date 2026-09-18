@@ -280,7 +280,15 @@ function CatalogContent() {
                     <p className="text-slate-400 text-xs font-bold uppercase tracking-wider truncate">{product.categoryId}</p>
                     <h3 className="text-slate-900 dark:text-slate-100 text-sm font-bold group-hover:text-primary transition-colors line-clamp-2 leading-tight">{product.name}</h3>
                     <div className="flex items-center justify-between mt-2">
-                      <p className="text-primary font-black text-lg">${(product.salePrice || 0).toLocaleString('es-AR')}</p>
+                      {(() => {
+                        const variantPrices = product.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
+                        const minP = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.salePrice || 0);
+                        const maxP = variantPrices.length > 0 ? Math.max(...variantPrices) : (product.salePrice || 0);
+                        const priceDisplay = variantPrices.length > 1 && minP !== maxP
+                          ? `Desde $${minP.toLocaleString('es-AR')}`
+                          : `$${(product.salePrice || minP).toLocaleString('es-AR')}`;
+                        return <p className="text-primary font-black text-lg">{priceDisplay}</p>;
+                      })()}
                     </div>
                   </div>
                 </Link>

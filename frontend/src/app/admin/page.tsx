@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import ProductosView from '@/components/admin/ProductosView';
+import DashboardView from '@/components/admin/DashboardView';
 import SeccionesView from '@/components/admin/SeccionesView';
 import ConfiguracionView from '@/components/admin/ConfiguracionView';
 import ComprasView from '@/components/admin/ComprasView';
@@ -14,6 +15,7 @@ import CobrosPendientesView from '@/components/admin/CobrosPendientesView';
 import NotificationBell from '@/components/admin/NotificationBell';
 import FinanzasView from '@/components/admin/FinanzasView';
 import ClientesView from '@/components/admin/ClientesView';
+import Logo from '@/components/ui/Logo';
 import { API_URL } from '@/utils/api';
 
 export default function AdminDashboard() {
@@ -23,20 +25,21 @@ export default function AdminDashboard() {
   const [apiKey, setApiKey] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  type ViewId = 'products' | 'sections' | 'compras' | 'ventas' | 'pedidos_web' | 'ventas_mostrador' | 'cobros_pendientes' | 'ventas_realizadas' | 'users' | 'admins' | 'finanzas' | 'media' | 'configuracion';
-  const VALID_VIEWS: ViewId[] = ['products', 'sections', 'compras', 'ventas', 'pedidos_web', 'ventas_mostrador', 'cobros_pendientes', 'ventas_realizadas', 'users', 'admins', 'finanzas', 'media', 'configuracion'];
+  type ViewId = 'dashboard' | 'products' | 'sections' | 'compras' | 'ventas' | 'pedidos_web' | 'ventas_mostrador' | 'cobros_pendientes' | 'ventas_realizadas' | 'users' | 'admins' | 'finanzas' | 'media' | 'configuracion';
+  const VALID_VIEWS: ViewId[] = ['dashboard', 'products', 'sections', 'compras', 'ventas', 'pedidos_web', 'ventas_mostrador', 'cobros_pendientes', 'ventas_realizadas', 'users', 'admins', 'finanzas', 'media', 'configuracion'];
   const getSavedView = (): ViewId => {
-    if (typeof window === 'undefined') return 'products';
+    if (typeof window === 'undefined') return 'dashboard';
     const v = localStorage.getItem('lyg_active_view') as ViewId | null;
-    return v && VALID_VIEWS.includes(v) ? v : 'products';
+    return v && VALID_VIEWS.includes(v) ? v : 'dashboard';
   };
-  const [activeView, setActiveViewState] = useState<ViewId>('products');
+  const [activeView, setActiveViewState] = useState<ViewId>('dashboard');
   const setActiveView = (v: ViewId) => {
     localStorage.setItem('lyg_active_view', v);
     setActiveViewState(v);
   };
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [currentAdminRole, setCurrentAdminRole] = useState<string>('');
   const [currentAdminName, setCurrentAdminName] = useState<string>('');
   const [currentAdminEmail, setCurrentAdminEmail] = useState<string>('');
@@ -75,9 +78,11 @@ export default function AdminDashboard() {
     setActiveViewState(getSavedView());
     const saved = localStorage.getItem('lyg_api_key');
     if (saved) {
-      verifyToken(saved);
+      verifyToken(saved).finally(() => {
+        setCheckingAuth(false);
+      });
     } else {
-      setLoading(false);
+      setCheckingAuth(false);
     }
   }, []);
 
@@ -171,10 +176,10 @@ export default function AdminDashboard() {
         fetchCategories();
       } else {
         handleLogout();
-        setLoading(false);
       }
     } catch (e) {
-      setLoading(false);
+      console.error(e);
+      handleLogout();
     }
   };
 
@@ -523,7 +528,18 @@ export default function AdminDashboard() {
     style: 'currency', currency: 'ARS',
   });
 
-  if (!isAuthenticated && !loading) {
+  if (checkingAuth) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+          <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Verificando sesión...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
     return (
       <>
         {alertMessage && (
@@ -583,54 +599,92 @@ export default function AdminDashboard() {
       {/* Sidebar */}
       <aside className="w-64 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark shrink-0">
         <div className="p-6 flex items-center gap-3">
-
-          <img src="/beso.webp" alt="Kiss" className="w-12 h-12 md:w-14 md:h-14 object-contain flex-shrink-0" />
-
-          <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Ciara Bonita Admin</h2>
+          {currentAdminRole === 'super_admin' ? (
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-primary flex items-center justify-center text-white shadow-md shadow-purple-500/20 flex-shrink-0">
+                <span className="material-symbols-outlined text-2xl">shield_person</span>
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white leading-tight">
+                  Super Admin
+                </h2>
+                <span className="inline-block text-[11px] font-bold text-purple-600 dark:text-purple-400">
+                  Panel Maestro
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Logo height={38} className="w-auto" />
+            </div>
+          )}
         </div>
 
-        <nav className="flex-1 px-4 py-2 space-y-2 overflow-y-auto">
-          <div className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-4 mt-2">Menú Principal</div>
+        <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
+          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-3 mb-3 mt-2">Menú Principal</div>
 
-          <button onClick={() => setActiveView('products')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'products' ? 'bg-primary/20 text-primary border border-primary/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">grid_view</span>
+          <button onClick={() => setActiveView('dashboard')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'dashboard' ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'dashboard' ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30' : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">space_dashboard</span>
+            </span>
+            <span>Dashboard</span>
+          </button>
+
+          <button onClick={() => setActiveView('products')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'products' ? 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'products' ? 'bg-violet-500 text-white shadow-md shadow-violet-500/30' : 'bg-violet-100 dark:bg-violet-950/60 text-violet-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">grid_view</span>
+            </span>
             <span>Productos</span>
           </button>
 
           {currentAdminRole === 'super_admin' && (
-            <button onClick={() => setActiveView('sections')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'sections' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-              <span className="material-symbols-outlined">web</span>
+            <button onClick={() => setActiveView('sections')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'sections' ? 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'sections' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/30' : 'bg-pink-100 dark:bg-pink-950/60 text-pink-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">web</span>
+              </span>
               <span>Secciones</span>
             </button>
           )}
 
-          <button onClick={() => setActiveView('compras')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'compras' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">local_shipping</span>
+          <button onClick={() => setActiveView('compras')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'compras' ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'compras' ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">local_shipping</span>
+            </span>
             <span>Compras</span>
           </button>
 
-          <button onClick={() => setActiveView('ventas')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'ventas' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">point_of_sale</span>
-            <span>Vender</span>
+          <button onClick={() => setActiveView('ventas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'ventas' ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'ventas' ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30' : 'bg-rose-100 dark:bg-rose-950/60 text-rose-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">point_of_sale</span>
+            </span>
+            <span>Vender (Caja)</span>
           </button>
 
-          <button onClick={() => setActiveView('pedidos_web')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'pedidos_web' ? 'bg-primary/10 text-primary font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined text-blue-500">language</span>
+          <button onClick={() => setActiveView('ventas_realizadas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador' ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">receipt_long</span>
+            </span>
+            <span>Ventas Realizadas</span>
+          </button>
+
+          <button onClick={() => setActiveView('pedidos_web')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'pedidos_web' ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'pedidos_web' ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30' : 'bg-blue-100 dark:bg-blue-950/60 text-blue-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">language</span>
+            </span>
             <span>Pedidos Web</span>
           </button>
 
-          <button onClick={() => setActiveView('ventas_mostrador')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'ventas_mostrador' ? 'bg-primary/10 text-primary font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined text-emerald-500">storefront</span>
-            <span>Ventas Mostrador</span>
-          </button>
-
-          <button onClick={() => setActiveView('cobros_pendientes')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'cobros_pendientes' ? 'bg-primary/10 text-primary font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined text-amber-500">account_balance_wallet</span>
+          <button onClick={() => setActiveView('cobros_pendientes')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'cobros_pendientes' ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'cobros_pendientes' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
+            </span>
             <span>Cobros Pendientes</span>
           </button>
 
-          <button onClick={() => setActiveView('users')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'users' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">group</span>
+          <button onClick={() => setActiveView('users')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'users' ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'users' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/30' : 'bg-sky-100 dark:bg-sky-950/60 text-sky-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">group</span>
+            </span>
             <span>Clientes</span>
             {pendingCount > 0 && (
               <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-black animate-pulse">
@@ -640,30 +694,40 @@ export default function AdminDashboard() {
           </button>
 
           {currentAdminRole === 'super_admin' && (
-            <button onClick={() => setActiveView('admins')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'admins' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-              <span className="material-symbols-outlined">admin_panel_settings</span>
+            <button onClick={() => setActiveView('admins')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'admins' ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'admins' ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30' : 'bg-purple-100 dark:bg-purple-950/60 text-purple-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">admin_panel_settings</span>
+              </span>
               <span>Administradores</span>
             </button>
           )}
 
-          <button onClick={() => setActiveView('finanzas')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'finanzas' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">payments</span>
+          <button onClick={() => setActiveView('finanzas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'finanzas' ? 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'finanzas' ? 'bg-teal-500 text-white shadow-md shadow-teal-500/30' : 'bg-teal-100 dark:bg-teal-950/60 text-teal-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">payments</span>
+            </span>
             <span>Finanzas</span>
           </button>
 
-          <button onClick={() => setActiveView('media')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'media' ? 'bg-[#00f8ff] text-slate-900 shadow-lg shadow-[#00f8ff]/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">folder_special</span>
+          <button onClick={() => setActiveView('media')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'media' ? 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'media' ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/30' : 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">folder_special</span>
+            </span>
             <span>Biblioteca</span>
           </button>
 
-          <button onClick={() => setActiveView('configuracion')} className={`flex w-full text-left items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors ${activeView === 'configuracion' ? 'bg-primary/10 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-            <span className="material-symbols-outlined">settings</span>
+          <button onClick={() => setActiveView('configuracion')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'configuracion' ? 'bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-200' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'configuracion' ? 'bg-slate-500 text-white shadow-md shadow-slate-500/30' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">settings</span>
+            </span>
             <span>Configuración</span>
           </button>
 
-          <div className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-4 mt-8">Sistema</div>
-          <Link href="/" target="_blank" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors font-medium">
-            <span className="material-symbols-outlined">storefront</span>
+          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-3 mb-3 mt-6">Sistema</div>
+          <Link href="/" target="_blank" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-all font-semibold text-sm">
+            <span className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-500 flex items-center justify-center flex-shrink-0">
+              <span className="material-symbols-outlined text-[18px]">storefront</span>
+            </span>
             <span>Ver Tienda</span>
           </Link>
         </nav>
@@ -705,12 +769,13 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-white">
             <span className="material-symbols-outlined text-primary text-xl">admin_panel_settings</span>
             <span className="capitalize">
-              {activeView === 'products' ? 'Productos y Stock' :
+              {activeView === 'dashboard' ? 'Panel de Control General' :
+               activeView === 'products' ? 'Productos y Stock' :
                activeView === 'sections' ? 'Secciones y Banner' :
                activeView === 'compras' ? 'Compras de Proveedores' :
                activeView === 'ventas' ? 'Punto de Venta / Caja' :
+               (activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador') ? 'Historial de Ventas Realizadas' :
                activeView === 'pedidos_web' ? 'Pedidos Tienda Web' :
-               activeView === 'ventas_mostrador' ? 'Ventas de Mostrador' :
                activeView === 'cobros_pendientes' ? 'Cobros Pendientes y Cuotas' :
                activeView === 'users' ? 'Clientes Registrados' :
                activeView === 'admins' ? 'Administradores' :
@@ -740,7 +805,11 @@ export default function AdminDashboard() {
         {/* Content Section */}
         <div className="flex-1 overflow-y-auto p-8 bg-background-light dark:bg-background-dark/30">
           <>
-            {activeView === 'products' ? (
+            {activeView === 'dashboard' ? (
+              <div className="max-w-[1600px] w-full px-2 mx-auto">
+                <DashboardView setActiveView={setActiveView} apiKey={apiKey} pendingUserCount={pendingCount} />
+              </div>
+            ) : activeView === 'products' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ProductosView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : (activeView === 'sections' && currentAdminRole === 'super_admin') ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
@@ -907,10 +976,10 @@ export default function AdminDashboard() {
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ComprasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : activeView === 'ventas' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasView showAlert={showAlert} /></div>
-            ) : (activeView === 'pedidos_web' || activeView === 'ventas_realizadas') ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><PedidosWebView apiKey={apiKey} showAlert={showAlert} /></div>
-            ) : activeView === 'ventas_mostrador' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasMostradorView showAlert={showAlert} /></div>
+            ) : (activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador') ? (
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasRealizadasView apiKey={apiKey} showAlert={showAlert} /></div>
+            ) : activeView === 'pedidos_web' ? (
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><PedidosWebView apiKey={apiKey} showAlert={showAlert} currentAdminRole={currentAdminRole} /></div>
             ) : activeView === 'cobros_pendientes' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><CobrosPendientesView apiKey={apiKey} showAlert={showAlert} /></div>
             ) : activeView === 'finanzas' ? (

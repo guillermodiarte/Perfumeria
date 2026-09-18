@@ -22,6 +22,8 @@ export default function CartDrawer() {
   const wholesaleConfig = useStockFlowStore(s => s.wholesaleConfig);
   const user = useAuthStore(s => s.user);
 
+  const [shippingCost, setShippingCost] = useState<number | null>(null);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -30,6 +32,20 @@ export default function CartDrawer() {
   useEffect(() => {
     closeCart();
   }, [pathname, closeCart]);
+
+  useEffect(() => {
+    fetch('/api/settings/shipping_config')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.value) {
+          try {
+            const val = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+            setShippingCost(Number(val.delivery_cost || 0));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   if (!mounted) return null;
 
@@ -42,15 +58,19 @@ export default function CartDrawer() {
   const wholesaleDiscountPrc = wholesaleConfig?.discountPercentage || 10;
   const isUserWholesale = !!(user?.is_wholesale || (user?.wholesale_until && new Date(user.wholesale_until) > new Date()));
 
+  const getItemBasePrice = (item: any) => {
+    const variant = item.product?.variants?.find((v: any) => v.id === item.variantId || (v.size === item.size && v.color === item.color));
+    return (variant?.manualSalePrice !== undefined && variant.manualSalePrice > 0) ? variant.manualSalePrice : (item.product?.salePrice || 0);
+  };
+
   const subtotal = items.reduce((acc, item) => {
     const isWholesale = isUserWholesale || item.quantity >= minWholesaleQty;
-    const basePrice = item.product.salePrice || 0;
+    const basePrice = getItemBasePrice(item);
     const currentPrice = isWholesale ? basePrice * (1 - wholesaleDiscountPrc / 100) : basePrice;
     return acc + currentPrice * item.quantity;
   }, 0);
-  
-  const shipping = subtotal > 0 && subtotal < 50000 ? 5000 : 0; // Example shipping rule
-  const total = subtotal + shipping;
+
+  const total = subtotal;
 
   return (
     <>
@@ -153,7 +173,7 @@ export default function CartDrawer() {
                       </div>
                       <div className="flex flex-col items-end">
                         <span className="font-black text-primary">
-                          ${((isUserWholesale || item.quantity >= minWholesaleQty) ? (item.product.salePrice || 0) * (1 - wholesaleDiscountPrc / 100) : (item.product.salePrice || 0)).toLocaleString('es-AR')}
+                          ${((isUserWholesale || item.quantity >= minWholesaleQty) ? getItemBasePrice(item) * (1 - wholesaleDiscountPrc / 100) : getItemBasePrice(item)).toLocaleString('es-AR')}
                         </span>
                         {(isUserWholesale || item.quantity >= minWholesaleQty) && (
                           <span className="text-[10px] text-green-600 dark:text-green-400 font-bold uppercase tracking-wider mt-0.5">
@@ -180,7 +200,11 @@ export default function CartDrawer() {
               <div className="flex justify-between">
                 <span>Envío</span>
                 <span className="font-bold text-slate-900 dark:text-white">
-                  {shipping === 0 ? 'Gratis' : `$${shipping.toLocaleString('es-AR')}`}
+                  {shippingCost === null
+                    ? 'A calcular en checkout'
+                    : shippingCost === 0
+                    ? 'Gratis / A coordinar'
+                    : `Desde $${shippingCost.toLocaleString('es-AR')}`}
                 </span>
               </div>
               <div className="h-px bg-slate-200 dark:bg-slate-700 my-4" />

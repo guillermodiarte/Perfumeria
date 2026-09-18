@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getCurrentAdmin } from '@/lib/auth';
 import { getUploadDir } from '@/lib/storage';
+import { optimizeAndSaveFile } from '@/lib/imageOptimizer';
 
 // POST /api/admin/product-image?subcategory=...
 export async function POST(req: NextRequest) {
@@ -22,21 +23,18 @@ export async function POST(req: NextRequest) {
     const safeSub = subcategoryParam.trim().replace(/\.\./g, '').replace(/[\/\\]/g, '') || 'General';
     const uploadDir = getUploadDir();
     const destDir = path.join(uploadDir, 'productos', safeSub);
-    fs.mkdirSync(destDir, { recursive: true });
 
     const ts = Date.now().toString().slice(-6);
     const sanitizedName = file.name.replace(/\.\./g, '').replace(/[\/\\]/g, '');
-    const safeName = `${ts}_${sanitizedName}`;
-    const filePath = path.join(destDir, safeName);
+    const initialName = `${ts}_${sanitizedName}`;
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
+    const { filename: finalName, sizeKb } = await optimizeAndSaveFile(buffer, initialName, destDir);
 
-    const sizeKb = (buffer.length / 1024).toFixed(2);
-    const url = `/uploads/productos/${safeSub}/${safeName}`;
+    const url = `/uploads/productos/${safeSub}/${finalName}`;
 
     return NextResponse.json({
-      filename: safeName,
+      filename: finalName,
       category: `productos/${safeSub}`,
       url,
       size: `${sizeKb} KB`,

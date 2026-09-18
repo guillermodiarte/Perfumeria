@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { API_URL } from '@/utils/api';
+import { useStockFlowStore } from '@/store/useStockStore';
 
 interface Customer {
   id: number;
@@ -19,7 +20,7 @@ interface Customer {
   created_at?: string;
 }
 
-type FilterTab = 'pending' | 'approved' | 'all';
+type FilterTab = 'pending' | 'approved' | 'mostrador' | 'all';
 
 interface ClientesViewProps {
   apiKey: string;
@@ -35,6 +36,17 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   const [alertMsg, setAlertMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+
+  // Zustand sales para Clientes de Mostrador
+  const sales = useStockFlowStore(s => s.sales);
+
+  // Modal Crear Cuenta Web desde Mostrador
+  const [createWebModalClient, setCreateWebModalClient] = useState<{ name: string; phone: string; email: string } | null>(null);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientEmail, setNewClientEmail] = useState('');
+  const [newClientPassword, setNewClientPassword] = useState('perfumeria123');
+  const [creatingAccount, setCreatingAccount] = useState(false);
 
   // Mayorista automático (Super Admin)
   const [autoWholesaleEnabled, setAutoWholesaleEnabled] = useState(false);
@@ -171,6 +183,107 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
 
   const pending = customers.filter(c => !c.is_approved);
   const approved = customers.filter(c => c.is_approved);
+
+  // Clientes de mostrador únicos agrupados por teléfono o nombre
+  const posClients = (() => {
+    const map = new Map<string, {
+      name: string;
+      phone: string;
+      email: string;
+      totalRevenue: number;
+      salesCount: number;
+      lastDate: string;
+      hasWebAccount: boolean;
+      webCustomerId?: number;
+    }>();
+
+    sales.forEach(sale => {
+      const phoneClean = (sale.clientPhone || '').trim();
+      const nameClean = (sale.clientName || '').trim();
+      const key = phoneClean || nameClean;
+      if (!key) return;
+
+      const rev = (sale.quantity || 1) * (sale.unitSalePrice || 0);
+      const existing = map.get(key);
+
+      // Check if this client matches a customer in DB
+      const matchedCustomer = customers.find(c => {
+        if (sale.clientEmail && c.email.toLowerCase() === sale.clientEmail.toLowerCase()) return true;
+        if (phoneClean && c.phone && c.phone.replace(/\D/g, '') === phoneClean.replace(/\D/g, '')) return true;
+        return false;
+      });
+
+      if (existing) {
+        existing.totalRevenue += rev;
+        existing.salesCount += 1;
+        if (!existing.email && sale.clientEmail) existing.email = sale.clientEmail;
+        if (new Date(sale.date) > new Date(existing.lastDate)) existing.lastDate = sale.date;
+        if (matchedCustomer) {
+          existing.hasWebAccount = true;
+          existing.webCustomerId = matchedCustomer.id;
+        }
+      } else {
+        map.set(key, {
+          name: nameClean || 'Cliente',
+          phone: phoneClean,
+          email: sale.clientEmail || '',
+          totalRevenue: rev,
+          salesCount: 1,
+          lastDate: sale.date || '',
+          hasWebAccount: !!matchedCustomer,
+          webCustomerId: matchedCustomer?.id,
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.totalRevenue - a.totalRevenue);
+  })();
+
+  const filteredPosClients = posClients.filter(c => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.phone.toLowerCase().includes(q) ||
+      c.email.toLowerCase().includes(q)
+    );
+  });
+
+  const handleCreateWebAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientEmail.trim()) {
+      showAlert('El email es requerido para crear la cuenta web.', 'error');
+      return;
+    }
+    setCreatingAccount(true);
+    try {
+      const res = await fetch('/api/admin/customers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': apiKey,
+        },
+        body: JSON.stringify({
+          name: newClientName.trim(),
+          phone: newClientPhone.trim(),
+          email: newClientEmail.trim().toLowerCase(),
+          password: newClientPassword,
+        }),
+      });
+      if (res.ok) {
+        showAlert(`✓ Cuenta web creada con éxito para ${newClientName}.`, 'success');
+        setCreateWebModalClient(null);
+        fetchCustomers();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showAlert(err.detail || 'Error al crear la cuenta web.', 'error');
+      }
+    } catch {
+      showAlert('Error de conexión con el servidor.', 'error');
+    } finally {
+      setCreatingAccount(false);
+    }
+  };
 
   const filtered = customers
     .filter(c => {
@@ -332,11 +445,12 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
           </div>
 
           {/* Filter Tabs */}
-          <div className="flex gap-2 mt-4">
+          <div className="flex gap-2 mt-4 overflow-x-auto pb-1">
             {([
               { key: 'pending', label: 'Pendientes de Aprobación', count: pending.length, color: 'amber' },
-              { key: 'approved', label: 'Aprobados', count: approved.length, color: 'green' },
-              { key: 'all', label: 'Todos', count: customers.length, color: 'slate' },
+              { key: 'approved', label: 'Aprobados (Web)', count: approved.length, color: 'green' },
+              { key: 'mostrador', label: 'Clientes Mostrador (POS)', count: posClients.length, color: 'cyan' },
+              { key: 'all', label: 'Todos Web', count: customers.length, color: 'slate' },
             ] as const).map(tab => (
               <button
                 key={tab.key}
@@ -361,7 +475,96 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
         </div>
 
         {/* Table */}
-        {loading ? (
+        {filter === 'mostrador' ? (
+          filteredPosClients.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
+              <span className="material-symbols-outlined text-5xl">point_of_sale</span>
+              <p className="font-medium text-sm">No se encontraron clientes de mostrador con ventas registradas.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50 dark:bg-slate-700/30 border-b border-slate-100 dark:border-slate-700">
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente Mostrador</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Historial Compras</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider hidden md:table-cell">Última Compra</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cuenta Web</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {filteredPosClients.map((client, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors">
+                      <td className="px-5 py-4">
+                        <p className="font-bold text-sm text-slate-900 dark:text-white">{client.name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {client.email ? (
+                            <span className="text-primary font-medium">{client.email}</span>
+                          ) : (
+                            <span className="text-slate-400 italic">Sin email registrado</span>
+                          )}
+                        </p>
+                        {client.phone && (
+                          <a
+                            href={whatsappLink(client.phone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium mt-0.5"
+                          >
+                            <span className="material-symbols-outlined text-xs">phone</span>
+                            {client.phone}
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        <p className="font-black text-sm text-slate-900 dark:text-white">${client.totalRevenue.toLocaleString('es-AR')}</p>
+                        <p className="text-xs text-slate-500">{client.salesCount} venta{client.salesCount > 1 ? 's' : ''}</p>
+                      </td>
+                      <td className="px-5 py-4 text-xs text-slate-600 dark:text-slate-300 hidden md:table-cell">
+                        {client.lastDate ? new Date(client.lastDate).toLocaleDateString('es-AR') : '—'}
+                      </td>
+                      <td className="px-5 py-4">
+                        {client.hasWebAccount ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                            <span className="material-symbols-outlined text-xs">verified</span>
+                            Cuenta Web Activa
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                            Solo Mostrador
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        {!client.hasWebAccount ? (
+                          <button
+                            onClick={() => {
+                              setCreateWebModalClient(client);
+                              setNewClientName(client.name);
+                              setNewClientPhone(client.phone);
+                              setNewClientEmail(client.email || '');
+                              setNewClientPassword('perfumeria123');
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all shadow-sm shadow-primary/20"
+                          >
+                            <span className="material-symbols-outlined text-sm">person_add</span>
+                            Crear Cuenta Web
+                          </button>
+                        ) : (
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-end gap-1">
+                            <span className="material-symbols-outlined text-sm">check</span>
+                            Vinculado
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : loading ? (
           <div className="flex items-center justify-center py-20 gap-3 text-slate-400">
             <span className="material-symbols-outlined animate-spin text-3xl">sync</span>
             <span className="font-medium">Cargando...</span>
@@ -519,6 +722,116 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
           </div>
         )}
       </div>
+
+      {/* Modal Crear Cuenta Web para Cliente Mostrador */}
+      {createWebModalClient && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center gap-2">
+                <div className="size-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                  <span className="material-symbols-outlined text-lg">person_add</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">Crear Cuenta Web</h3>
+                  <p className="text-xs text-slate-500">Habilitar acceso online para cliente de mostrador</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateWebModalClient(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateWebAccount} className="space-y-4 pt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nombre Completo</label>
+                <input
+                  type="text"
+                  value={newClientName}
+                  onChange={e => setNewClientName(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Teléfono / WhatsApp</label>
+                <input
+                  type="tel"
+                  value={newClientPhone}
+                  onChange={e => setNewClientPhone(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  placeholder="Ej: 3764123456"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={newClientEmail}
+                  onChange={e => setNewClientEmail(e.target.value)}
+                  required
+                  placeholder="cliente@ejemplo.com"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Este correo servirá como usuario de inicio de sesión.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Contraseña Provisoria</label>
+                <input
+                  type="text"
+                  value={newClientPassword}
+                  onChange={e => setNewClientPassword(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Podés indicarle esta clave al cliente para que ingrese a la tienda.</p>
+              </div>
+
+              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl p-3 flex items-start gap-2.5 text-xs text-emerald-800 dark:text-emerald-300">
+                <span className="material-symbols-outlined text-base shrink-0 mt-0.5 text-emerald-600">check_circle</span>
+                <span>La cuenta se creará <strong>aprobada automáticamente</strong> para que el cliente pueda comprar inmediatamente.</span>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateWebModalClient(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingAccount}
+                  className="flex-1 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm shadow-primary/20 disabled:opacity-50"
+                >
+                  {creatingAccount ? (
+                    <>
+                      <span className="material-symbols-outlined animate-spin text-sm">sync</span>
+                      Creando...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm">how_to_reg</span>
+                      Crear y Vincular
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
