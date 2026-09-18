@@ -34,6 +34,15 @@ if [ -f "/app/data/dev.db" ] && [ ! -e "/app/prisma/dev.db" ]; then
   ln -s /app/data/dev.db /app/prisma/dev.db || true
 fi
 
+# Sincronizar catálogo de imágenes al volumen persistente /app/uploads
+echo "Sincronizando catálogo de imágenes a /app/uploads..."
+if [ -d "/app/uploads_init" ]; then
+  cp -r /app/uploads_init/* /app/uploads/ 2>/dev/null || true
+fi
+if [ -d "/app/public/uploads" ]; then
+  cp -r /app/public/uploads/* /app/uploads/ 2>/dev/null || true
+fi
+
 # Ajustar permisos
 chmod -R 777 /app/data 2>/dev/null || true
 chmod -R 777 /app/uploads 2>/dev/null || true
