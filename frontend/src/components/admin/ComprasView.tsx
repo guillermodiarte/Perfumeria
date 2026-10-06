@@ -16,6 +16,8 @@ const fmt = (n: number) => Math.round(n).toLocaleString('es-AR');
 export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: (msg: string) => void; apiKey: string; apiUrl: string }) {
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
   const registerPurchaseBatch = useStockFlowStore(s => s.registerPurchaseBatch);
+  const deletePurchaseBatch = useStockFlowStore(s => s.deletePurchaseBatch);
+  const updatePurchaseBatch = useStockFlowStore(s => s.updatePurchaseBatch);
   const productsStore = useStockFlowStore(s => s.products);
   const { categoriesConfig, variantGroupsConfig } = useStockFlowStore();
 
@@ -79,8 +81,18 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   // Historial
   const [batches, setBatches] = useState<any[]>([]);
   const [loadingBatches, setLoadingBatches] = useState(false);
+  const [searchBatch, setSearchBatch] = useState('');
   const [detailBatch, setDetailBatch] = useState<any | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // Modal Eliminar Lote
+  const [deleteModalBatch, setDeleteModalBatch] = useState<any | null>(null);
+  const [deletingBatch, setDeletingBatch] = useState(false);
+
+  // Modal Editar Lote
+  const [editModalBatch, setEditModalBatch] = useState<any | null>(null);
+  const [loadingEditBatch, setLoadingEditBatch] = useState(false);
+  const [savingEditBatch, setSavingEditBatch] = useState(false);
 
   // Autocomplete proveedores
   const fetchSuppliers = useCallback(async () => {
@@ -91,8 +103,6 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
     } catch { }
   }, [apiKey, apiUrl]);
 
-  useEffect(() => { fetchSuppliers(); }, [fetchSuppliers]);
-
   const fetchBatches = useCallback(async () => {
     if (!apiKey) return;
     setLoadingBatches(true);
@@ -102,7 +112,15 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
     } catch { } finally { setLoadingBatches(false); }
   }, [apiKey, apiUrl]);
 
-  useEffect(() => { if (activeTab === 'historial') fetchBatches(); }, [activeTab, fetchBatches]);
+  // Cargar proveedores y lotes al inicio
+  useEffect(() => {
+    fetchSuppliers();
+    fetchBatches();
+  }, [fetchSuppliers, fetchBatches]);
+
+  useEffect(() => {
+    if (activeTab === 'historial') fetchBatches();
+  }, [activeTab, fetchBatches]);
 
   const fetchBatchDetail = async (id: number) => {
     setLoadingDetail(true);
@@ -110,6 +128,178 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${id}`, { headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` } });
       if (res.ok) setDetailBatch(await res.json());
     } catch { } finally { setLoadingDetail(false); }
+  };
+
+  const openDeleteModal = async (batch: any) => {
+    if (batch.items && batch.items.length > 0) {
+      setDeleteModalBatch(batch);
+      return;
+    }
+    // Si la lista de lotes no trae todos los items en detalle, los pedimos
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${batch.id}`, {
+        headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (res.ok) {
+        setDeleteModalBatch(await res.json());
+      } else {
+        setDeleteModalBatch(batch);
+      }
+    } catch {
+      setDeleteModalBatch(batch);
+    }
+  };
+
+  const handleConfirmDeleteBatch = async () => {
+    if (!deleteModalBatch) return;
+    setDeletingBatch(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${deleteModalBatch.id}`, {
+        method: 'DELETE',
+        headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (!res.ok) {
+        let errMsg = 'Error al eliminar el lote';
+        try {
+          const err = await res.json();
+          errMsg = err.detail || errMsg;
+        } catch { }
+        throw new Error(errMsg);
+      }
+      const data = await res.json();
+
+      // Descontar del stock global y remover de purchases
+      deletePurchaseBatch({
+        batchNumber: data.deleted_batch_number,
+        items: (data.items || []).map((it: any) => ({
+          productId: it.product_id,
+          variantId: it.variant_id,
+          productName: it.product_name,
+          variantLabel: it.variant_label,
+          quantity: it.quantity,
+        })),
+      });
+
+      showAlert(`🗑️ Lote ${deleteModalBatch.batch_number} eliminado y stock descontado.`);
+      setDeleteModalBatch(null);
+      if (detailBatch?.id === deleteModalBatch.id) setDetailBatch(null);
+      fetchBatches();
+    } catch (e: any) {
+      showAlert(`Error al eliminar lote: ${e.message}`);
+    } finally {
+      setDeletingBatch(false);
+    }
+  };
+
+  const openEditBatch = async (batchId: number) => {
+    setLoadingEditBatch(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${batchId}`, {
+        headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEditModalBatch({
+          id: data.id,
+          batch_number: data.batch_number,
+          supplier_name: data.supplier_name || '',
+          purchase_date: data.purchase_date ? data.purchase_date.split('T')[0] : '',
+          notes: data.notes || '',
+          currency: data.currency,
+          exchange_rate: data.exchange_rate,
+          shipping_cost_ars: data.shipping_cost_ars || 0,
+          items: (data.items || []).map((it: any) => ({
+            id: it.id,
+            product_id: it.product_id,
+            variant_id: it.variant_id,
+            product_name: it.product_name,
+            variant_label: it.variant_label,
+            original_quantity: it.quantity,
+            quantity: it.quantity,
+            unit_cost_original: it.unit_cost_original || 0,
+            unit_cost_ars: it.unit_cost_ars || 0,
+            shipping_per_unit_ars: it.shipping_per_unit_ars || 0,
+            total_cost_per_unit_ars: it.total_cost_per_unit_ars || 0,
+            sale_price: it.sale_price || 0,
+          })),
+        });
+      } else {
+        showAlert('No se pudo cargar la información del lote para editar.');
+      }
+    } catch (e: any) {
+      showAlert(`Error al cargar lote: ${e.message}`);
+    } finally {
+      setLoadingEditBatch(false);
+    }
+  };
+
+  const updateEditItem = (idx: number, field: string, val: any) => {
+    if (!editModalBatch) return;
+    const nextItems = [...editModalBatch.items];
+    nextItems[idx] = { ...nextItems[idx], [field]: val };
+    setEditModalBatch({ ...editModalBatch, items: nextItems });
+  };
+
+  const handleSaveEditBatch = async () => {
+    if (!editModalBatch) return;
+    setSavingEditBatch(true);
+    try {
+      const payload = {
+        supplier_name: editModalBatch.supplier_name.trim() || null,
+        purchase_date: editModalBatch.purchase_date,
+        notes: editModalBatch.notes.trim() || null,
+        shipping_cost_ars: Number(editModalBatch.shipping_cost_ars) || 0,
+        items: editModalBatch.items.map((it: any) => ({
+          id: it.id,
+          quantity: Number(it.quantity) || 0,
+          sale_price: Number(it.sale_price) || 0,
+          unit_cost_ars: Number(it.unit_cost_ars) || 0,
+          shipping_per_unit_ars: Number(it.shipping_per_unit_ars) || 0,
+          total_cost_per_unit_ars: Number(it.total_cost_per_unit_ars) || 0,
+        })),
+      };
+
+      const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${editModalBatch.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        let errMsg = 'Error al actualizar lote';
+        try {
+          const err = await res.json();
+          errMsg = err.detail || errMsg;
+        } catch { }
+        throw new Error(errMsg);
+      }
+
+      // Delta de cantidades y nuevos precios
+      const itemsDiff = editModalBatch.items.map((it: any) => ({
+        productId: it.product_id,
+        variantId: it.variant_id,
+        productName: it.product_name,
+        variantLabel: it.variant_label,
+        quantityDelta: (Number(it.quantity) || 0) - it.original_quantity,
+        newSalePrice: Number(it.sale_price) || undefined,
+        newTotalCostPerUnit: Number(it.total_cost_per_unit_ars) || undefined,
+      }));
+
+      updatePurchaseBatch({
+        batchNumber: editModalBatch.batch_number,
+        supplierName: editModalBatch.supplier_name.trim() || undefined,
+        itemsDiff,
+      });
+
+      showAlert(`✅ Lote ${editModalBatch.batch_number} actualizado con éxito.`);
+      setEditModalBatch(null);
+      if (detailBatch?.id === editModalBatch.id) fetchBatchDetail(editModalBatch.id);
+      fetchBatches();
+    } catch (e: any) {
+      showAlert(`Error al guardar edición: ${e.message}`);
+    } finally {
+      setSavingEditBatch(false);
+    }
   };
 
   const handleOpenSummary = () => {
@@ -237,7 +427,13 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       });
 
       showAlert(`✅ Lote ${saved.batch_number} guardado con éxito.`);
-      setProducts([createEmptyProduct()]); setShippingCostOriginal(0); setSupplierInput(''); setPurchaseDate(new Date().toISOString().split('T')[0]); setShowSummary(false);
+      setProducts([createEmptyProduct()]);
+      setShippingCostOriginal('');
+      setSupplierInput('');
+      setPurchaseDate(new Date().toISOString().split('T')[0]);
+      setShowSummary(false);
+      setActiveTab('historial');
+      fetchBatches();
     } catch (e: any) { showAlert(`Error al guardar: ${e.message}`); } finally { setSaving(false); }
   };
 
@@ -257,7 +453,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
           {(['nueva', 'historial'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 ${activeTab === tab ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
               <span className="material-symbols-outlined text-lg">{tab === 'nueva' ? 'add_circle' : 'history'}</span>
-              {tab === 'nueva' ? 'Nueva Compra' : 'Historial'}
+              {tab === 'nueva' ? 'Nueva Compra' : `Historial (${batches.length})`}
             </button>
           ))}
         </div>
@@ -526,44 +722,146 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       )}
 
       {/* ═══ TAB HISTORIAL ═══ */}
-      {activeTab === 'historial' && (
-        <div className="space-y-4">
-          {loadingBatches ? (
-            <div className="flex items-center justify-center py-16 text-slate-400"><span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>Cargando historial...</div>
-          ) : batches.length === 0 ? (
-            <div className="text-center py-16 text-slate-400"><span className="material-symbols-outlined text-5xl block mb-3">inventory_2</span><p className="font-bold">No hay lotes registrados todavía.</p></div>
-          ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-900/60">
-                  <tr className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    {['Lote', 'Fecha', 'Proveedor', 'Moneda', 'Cotización', 'Envío', 'Total ARS', 'Items', 'Ver'].map(h => (
-                      <th key={h} className={`px-4 py-3 ${['Cotización', 'Envío', 'Total ARS'].includes(h) ? 'text-right' : h === 'Moneda' || h === 'Items' || h === 'Ver' ? 'text-center' : ''}`}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {batches.map(b => (
-                    <tr key={b.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs font-bold text-primary">{b.batch_number}</td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{b.purchase_date ? new Date(b.purchase_date).toLocaleDateString('es-AR') : '—'}</td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{b.supplier_name || <span className="text-slate-400 italic">—</span>}</td>
-                      <td className="px-4 py-3 text-center"><span className="inline-block bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded text-xs font-bold text-slate-700 dark:text-slate-300">{b.currency}</span></td>
-                      <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-400">{b.currency === 'ARS' ? '—' : `$${fmt(b.exchange_rate)}`}</td>
-                      <td className="px-4 py-3 text-right font-mono text-green-700 dark:text-green-400">${fmt(b.shipping_cost_ars)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-black text-slate-900 dark:text-white">${fmt(b.total_cost_ars)}</td>
-                      <td className="px-4 py-3 text-center font-bold text-slate-600 dark:text-slate-400">{b.items_count}</td>
-                      <td className="px-4 py-3 text-center">
-                        <button onClick={() => fetchBatchDetail(b.id)} className="text-primary hover:bg-primary/10 p-1.5 rounded-lg transition-colors"><span className="material-symbols-outlined text-lg">visibility</span></button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {activeTab === 'historial' && (() => {
+        const filteredBatches = batches.filter(b => {
+          if (!searchBatch.trim()) return true;
+          const q = searchBatch.toLowerCase();
+          return (
+            (b.batch_number || '').toLowerCase().includes(q) ||
+            (b.supplier_name || '').toLowerCase().includes(q)
+          );
+        });
+
+        return (
+          <div className="space-y-4">
+            {/* Barra superior de Historial: Búsqueda y total */}
+            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+              <div className="relative flex-1 max-w-md">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+                <input
+                  type="text"
+                  placeholder="Buscar por lote o proveedor..."
+                  className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  value={searchBatch}
+                  onChange={e => setSearchBatch(e.target.value)}
+                />
+                {searchBatch && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchBatch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-slate-500 font-bold self-end sm:self-center">
+                Total: {filteredBatches.length} {filteredBatches.length === 1 ? 'lote' : 'lotes'}
+              </div>
             </div>
-          )}
-        </div>
-      )}
+
+            {loadingBatches ? (
+              <div className="flex items-center justify-center py-16 text-slate-400">
+                <span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>
+                Cargando historial...
+              </div>
+            ) : batches.length === 0 ? (
+              <div className="text-center py-16 text-slate-400">
+                <span className="material-symbols-outlined text-5xl block mb-3">inventory_2</span>
+                <p className="font-bold">No hay lotes registrados todavía.</p>
+                <p className="text-xs mt-1">Podés ingresar tu primera compra desde la pestaña &quot;Nueva Compra&quot;.</p>
+              </div>
+            ) : filteredBatches.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <span className="material-symbols-outlined text-4xl block mb-2">search_off</span>
+                <p className="font-bold text-sm">No se encontraron lotes para &quot;{searchBatch}&quot;</p>
+                <button
+                  type="button"
+                  onClick={() => setSearchBatch('')}
+                  className="mt-2 text-xs text-primary font-bold hover:underline"
+                >
+                  Limpiar búsqueda
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-900/60">
+                    <tr className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      {['Lote', 'Fecha', 'Proveedor', 'Moneda', 'Cotización', 'Envío', 'Total ARS', 'Items', 'Acciones'].map(h => (
+                        <th
+                          key={h}
+                          className={`px-4 py-3 ${['Cotización', 'Envío', 'Total ARS'].includes(h) ? 'text-right' : ['Moneda', 'Items', 'Acciones'].includes(h) ? 'text-center' : ''}`}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredBatches.map(b => (
+                      <tr key={b.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs font-bold text-primary">{b.batch_number}</td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 text-xs">
+                          {b.purchase_date ? new Date(b.purchase_date).toLocaleDateString('es-AR') : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 font-medium">
+                          {b.supplier_name || <span className="text-slate-400 italic">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="inline-block bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded text-xs font-bold text-slate-700 dark:text-slate-300">
+                            {b.currency}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-400 text-xs">
+                          {b.currency === 'ARS' ? '—' : `$${fmt(b.exchange_rate)}`}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-green-700 dark:text-green-400 text-xs">
+                          ${fmt(b.shipping_cost_ars)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-black text-slate-900 dark:text-white">
+                          ${fmt(b.total_cost_ars)}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-slate-600 dark:text-slate-400 text-xs">
+                          {b.items_count}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => fetchBatchDetail(b.id)}
+                              title="Ver detalle del lote"
+                              className="text-primary hover:bg-primary/10 p-1.5 rounded-lg transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-lg">visibility</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditBatch(b.id)}
+                              title="Editar lote y cantidades"
+                              className="text-amber-600 hover:bg-amber-100/60 dark:hover:bg-amber-950/40 p-1.5 rounded-lg transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-lg">edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDeleteModal(b)}
+                              title="Eliminar lote y descontar del stock"
+                              className="text-red-600 hover:bg-red-100/60 dark:hover:bg-red-950/40 p-1.5 rounded-lg transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-lg">delete</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* MODAL: RESUMEN */}
       {showSummary && (
@@ -809,18 +1107,30 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
 
       {/* MODAL: DETALLE DE LOTE */}
       {(detailBatch || loadingDetail) && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDetailBatch(null)}>
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-4xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-4xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
             {loadingDetail ? (
-              <div className="flex items-center justify-center py-16 text-slate-400"><span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>Cargando detalle...</div>
+              <div className="flex items-center justify-center py-16 text-slate-400">
+                <span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>
+                Cargando detalle...
+              </div>
             ) : detailBatch && (
               <>
                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
                   <div>
                     <h3 className="text-xl font-black text-slate-900 dark:text-white">{detailBatch.batch_number}</h3>
-                    <p className="text-xs text-slate-500">{detailBatch.supplier_name ? `${detailBatch.supplier_name} • ` : ''}{detailBatch.purchase_date ? new Date(detailBatch.purchase_date).toLocaleDateString('es-AR') : ''} • {detailBatch.currency}{detailBatch.currency !== 'ARS' ? ` (cotiz. $${fmt(detailBatch.exchange_rate)})` : ''}</p>
+                    <p className="text-xs text-slate-500">
+                      {detailBatch.supplier_name ? `${detailBatch.supplier_name} • ` : ''}
+                      {detailBatch.purchase_date ? new Date(detailBatch.purchase_date).toLocaleDateString('es-AR') : ''} • {detailBatch.currency}
+                      {detailBatch.currency !== 'ARS' ? ` (cotiz. $${fmt(detailBatch.exchange_rate)})` : ''}
+                    </p>
                   </div>
-                  <button onClick={() => setDetailBatch(null)} className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"><span className="material-symbols-outlined text-xl">close</span></button>
+                  <button
+                    onClick={() => setDetailBatch(null)}
+                    className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-xl">close</span>
+                  </button>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {[['Total Productos', `$${fmt(detailBatch.total_products_ars)}`], ['Costo Envío', `$${fmt(detailBatch.shipping_cost_ars)}`], ['Total Lote', `$${fmt(detailBatch.total_cost_ars)}`]].map(([label, value]) => (
@@ -842,9 +1152,14 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {(detailBatch.items || []).map((it: any) => (
                         <tr key={it.id}>
-                          <td className="py-2 pr-3"><p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p><p className="text-slate-400">{it.variant_label}</p></td>
+                          <td className="py-2 pr-3">
+                            <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
+                            <p className="text-slate-400">{it.variant_label}</p>
+                          </td>
                           <td className="py-2 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{it.quantity}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-slate-500">{detailBatch.currency !== 'ARS' ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency]}${Number(it.unit_cost_original).toFixed(2)}` : `$${fmt(it.unit_cost_original)}`}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-slate-500">
+                            {detailBatch.currency !== 'ARS' ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency]}${Number(it.unit_cost_original).toFixed(2)}` : `$${fmt(it.unit_cost_original)}`}
+                          </td>
                           <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</td>
                           <td className="py-2 pr-3 text-right font-mono text-green-600">${fmt(it.shipping_per_unit_ars)}</td>
                           <td className="py-2 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(it.total_cost_per_unit_ars)}</td>
@@ -853,6 +1168,302 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                       ))}
                     </tbody>
                   </table>
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const b = detailBatch;
+                        setDetailBatch(null);
+                        openEditBatch(b.id);
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 font-bold text-xs flex items-center gap-1.5 transition"
+                    >
+                      <span className="material-symbols-outlined text-sm">edit</span> Editar este lote
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const b = detailBatch;
+                        setDetailBatch(null);
+                        openDeleteModal(b);
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-bold text-xs flex items-center gap-1.5 transition"
+                    >
+                      <span className="material-symbols-outlined text-sm">delete</span> Eliminar lote
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDetailBatch(null)}
+                    className="px-5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs transition"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ELIMINAR LOTE */}
+      {deleteModalBatch && (
+        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-red-200 dark:border-red-900/50 max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="size-11 rounded-2xl bg-red-100 dark:bg-red-950/50 text-red-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-2xl">delete_forever</span>
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 dark:text-white text-base">
+                    Eliminar Lote {deleteModalBatch.batch_number}
+                  </h4>
+                  <p className="text-xs text-slate-500 font-bold">
+                    {deleteModalBatch.supplier_name ? `${deleteModalBatch.supplier_name} • ` : ''}
+                    {deleteModalBatch.purchase_date ? new Date(deleteModalBatch.purchase_date).toLocaleDateString('es-AR') : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteModalBatch(null)}
+                disabled={deletingBatch}
+                className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-2xl p-4 space-y-2 text-xs text-red-800 dark:text-red-300">
+              <p className="font-bold flex items-center gap-1.5 text-sm">
+                <span className="material-symbols-outlined text-base">warning</span>
+                ¿Estás seguro de que querés eliminar este lote?
+              </p>
+              <p>
+                Esta acción borrará el registro de la compra y <strong>descontará automáticamente del stock</strong> todas las unidades que fueron ingresadas con este lote.
+              </p>
+            </div>
+
+            {/* Lista de productos que se descontarán del stock */}
+            {deleteModalBatch.items && deleteModalBatch.items.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  Unidades que se descontarán del stock:
+                </p>
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-100 dark:divide-slate-800">
+                  {deleteModalBatch.items.map((it: any, idx: number) => (
+                    <div key={it.id || idx} className="pt-1.5 first:pt-0 flex items-center justify-between text-xs">
+                      <div>
+                        <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
+                        <p className="text-[11px] text-slate-400">{it.variant_label}</p>
+                      </div>
+                      <span className="font-mono font-black text-red-600 dark:text-red-400 bg-red-100/70 dark:bg-red-950/60 px-2 py-0.5 rounded-lg text-xs">
+                        -{it.quantity} u.
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setDeleteModalBatch(null)}
+                disabled={deletingBatch}
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteBatch}
+                disabled={deletingBatch}
+                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg shadow-red-600/25 transition flex items-center gap-1.5 disabled:opacity-60"
+              >
+                {deletingBatch ? (
+                  <>
+                    <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                    Eliminando...
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-sm">delete_forever</span>
+                    Eliminar y descontar del stock
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDITAR LOTE */}
+      {(editModalBatch || loadingEditBatch) && (
+        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-4xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+            {loadingEditBatch ? (
+              <div className="flex items-center justify-center py-20 text-slate-400">
+                <span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>
+                Cargando datos del lote...
+              </div>
+            ) : editModalBatch && (
+              <>
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="size-11 rounded-2xl bg-amber-100 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-2xl">edit_note</span>
+                    </div>
+                    <div>
+                      <h4 className="font-black text-slate-900 dark:text-white text-base">
+                        Editar Lote {editModalBatch.batch_number}
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Modificá proveedor, fecha, notas, cantidades de stock y Precio de Venta.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditModalBatch(null)}
+                    disabled={savingEditBatch}
+                    className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-lg">close</span>
+                  </button>
+                </div>
+
+                {/* Cabecera de edición */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-2xl">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">Proveedor / Tienda</label>
+                    <input
+                      type="text"
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white font-medium"
+                      value={editModalBatch.supplier_name}
+                      onChange={e => setEditModalBatch({ ...editModalBatch, supplier_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">Fecha de Compra</label>
+                    <input
+                      type="date"
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
+                      value={editModalBatch.purchase_date}
+                      onChange={e => setEditModalBatch({ ...editModalBatch, purchase_date: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">Notas / Observaciones</label>
+                    <input
+                      type="text"
+                      placeholder="Opcional..."
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
+                      value={editModalBatch.notes}
+                      onChange={e => setEditModalBatch({ ...editModalBatch, notes: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                {/* Tabla de ítems a editar */}
+                <div className="overflow-auto flex-1">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
+                      <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                        <th className="pb-2 pr-3">Producto / Variante</th>
+                        <th className="pb-2 pr-3 text-center w-28">Cantidad</th>
+                        <th className="pb-2 pr-3 text-right">Costo ARS</th>
+                        <th className="pb-2 pr-3 text-right">Envío/u</th>
+                        <th className="pb-2 pr-3 text-right">Total/u</th>
+                        <th className="pb-2 text-right w-36">Precio de Venta</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {editModalBatch.items.map((it: any, idx: number) => {
+                        const delta = (Number(it.quantity) || 0) - it.original_quantity;
+                        return (
+                          <tr key={it.id || idx}>
+                            <td className="py-2.5 pr-3">
+                              <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
+                              <p className="text-slate-400">{it.variant_label}</p>
+                            </td>
+                            <td className="py-2.5 pr-3 text-center">
+                              <div className="flex flex-col items-center">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="w-20 text-center bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs font-bold text-slate-900 dark:text-white"
+                                  value={it.quantity ?? ''}
+                                  onChange={e => updateEditItem(idx, 'quantity', e.target.value === '' ? 0 : Number(e.target.value))}
+                                />
+                                {delta !== 0 && (
+                                  <span className={`text-[10px] font-bold mt-0.5 ${delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                    {delta > 0 ? `+${delta}` : delta} stock
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                              ${fmt(it.unit_cost_ars)}
+                            </td>
+                            <td className="py-2.5 pr-3 text-right font-mono text-green-600">
+                              ${fmt(it.shipping_per_unit_ars)}
+                            </td>
+                            <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                              ${fmt(it.total_cost_per_unit_ars)}
+                            </td>
+                            <td className="py-2.5 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                className="w-28 text-right bg-white dark:bg-slate-700 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 rounded-lg px-2 py-1 text-xs font-black"
+                                value={it.sale_price ?? ''}
+                                onChange={e => updateEditItem(idx, 'sale_price', e.target.value === '' ? 0 : Number(e.target.value))}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
+                  <span className="text-xs text-slate-500">
+                    Los cambios de cantidad ajustarán el stock inmediatamente.
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditModalBatch(null)}
+                      disabled={savingEditBatch}
+                      className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveEditBatch}
+                      disabled={savingEditBatch}
+                      className="px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-lg shadow-primary/25 transition flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {savingEditBatch ? (
+                        <>
+                          <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                          Guardando...
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-sm">save</span>
+                          Guardar Cambios
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </>
             )}

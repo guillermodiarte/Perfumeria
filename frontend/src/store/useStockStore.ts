@@ -257,6 +257,31 @@ export interface StockFlowState {
     }[];
   }) => void;
 
+  deletePurchaseBatch: (payload: {
+    batchNumber: string;
+    items: {
+      productId: string;
+      variantId?: string;
+      productName?: string;
+      variantLabel?: string;
+      quantity: number;
+    }[];
+  }) => void;
+
+  updatePurchaseBatch: (payload: {
+    batchNumber: string;
+    supplierName?: string;
+    itemsDiff: {
+      productId: string;
+      variantId?: string;
+      productName?: string;
+      variantLabel?: string;
+      quantityDelta: number;
+      newSalePrice?: number;
+      newTotalCostPerUnit?: number;
+    }[];
+  }) => void;
+
   registerSale: (
     clientName: string, 
     clientPhone: string, 
@@ -899,6 +924,97 @@ export const useStockFlowStore = create<StockFlowState>()(
           return {
             products: updatedProducts,
             purchases: [...state.purchases, ...newPurchaseRecords],
+          };
+        });
+      },
+
+      deletePurchaseBatch: (payload) => {
+        set((state) => {
+          const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+
+          payload.items.forEach(item => {
+            let prod = updatedProducts.find(p => p.id === item.productId);
+            if (!prod && item.productName) {
+              prod = updatedProducts.find(
+                p => p.name.trim().toLowerCase() === item.productName!.trim().toLowerCase()
+              );
+            }
+            if (prod) {
+              const sizeFromLabel = item.variantLabel ? item.variantLabel.split(' –')[0].trim().toLowerCase() : '';
+              const colorFromLabel = item.variantLabel && item.variantLabel.includes(' – ') ? item.variantLabel.split(' – ')[1].trim().toLowerCase() : '';
+
+              const vIdx = prod.variants.findIndex(v =>
+                (item.variantId && v.id === item.variantId) ||
+                (sizeFromLabel && v.size.trim().toLowerCase() === sizeFromLabel && (!colorFromLabel || v.color.trim().toLowerCase() === colorFromLabel))
+              );
+
+              if (vIdx !== -1) {
+                prod.variants[vIdx].stock = Math.max(0, prod.variants[vIdx].stock - item.quantity);
+              } else if (prod.variants.length === 1) {
+                prod.variants[0].stock = Math.max(0, prod.variants[0].stock - item.quantity);
+              }
+            }
+          });
+
+          const updatedPurchases = state.purchases.filter(p => p.batchId !== payload.batchNumber);
+
+          return {
+            products: updatedProducts,
+            purchases: updatedPurchases,
+          };
+        });
+      },
+
+      updatePurchaseBatch: (payload) => {
+        set((state) => {
+          const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+
+          payload.itemsDiff.forEach(diff => {
+            let prod = updatedProducts.find(p => p.id === diff.productId);
+            if (!prod && diff.productName) {
+              prod = updatedProducts.find(
+                p => p.name.trim().toLowerCase() === diff.productName!.trim().toLowerCase()
+              );
+            }
+            if (prod) {
+              const sizeFromLabel = diff.variantLabel ? diff.variantLabel.split(' –')[0].trim().toLowerCase() : '';
+              const vIdx = prod.variants.findIndex(v =>
+                (diff.variantId && v.id === diff.variantId) ||
+                (sizeFromLabel && v.size.trim().toLowerCase() === sizeFromLabel)
+              );
+              if (vIdx !== -1) {
+                prod.variants[vIdx].stock = Math.max(0, prod.variants[vIdx].stock + diff.quantityDelta);
+                if (diff.newSalePrice !== undefined) {
+                  prod.variants[vIdx].manualSalePrice = diff.newSalePrice;
+                  prod.salePrice = diff.newSalePrice;
+                }
+                if (diff.newTotalCostPerUnit !== undefined) {
+                  prod.variants[vIdx].unitPurchasePrice = diff.newTotalCostPerUnit;
+                  prod.purchasePrice = diff.newTotalCostPerUnit;
+                }
+              }
+            }
+          });
+
+          const updatedPurchases = state.purchases.map(p => {
+            if (p.batchId === payload.batchNumber) {
+              const diff = payload.itemsDiff.find(d => d.productId === p.productId || (d.productName && d.productName === p.productName));
+              const newQty = diff ? Math.max(0, p.quantity + diff.quantityDelta) : p.quantity;
+              const newCost = diff?.newTotalCostPerUnit !== undefined ? diff.newTotalCostPerUnit : p.unitPurchasePrice;
+              return {
+                ...p,
+                supplierName: payload.supplierName || p.supplierName,
+                quantity: newQty,
+                unitPurchasePrice: newCost,
+                totalCost: newQty * newCost,
+              };
+            }
+            return p;
+          });
+
+          return {
+            products: updatedProducts,
+            purchases: updatedPurchases,
           };
         });
       },
