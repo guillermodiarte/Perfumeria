@@ -138,7 +138,13 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
         const existingProd = prod.productId && !prod.productId.startsWith('NEW')
           ? productsStore.find(p => p.id === prod.productId)
           : productsStore.find(p => p.name.trim().toLowerCase() === prod.newProductName.trim().toLowerCase());
-        const existingVariant = existingProd ? existingProd.variants.find(v => v.size.trim().toLowerCase() === sizeLabel.trim().toLowerCase()) : null;
+        const rawOptVal = (variantGroup?.options[variant.sizeIndex || 0]?.value || '').trim().toLowerCase();
+        const existingVariant = existingProd
+          ? (existingProd.variants.find(v =>
+              v.size.trim().toLowerCase() === sizeLabel.trim().toLowerCase() ||
+              (rawOptVal && v.size.trim().toLowerCase() === rawOptVal)
+            ) || (existingProd.variants.length === 1 ? existingProd.variants[0] : null))
+          : null;
         const hasConflict = !!existingProd && Math.abs((existingProd.purchasePrice || 0) - totalCostPerUnitARS) > 0.01;
 
         rows.push({ pIdx, vIdx, productName: prod.newProductName, variantLabel, quantity: qty, unitCostOriginal, unitCostARS, shippingPerUnitARS, totalCostPerUnitARS, suggestedSalePrice, salePrice: suggestedSalePrice, existingProd: existingProd || null, existingVariant: existingVariant || null, salePriceConflict: hasConflict ? null : 'update', customSalePrice: suggestedSalePrice });
@@ -150,11 +156,43 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
 
   const updateSummaryRow = (idx: number, field: string, value: any) => setSummaryRows(rows => { const nr = [...rows]; (nr[idx] as any)[field] = value; return nr; });
 
+  const resolveConflict = (
+    rowIdx: number,
+    conflictType: 'update' | 'keep' | 'custom',
+    salePriceToUse: number,
+    customPrice?: number
+  ) => {
+    const nextRows = [...summaryRows];
+    nextRows[rowIdx] = {
+      ...nextRows[rowIdx],
+      salePriceConflict: conflictType,
+      salePrice: salePriceToUse,
+      customSalePrice: customPrice !== undefined ? customPrice : nextRows[rowIdx].customSalePrice,
+    };
+    setSummaryRows(nextRows);
+
+    // Buscar si queda algún otro producto con conflicto sin resolver
+    const nextIdx = nextRows.findIndex(
+      (r, i) => i !== rowIdx && r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null
+    );
+
+    if (nextIdx !== -1) {
+      setConflictModal({ row: nextRows[nextIdx], rowIdx: nextIdx });
+    } else {
+      setConflictModal(null);
+    }
+  };
+
   const [saving, setSaving] = useState(false);
 
   const handleConfirmSave = async () => {
-    const unresolved = summaryRows.filter(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null);
-    if (unresolved.length > 0) { showAlert(`Hay ${unresolved.length} producto(s) con conflicto de precio sin resolver.`); return; }
+    const firstUnresolvedIdx = summaryRows.findIndex(
+      r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null
+    );
+    if (firstUnresolvedIdx !== -1) {
+      setConflictModal({ row: summaryRows[firstUnresolvedIdx], rowIdx: firstUnresolvedIdx });
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -174,7 +212,16 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
         }),
       };
       const res = await fetch(`${apiUrl}/api/admin/purchase-batches`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        let errMsg = 'Error en el servidor';
+        try {
+          const errData = await res.json();
+          errMsg = errData.detail || errData.message || JSON.stringify(errData);
+        } catch {
+          errMsg = `Error HTTP ${res.status}: ${res.statusText}`;
+        }
+        throw new Error(errMsg);
+      }
       const saved = await res.json();
 
       registerPurchaseBatch({
@@ -290,7 +337,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                           if (ex) {
                             updateProduct(pIdx, 'productId', ex.id); updateProduct(pIdx, 'categoryId', ex.categoryId); updateProduct(pIdx, 'newProductSku', ex.sku); updateProduct(pIdx, 'newProductImageUrls', ex.imageUrls || []);
                             if (ex.targetGender) updateProduct(pIdx, 'targetGender', ex.targetGender);
-                            ['description','tag','showTag','olfactoryNotes','duration','intensity','family','showFeatures'].forEach(f => { if ((ex as any)[f] !== undefined) updateProduct(pIdx, f, (ex as any)[f]); });
+                            ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((ex as any)[f] !== undefined) updateProduct(pIdx, f, (ex as any)[f]); });
                           } else if (!prod.productId || !prod.productId.startsWith('NEW-')) { updateProduct(pIdx, 'productId', `NEW-${Date.now()}-${pIdx}`); }
                         }}
                       />
@@ -490,8 +537,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-900/60">
                   <tr className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    {['Lote','Fecha','Proveedor','Moneda','Cotización','Envío','Total ARS','Items','Ver'].map(h => (
-                      <th key={h} className={`px-4 py-3 ${['Cotización','Envío','Total ARS'].includes(h) ? 'text-right' : h === 'Moneda' || h === 'Items' || h === 'Ver' ? 'text-center' : ''}`}>{h}</th>
+                    {['Lote', 'Fecha', 'Proveedor', 'Moneda', 'Cotización', 'Envío', 'Total ARS', 'Items', 'Ver'].map(h => (
+                      <th key={h} className={`px-4 py-3 ${['Cotización', 'Envío', 'Total ARS'].includes(h) ? 'text-right' : h === 'Moneda' || h === 'Items' || h === 'Ver' ? 'text-center' : ''}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -520,8 +567,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
 
       {/* MODAL: RESUMEN */}
       {showSummary && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowSummary(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-5xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-5xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
               <div className="flex items-center gap-3">
                 <div className="size-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center"><span className="material-symbols-outlined text-2xl">receipt_long</span></div>
@@ -540,6 +587,31 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                 </div>
               ))}
             </div>
+            {/* Banner de alerta si hay conflictos pendientes */}
+            {(() => {
+              const pendingCount = summaryRows.filter(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null).length;
+              if (pendingCount === 0) return null;
+              return (
+                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+                  <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 text-xs font-bold">
+                    <span className="material-symbols-outlined text-amber-600 text-lg">warning</span>
+                    <span>Hay <strong>{pendingCount} producto(s)</strong> con precio diferente al stock anterior. Seleccioná qué hacer con el precio de venta.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstIdx = summaryRows.findIndex(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null);
+                      if (firstIdx !== -1) setConflictModal({ row: summaryRows[firstIdx], rowIdx: firstIdx });
+                    }}
+                    className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow transition flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  >
+                    <span className="material-symbols-outlined text-sm">tune</span>
+                    Resolver conflictos ({pendingCount})
+                  </button>
+                </div>
+              );
+            })()}
+
             <div className="overflow-auto flex-1">
               <table className="w-full text-xs min-w-[800px]">
                 <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
@@ -563,14 +635,26 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                           <p className="font-bold text-slate-800 dark:text-slate-200">{row.productName}</p>
                           <p className="text-slate-400">{row.variantLabel}</p>
                           {hasConflict && (
-                            <div className="mt-1 flex items-center gap-2">
-                              <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">⚠ Recompra: antes ${fmt(row.existingProd.purchasePrice || 0)}/u</span>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">
+                                ⚠ Costo ant: ${fmt(row.existingProd.purchasePrice || 0)}
+                              </span>
                               {row.salePriceConflict === null ? (
-                                <button onClick={() => setConflictModal({ row, rowIdx: idx })} className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold hover:bg-primary/20 transition">⚡ Resolver</button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConflictModal({ row, rowIdx: idx })}
+                                  className="text-[11px] bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-0.5 rounded-lg shadow-sm flex items-center gap-1 transition"
+                                >
+                                  <span className="material-symbols-outlined text-xs">tune</span> Resolver
+                                </button>
                               ) : (
-                                <span className="text-[10px] bg-green-100 dark:bg-green-900/60 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full font-bold cursor-pointer" onClick={() => setConflictModal({ row, rowIdx: idx })}>
-                                  ✓ {row.salePriceConflict === 'update' ? 'Actualizar PV' : row.salePriceConflict === 'keep' ? 'Mantener PV' : `PV $${fmt(row.customSalePrice)}`}
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setConflictModal({ row, rowIdx: idx })}
+                                  className="text-[10px] bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-lg transition flex items-center gap-1"
+                                >
+                                  ✓ {row.salePriceConflict === 'update' ? 'Actualizar Precio de Venta' : row.salePriceConflict === 'keep' ? 'Mantener Precio de Venta' : `Precio de Venta $${fmt(row.customSalePrice)}`} (Cambiar)
+                                </button>
                               )}
                             </div>
                           )}
@@ -614,48 +698,114 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       )}
 
       {/* MODAL: CONFLICTO DE PRECIO */}
-      {conflictModal && (
-        <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setConflictModal(null)}>
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3">
-              <div className="size-12 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 flex items-center justify-center text-2xl">🔄</div>
-              <div>
-                <h4 className="font-black text-slate-900 dark:text-white text-lg">Conflicto de Precio</h4>
-                <p className="text-xs text-slate-500">{conflictModal.row.productName} — {conflictModal.row.variantLabel}</p>
-              </div>
-            </div>
-            <div className="bg-slate-50 dark:bg-slate-900/60 rounded-xl p-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-slate-500">Costo anterior (c/envío):</span><span className="font-bold text-red-600">${fmt(conflictModal.row.existingProd?.purchasePrice || 0)}/u</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">PV actual:</span><span className="font-bold text-slate-700 dark:text-slate-300">${fmt(conflictModal.row.existingProd?.salePrice || 0)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Stock anterior:</span><span className="font-bold text-slate-700 dark:text-slate-300">{conflictModal.row.existingVariant?.stock || '?'} un.</span></div>
-              <hr className="border-slate-200 dark:border-slate-700 my-1" />
-              <div className="flex justify-between"><span className="text-slate-500">Costo nuevo (c/envío):</span><span className="font-bold text-red-600">${fmt(conflictModal.row.totalCostPerUnitARS)}/u</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">PV sugerido nuevo:</span><span className="font-bold text-green-600">${fmt(conflictModal.row.suggestedSalePrice)}</span></div>
-            </div>
-            <p className="text-sm font-bold text-slate-700 dark:text-slate-300">¿Qué hacemos con el stock anterior?</p>
-            <div className="space-y-3">
-              <button onClick={() => { updateSummaryRow(conflictModal.rowIdx, 'salePriceConflict', 'update'); updateSummaryRow(conflictModal.rowIdx, 'salePrice', conflictModal.row.suggestedSalePrice); setConflictModal(null); }} className="w-full flex items-start gap-3 p-4 border-2 border-blue-300 dark:border-blue-700 rounded-2xl hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors text-left">
-                <span className="text-2xl">🔵</span>
-                <div><p className="font-bold text-slate-900 dark:text-white text-sm">Actualizar PV a ${fmt(conflictModal.row.suggestedSalePrice)}</p><p className="text-xs text-slate-500 mt-0.5">Las unidades anteriores pasan al nuevo precio de venta.</p></div>
-              </button>
-              <button onClick={() => { updateSummaryRow(conflictModal.rowIdx, 'salePriceConflict', 'keep'); setConflictModal(null); }} className="w-full flex items-start gap-3 p-4 border-2 border-slate-300 dark:border-slate-600 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors text-left">
-                <span className="text-2xl">⚫</span>
-                <div><p className="font-bold text-slate-900 dark:text-white text-sm">Mantener PV en ${fmt(conflictModal.row.existingProd?.salePrice || 0)}</p><p className="text-xs text-slate-500 mt-0.5">El stock anterior sigue al precio viejo. Las nuevas unidades tendrán el precio que ingreses.</p></div>
-              </button>
-              <div className="p-4 border-2 border-yellow-300 dark:border-yellow-700 rounded-2xl space-y-2">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">🟡</span>
-                  <div><p className="font-bold text-slate-900 dark:text-white text-sm">Precio personalizado</p><p className="text-xs text-slate-500 mt-0.5">Aplicá un precio intermedio a todos los stocks.</p></div>
+      {conflictModal && (() => {
+        const totalConflicts = summaryRows.filter(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01).length;
+        const currentConflictIdx = summaryRows.filter((r, i) => i <= conflictModal.rowIdx && r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01).length;
+
+        const existingStock = conflictModal.row.existingVariant?.stock ?? (conflictModal.row.existingProd?.variants?.reduce((s: number, v: any) => s + (v.stock || 0), 0) ?? 0);
+        const stockUnitsText = existingStock > 0 ? `${existingStock} unidades` : (conflictModal.row.existingVariant?.stock !== undefined ? `${conflictModal.row.existingVariant.stock} unidades` : '0 unidades');
+
+        return (
+          <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="size-11 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 flex items-center justify-center text-2xl">🔄</div>
+                  <div>
+                    <h4 className="font-black text-slate-900 dark:text-white text-base">
+                      Conflicto de Precio {totalConflicts > 1 ? `(${currentConflictIdx} de ${totalConflicts})` : ''}
+                    </h4>
+                    <p className="text-xs text-slate-500 font-bold">{conflictModal.row.productName} — {conflictModal.row.variantLabel}</p>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <input type="number" min="0" step="1" placeholder="Ej: 3500" className="flex-1 bg-white dark:bg-slate-700 border border-yellow-300 dark:border-yellow-700 rounded-lg px-3 py-2 text-sm font-bold text-yellow-700 dark:text-yellow-400" value={conflictModal.row.customSalePrice || ''} onChange={e => setConflictModal(cm => cm ? { ...cm, row: { ...cm.row, customSalePrice: Number(e.target.value) } } : null)} />
-                  <button onClick={() => { updateSummaryRow(conflictModal.rowIdx, 'salePriceConflict', 'custom'); updateSummaryRow(conflictModal.rowIdx, 'salePrice', conflictModal.row.customSalePrice); updateSummaryRow(conflictModal.rowIdx, 'customSalePrice', conflictModal.row.customSalePrice); setConflictModal(null); }} disabled={!conflictModal.row.customSalePrice || conflictModal.row.customSalePrice <= 0} className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-lg text-sm disabled:opacity-40 transition-colors">Aplicar</button>
+                <button type="button" onClick={() => setConflictModal(null)} className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors">
+                  <span className="material-symbols-outlined text-lg">close</span>
+                </button>
+              </div>
+
+              {/* Comparativa clara */}
+              <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3 pb-2 border-b border-slate-200 dark:border-slate-700">
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Stock Anterior</span>
+                    <p className="text-slate-700 dark:text-slate-300 font-bold">{stockUnitsText}</p>
+                    <p className="text-slate-500">Costo: <span className="font-bold text-red-500">${fmt(conflictModal.row.existingProd?.purchasePrice || 0)}</span></p>
+                    <p className="text-slate-500">Precio de Venta actual: <span className="font-bold text-slate-900 dark:text-white">${fmt(conflictModal.row.existingProd?.salePrice || 0)}</span></p>
+                  </div>
+                  <div className="space-y-1 bg-amber-100/50 dark:bg-amber-950/40 p-2 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-400 block">Nuevo Ingreso</span>
+                    <p className="text-slate-700 dark:text-slate-300 font-bold">+{conflictModal.row.quantity} unidades</p>
+                    <p className="text-slate-500">Costo c/envío: <span className="font-bold text-red-600">${fmt(conflictModal.row.totalCostPerUnitARS)}</span></p>
+                    <p className="text-slate-500">Precio de Venta sugerido: <span className="font-bold text-emerald-600">${fmt(conflictModal.row.suggestedSalePrice)}</span></p>
+                  </div>
+                </div>
+                <p className="text-slate-600 dark:text-slate-300 text-xs">
+                  El costo de este producto cambió. ¿Cómo querés actualizar el precio de venta?
+                </p>
+              </div>
+
+              {/* Botones de decisión */}
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => resolveConflict(conflictModal.rowIdx, 'update', conflictModal.row.suggestedSalePrice)}
+                  className="w-full flex items-center gap-3 p-3.5 border-2 border-blue-400/80 hover:border-blue-500 bg-blue-50/50 hover:bg-blue-100/60 dark:bg-blue-950/30 rounded-2xl transition text-left group"
+                >
+                  <span className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-sm shrink-0">1</span>
+                  <div className="flex-1">
+                    <p className="font-black text-slate-900 dark:text-white text-xs">Actualizar todo al nuevo Precio de Venta (${fmt(conflictModal.row.suggestedSalePrice)})</p>
+                    <p className="text-[11px] text-slate-500">Tanto las {stockUnitsText} viejas como las nuevas se venderán al nuevo Precio de Venta.</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => resolveConflict(conflictModal.rowIdx, 'keep', conflictModal.row.existingProd?.salePrice || conflictModal.row.salePrice)}
+                  className="w-full flex items-center gap-3 p-3.5 border-2 border-slate-300 hover:border-slate-400 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900/40 rounded-2xl transition text-left group"
+                >
+                  <span className="size-8 rounded-full bg-slate-400 text-white flex items-center justify-center font-bold text-sm shrink-0">2</span>
+                  <div className="flex-1">
+                    <p className="font-black text-slate-900 dark:text-white text-xs">Mantener el Precio de Venta anterior (${fmt(conflictModal.row.existingProd?.salePrice || 0)})</p>
+                    <p className="text-[11px] text-slate-500">Se mantiene el Precio de Venta anterior. Solo se suma el stock.</p>
+                  </div>
+                </button>
+
+                <div className="p-3.5 border-2 border-amber-300 dark:border-amber-700/80 rounded-2xl bg-amber-50/40 dark:bg-amber-950/20 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className="size-8 rounded-full bg-amber-500 text-white flex items-center justify-center font-bold text-sm shrink-0">3</span>
+                    <div>
+                      <p className="font-black text-slate-900 dark:text-white text-xs">Precio personalizado para todo</p>
+                      <p className="text-[11px] text-slate-500">Ingresá un precio unificado para todas las unidades.</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="Ej: 35000"
+                      className="flex-1 bg-white dark:bg-slate-700 border border-amber-300 dark:border-amber-700 rounded-xl px-3 py-1.5 text-xs font-bold text-amber-800 dark:text-amber-200"
+                      value={conflictModal.row.customSalePrice || ''}
+                      onChange={e => {
+                        const val = e.target.value === '' ? 0 : Number(e.target.value);
+                        setConflictModal(cm => cm ? { ...cm, row: { ...cm.row, customSalePrice: val } } : null);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => resolveConflict(conflictModal.rowIdx, 'custom', conflictModal.row.customSalePrice, conflictModal.row.customSalePrice)}
+                      disabled={!conflictModal.row.customSalePrice || conflictModal.row.customSalePrice <= 0}
+                      className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl text-xs disabled:opacity-40 transition shadow"
+                    >
+                      Aplicar
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL: DETALLE DE LOTE */}
       {(detailBatch || loadingDetail) && (
@@ -684,7 +834,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                        {['Producto / Variante','Cant.','Costo orig.','Costo ARS','Envío/u','Total/u','PV'].map((h, i) => (
+                        {['Producto / Variante', 'Cant.', 'Costo orig.', 'Costo ARS', 'Envío/u', 'Total/u', 'Precio de Venta'].map((h, i) => (
                           <th key={h} className={`pb-2 pr-3 ${i > 1 ? 'text-right' : ''}`}>{h}</th>
                         ))}
                       </tr>

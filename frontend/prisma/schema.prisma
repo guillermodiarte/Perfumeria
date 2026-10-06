@@ -121,3 +121,53 @@ model OrderItem {
   @@index([order_id])
   @@map("order_items")
 }
+
+model Supplier {
+  id               Int             @id @default(autoincrement())
+  name             String          @unique
+  created_at       DateTime?       @default(now())
+  purchase_batches PurchaseBatch[]
+
+  @@map("suppliers")
+}
+
+model PurchaseBatch {
+  id                     Int                 @id @default(autoincrement())
+  batch_number           String?             @unique
+  supplier_id            Int?
+  purchase_date          DateTime?
+  currency               String?             @default("ARS")
+  exchange_rate          Float?              @default(1.0)
+  shipping_currency      String?             @default("ARS")
+  shipping_cost_original Float?              @default(0.0)
+  shipping_cost_ars      Float?              @default(0.0)
+  total_products_ars     Float?              @default(0.0)
+  total_cost_ars         Float?              @default(0.0)
+  notes                  String?
+  created_at             DateTime?           @default(now())
+  supplier               Supplier?           @relation(fields: [supplier_id], references: [id])
+  items                  PurchaseBatchItem[]
+
+  @@index([supplier_id])
+  @@map("purchase_batches")
+}
+
+model PurchaseBatchItem {
+  id                      Int            @id @default(autoincrement())
+  batch_id                Int
+  product_id              String
+  variant_id              String
+  product_name            String?
+  variant_label           String?
+  quantity                Int?           @default(1)
+  unit_cost_original      Float?         @default(0.0)
+  unit_cost_ars           Float?         @default(0.0)
+  shipping_per_unit_ars   Float?         @default(0.0)
+  total_cost_per_unit_ars Float?         @default(0.0)
+  sale_price              Float?         @default(0.0)
+  batch                   PurchaseBatch  @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+
+  @@index([batch_id])
+  @@map("purchase_batch_items")
+}
+
