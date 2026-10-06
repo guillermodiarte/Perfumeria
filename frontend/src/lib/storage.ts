@@ -21,3 +21,33 @@ export function getUploadDir(): string {
   }
   return path.resolve(rootUploads);
 }
+
+export function getAllUploadDirs(): string[] {
+  const dirs: string[] = [];
+  const primary = getUploadDir();
+  if (primary && fs.existsSync(primary)) {
+    dirs.push(path.resolve(primary));
+  }
+
+  const cwd = process.cwd();
+  const candidates = [
+    path.join(cwd, 'public', 'uploads'),
+    path.resolve(cwd, '..', 'uploads'),
+    path.resolve(cwd, 'uploads'),
+    path.join(cwd, 'frontend', 'public', 'uploads'),
+    path.resolve(cwd, '..', 'frontend', 'public', 'uploads'),
+    '/app/uploads',
+    '/app/public/uploads',
+  ];
+
+  for (const c of candidates) {
+    if (c && fs.existsSync(c)) {
+      const resolved = path.resolve(c);
+      if (!dirs.includes(resolved)) {
+        dirs.push(resolved);
+      }
+    }
+  }
+  return dirs;
+}
+

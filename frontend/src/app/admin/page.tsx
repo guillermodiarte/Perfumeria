@@ -74,6 +74,11 @@ export default function AdminDashboard() {
   const [isExportingMedia, setIsExportingMedia] = useState(false);
   const [isImportingMedia, setIsImportingMedia] = useState(false);
 
+  // Multi-selection state for Media
+  const [selectedMediaFiles, setSelectedMediaFiles] = useState<Array<{ category: string; filename: string; url: string }>>([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [isDeletingBulkMedia, setIsDeletingBulkMedia] = useState(false);
+
   // Pending customers badge count
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -385,6 +390,69 @@ export default function AdminDashboard() {
     setDeleteConfirmParams({ category, filename });
   };
 
+  const toggleSelectMediaFile = (file: { category: string; filename: string; url: string }) => {
+    setSelectedMediaFiles(prev => {
+      const exists = prev.some(f => f.category === file.category && f.filename === file.filename);
+      if (exists) {
+        return prev.filter(f => !(f.category === file.category && f.filename === file.filename));
+      } else {
+        return [...prev, file];
+      }
+    });
+  };
+
+  const isMediaSelected = (category: string, filename: string) => {
+    return selectedMediaFiles.some(f => f.category === category && f.filename === filename);
+  };
+
+  const handleSelectAllMedia = (visibleFiles: any[]) => {
+    if (visibleFiles.length === 0) return;
+    const allAreSelected = visibleFiles.every(vf => isMediaSelected(vf.category, vf.filename));
+    if (allAreSelected) {
+      const visibleKeys = new Set(visibleFiles.map(vf => `${vf.category}:::${vf.filename}`));
+      setSelectedMediaFiles(prev => prev.filter(f => !visibleKeys.has(`${f.category}:::${f.filename}`)));
+    } else {
+      const newItems = visibleFiles.map(f => ({ category: f.category, filename: f.filename, url: f.url }));
+      setSelectedMediaFiles(prev => {
+        const existingKeys = new Set(prev.map(f => `${f.category}:::${f.filename}`));
+        const toAdd = newItems.filter(f => !existingKeys.has(`${f.category}:::${f.filename}`));
+        return [...prev, ...toAdd];
+      });
+    }
+  };
+
+  const executeBulkDeleteMedia = async () => {
+    if (selectedMediaFiles.length === 0) return;
+    setIsDeletingBulkMedia(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/media`, {
+        method: 'DELETE',
+        headers: {
+          'X-API-KEY': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          files: selectedMediaFiles.map(f => ({ category: f.category, filename: f.filename })),
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        showAlert(`✅ ${data.deleted ?? selectedMediaFiles.length} archivo(s) eliminado(s) exitosamente del servidor.`);
+        setSelectedMediaFiles([]);
+        setShowBulkDeleteConfirm(false);
+        fetchMedia(selectedMediaCategory);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showAlert(`Error al eliminar archivos: ${err.detail || 'Error en el servidor'}`);
+      }
+    } catch (e: any) {
+      showAlert(`Error de red al eliminar archivos: ${e.message}`);
+    } finally {
+      setIsDeletingBulkMedia(false);
+    }
+  };
+
   const executeDeleteMedia = async () => {
     if (!deleteConfirmParams) return;
     const { category, filename } = deleteConfirmParams;
@@ -395,6 +463,8 @@ export default function AdminDashboard() {
         headers: { 'X-API-KEY': apiKey }
       });
       if (res.ok) {
+        setSelectedMediaFiles(prev => prev.filter(f => !(f.category === category && f.filename === filename)));
+        showAlert('✅ Archivo eliminado exitosamente del servidor.');
         fetchMedia(selectedMediaCategory);
       } else {
         showAlert('Error al eliminar archivo.');
@@ -910,10 +980,57 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                {/* Bulk-select toolbar – only visible when items are selected */}
+                {selectedMediaFiles.length > 0 && (
+                  <div className="flex items-center justify-between bg-primary/10 border border-primary/30 rounded-2xl px-5 py-3 text-sm font-semibold text-primary dark:text-cyan-300">
+                    <span>{selectedMediaFiles.length} archivo(s) seleccionado(s)</span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSelectedMediaFiles([])}
+                        className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors text-xs font-bold"
+                      >
+                        Deseleccionar todo
+                      </button>
+                      {currentAdminRole === 'super_admin' && (
+                        <button
+                          onClick={() => setShowBulkDeleteConfirm(true)}
+                          disabled={isDeletingBulkMedia}
+                          className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded-xl transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                        >
+                          {isDeletingBulkMedia ? (
+                            <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                          ) : (
+                            <span className="material-symbols-outlined text-base">delete_sweep</span>
+                          )}
+                          {isDeletingBulkMedia ? 'Eliminando...' : `Eliminar ${selectedMediaFiles.length} archivo(s)`}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Select-all row */}
+                {mediaFiles.filter(f => !f.filename.startsWith('.') && f.filename.toLowerCase().includes(mediaSearch.toLowerCase())).length > 0 && (
+                  <div className="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+                    <button
+                      onClick={() => handleSelectAllMedia(mediaFiles.filter(f => !f.filename.startsWith('.') && f.filename.toLowerCase().includes(mediaSearch.toLowerCase())))}
+                      className="flex items-center gap-2 hover:text-primary transition-colors font-semibold"
+                    >
+                      <span className="material-symbols-outlined text-lg">
+                        {mediaFiles.filter(f => !f.filename.startsWith('.') && f.filename.toLowerCase().includes(mediaSearch.toLowerCase())).every(vf => isMediaSelected(vf.category, vf.filename))
+                          ? 'check_box'
+                          : 'check_box_outline_blank'
+                        }
+                      </span>
+                      Seleccionar todos
+                    </button>
+                  </div>
+                )}
+
                 {/* Grid de Archivos */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
                   {mediaFiles.filter(f => !f.filename.startsWith('.') && f.filename.toLowerCase().includes(mediaSearch.toLowerCase())).map((file, idx) => (
-                    <div key={idx} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden group shadow-sm hover:shadow-md transition-all relative">
+                    <div key={idx} className={`bg-white dark:bg-slate-800 rounded-2xl border overflow-hidden group shadow-sm hover:shadow-md transition-all relative cursor-pointer ${isMediaSelected(file.category, file.filename) ? 'border-primary ring-2 ring-primary/40' : 'border-slate-200 dark:border-slate-700'}`}>
                       {/* Preview */}
                       <div className="aspect-square bg-slate-100 dark:bg-slate-900 relative flex items-center justify-center overflow-hidden">
                         {file.filename.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
@@ -926,6 +1043,21 @@ export default function AdminDashboard() {
                         ) : (
                           <span className="material-symbols-outlined text-4xl text-slate-300">draft</span>
                         )}
+
+                        {/* Checkbox – always visible if selected, appears on hover otherwise */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleSelectMediaFile({ category: file.category, filename: file.filename, url: file.url }); }}
+                          className={`absolute top-2 right-2 z-20 size-7 rounded-full flex items-center justify-center transition-all shadow ${
+                            isMediaSelected(file.category, file.filename)
+                              ? 'bg-primary text-white opacity-100'
+                              : 'bg-white/80 text-slate-600 opacity-0 group-hover:opacity-100'
+                          }`}
+                          title={isMediaSelected(file.category, file.filename) ? 'Deseleccionar' : 'Seleccionar'}
+                        >
+                          <span className="material-symbols-outlined text-sm">
+                            {isMediaSelected(file.category, file.filename) ? 'check' : 'check_box_outline_blank'}
+                          </span>
+                        </button>
 
                         {/* Hover Overlay */}
                         <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 backdrop-blur-sm p-4">
@@ -1351,6 +1483,40 @@ export default function AdminDashboard() {
                 className="flex-1 py-2 px-4 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-colors"
               >
                 Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl max-w-sm w-full mx-4 text-center shadow-2xl">
+            <div className="size-14 mx-auto bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4">
+              <span className="material-symbols-outlined text-3xl text-red-600 dark:text-red-400">delete_sweep</span>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Eliminar archivos</h3>
+            <p className="text-slate-600 dark:text-slate-300 mb-1">
+              ¿Estás seguro de que deseas eliminar permanentemente los
+            </p>
+            <p className="text-red-600 dark:text-red-400 font-bold text-lg mb-5">
+              {selectedMediaFiles.length} archivo(s) seleccionado(s)?
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-6">Esta acción no se puede deshacer.</p>
+            <div className="flex gap-4">
+              <button
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={executeBulkDeleteMedia}
+                disabled={isDeletingBulkMedia}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeletingBulkMedia ? 'Eliminando...' : 'Sí, eliminar'}
               </button>
             </div>
           </div>

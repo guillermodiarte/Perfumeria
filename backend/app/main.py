@@ -150,49 +150,69 @@ def get_media_library(request: Request, category: str = None):
     try:
         host_url = str(request.base_url).rstrip("/")
         media_files = []
-        categories = []
+        categories_set = set(["Avatares", "Banners", "BodySpray", "Fondos", "Iconos", "Imágenes", "Labiales", "Logo", "Otros", "Perfumes"])
+        seen_rel = set()
 
-        for entry in os.scandir(UPLOAD_DIR):
-            if not entry.is_dir():
-                continue
-            cat_name = entry.name
-            # Check if it has subdirectories (e.g., productos/Remeras)
-            has_subdirs = any(e.is_dir() for e in os.scandir(entry.path))
-            if has_subdirs:
-                # Recurse one level
-                for sub in os.scandir(entry.path):
-                    if not sub.is_dir():
+        # Collect candidate upload folders
+        candidate_dirs = [
+            UPLOAD_DIR,
+            os.path.abspath(os.path.join(os.getcwd(), "..", "uploads")),
+            os.path.abspath(os.path.join(os.getcwd(), "frontend", "public", "uploads")),
+            os.path.abspath(os.path.join(os.getcwd(), "..", "frontend", "public", "uploads")),
+            "/app/uploads",
+        ]
+        valid_dirs = []
+        for d in candidate_dirs:
+            if d and os.path.exists(d) and d not in valid_dirs:
+                valid_dirs.append(d)
+
+        allowed_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".avif", ".bmp", ".ico", ".mp4", ".webm", ".pdf"}
+
+        for base_dir in valid_dirs:
+            for root, dirs, files in os.walk(base_dir):
+                # Filter out hidden directories
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                rel_dir = os.path.relpath(root, base_dir).replace("\\", "/")
+                if rel_dir == ".":
+                    rel_dir = ""
+
+                cat_for_dir = rel_dir if rel_dir else "Otros"
+                categories_set.add(cat_for_dir)
+
+                for f in files:
+                    if f.startswith("."):
                         continue
-                    sub_cat = f"{cat_name}/{sub.name}"
-                    if not category or category == sub_cat or category == cat_name:
-                        categories.append(sub_cat)
-                        for f in os.scandir(sub.path):
-                            if f.is_file():
-                                size_kb = os.path.getsize(f.path) / 1024
-                                media_files.append({
-                                    "filename": f.name,
-                                    "category": sub_cat,
-                                    "url": f"{host_url}/uploads/{cat_name}/{sub.name}/{f.name}",
-                                    "size": f"{size_kb:.2f} KB"
-                                })
-            else:
-                if not category or category == cat_name:
-                    categories.append(cat_name)
-                    for f in os.scandir(entry.path):
-                        if f.is_file():
-                            size_kb = os.path.getsize(f.path) / 1024
-                            media_files.append({
-                                "filename": f.name,
-                                "category": cat_name,
-                                "url": f"{host_url}/uploads/{cat_name}/{f.name}",
-                                "size": f"{size_kb:.2f} KB"
-                            })
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in allowed_exts:
+                        rel_path = f"{rel_dir}/{f}" if rel_dir else f
+                        if rel_path in seen_rel:
+                            continue
+                        seen_rel.add(rel_path)
 
-        if category:
-            categories = [c for c in categories if c == category]
-        else:
-            categories = sorted(list(set(categories)))
+                        full_path = os.path.join(root, f)
+                        size_kb = os.path.getsize(full_path) / 1024
+                        mtime = os.path.getmtime(full_path)
 
+                        item_url = f"{host_url}/uploads/{rel_path}"
+
+                        media_files.append({
+                            "filename": f,
+                            "category": cat_for_dir,
+                            "url": item_url,
+                            "size": f"{size_kb:.2f} KB",
+                            "_mtime": mtime
+                        })
+
+        # Sort newest first
+        media_files.sort(key=lambda x: x["_mtime"], reverse=True)
+        for m in media_files:
+            m.pop("_mtime", None)
+
+        if category and category.strip() and category.lower() != "todo":
+            cat_filter = category.strip().lower()
+            media_files = [m for m in media_files if m["category"].lower() == cat_filter or m["category"].lower().startswith(cat_filter + "/")]
+
+        categories = sorted(list(categories_set))
         return {"categories": categories, "files": media_files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -264,19 +284,61 @@ async def upload_product_image(request: Request, file: UploadFile = File(...), s
 
 
 @app.delete("/api/admin/media", dependencies=[Depends(get_current_admin)])
-def delete_media_file(category: str, filename: str):
+async def delete_media_file(request: Request, category: str = None, filename: str = None):
     try:
-        safe_category = category.strip().replace("..", "")
-        safe_filename = filename.strip().replace("..", "").replace("/", "")
-        file_path = os.path.join(UPLOAD_DIR, safe_category, safe_filename)
-        
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            os.remove(file_path)
-            return {"status": "success", "message": "File deleted"}
-        else:
-            raise HTTPException(status_code=404, detail="File not found")
+        files_to_delete = []
+
+        # Check for JSON body for bulk deletion
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                if "files" in body and isinstance(body["files"], list):
+                    files_to_delete = body["files"]
+                elif "items" in body and isinstance(body["items"], list):
+                    files_to_delete = body["items"]
+        except Exception:
+            pass
+
+        # If no body, use query params
+        if not files_to_delete and filename:
+            files_to_delete.append({"category": category or "", "filename": filename})
+
+        if not files_to_delete:
+            raise HTTPException(status_code=400, detail="No se especificaron archivos para eliminar")
+
+        candidate_dirs = [
+            UPLOAD_DIR,
+            os.path.abspath(os.path.join(os.getcwd(), "..", "uploads")),
+            os.path.abspath(os.path.join(os.getcwd(), "frontend", "public", "uploads")),
+            os.path.abspath(os.path.join(os.getcwd(), "..", "frontend", "public", "uploads")),
+            "/app/uploads",
+        ]
+
+        deleted_count = 0
+        for item in files_to_delete:
+            cat = str(item.get("category", "")).strip().replace("..", "").strip("/\\")
+            fn = str(item.get("filename", "")).strip().replace("..", "").replace("/", "").replace("\\", "")
+            if not fn:
+                continue
+
+            for base_dir in candidate_dirs:
+                if not os.path.exists(base_dir):
+                    continue
+                p1 = os.path.join(base_dir, cat, fn)
+                p2 = os.path.join(base_dir, fn)
+                for p in [p1, p2]:
+                    if os.path.exists(p) and os.path.isfile(p):
+                        try:
+                            os.remove(p)
+                            deleted_count += 1
+                        except Exception:
+                            pass
+
+        return {"status": "success", "deleted": deleted_count, "message": f"{deleted_count} archivo(s) eliminado(s)"}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 @app.put("/api/admin/media/move", dependencies=[Depends(get_current_admin)])
 def move_media_file(category: str, filename: str, data: MediaMoveSchema):
     try:
