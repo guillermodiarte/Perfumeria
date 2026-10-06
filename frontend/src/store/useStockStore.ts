@@ -140,8 +140,15 @@ export interface PurchaseRecord {
   size: string;
   color: string;
   quantity: number;
-  unitPurchasePrice: number;
+  unitPurchasePrice: number; // = total_cost_per_unit_ars (incluye envío proporcional)
   totalCost: number;
+  // Campos extendidos para multi-moneda
+  batchId?: string;            // Número de lote (ej: LOTE-20261006-001)
+  purchaseCurrency?: string;   // ARS | USD | BRL | PYG
+  exchangeRate?: number;
+  unitCostOriginal?: number;   // Costo en moneda original
+  shippingPerUnitARS?: number; // Envío proporcional por unidad
+  supplierName?: string;
 }
 
 export interface SaleRecord {
@@ -212,6 +219,43 @@ export interface StockFlowState {
     family?: string;
     showFeatures?: boolean;
   }[]) => void;
+
+  registerPurchaseBatch: (payload: {
+    batchNumber: string;         // devuelto por el backend
+    supplierName?: string;
+    purchaseCurrency: string;
+    exchangeRate: number;
+    items: {
+      productId: string;
+      variantId: string;
+      productName: string;
+      variantLabel: string;
+      size: string;
+      color: string;
+      quantity: number;
+      unitCostOriginal: number;
+      unitCostARS: number;
+      shippingPerUnitARS: number;
+      totalCostPerUnitARS: number;
+      salePrice: number;
+      // Datos del producto para crear/actualizar en el store
+      newProductName?: string;
+      newProductSku?: string;
+      categoryId?: string;
+      targetGender?: 'Hombre' | 'Mujer' | 'Unisex';
+      newProductImageUrls?: string[];
+      description?: string;
+      tag?: string;
+      showTag?: boolean;
+      olfactoryNotes?: string;
+      duration?: string;
+      intensity?: string;
+      family?: string;
+      showFeatures?: boolean;
+      salePriceConflict?: 'update' | 'keep' | 'custom'; // decisión del modal
+      customSalePrice?: number;
+    }[];
+  }) => void;
 
   registerSale: (
     clientName: string, 
@@ -701,7 +745,166 @@ export const useStockFlowStore = create<StockFlowState>()(
         });
       },
 
+      registerPurchaseBatch: (payload) => {
+        set((state) => {
+          const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+          const newPurchaseRecords: PurchaseRecord[] = [];
+          const newProductMap = new Map<string, Product>();
+
+          payload.items.forEach(item => {
+            // ─── 1. Resolver producto ───────────────────────────────────────
+            let existingProd: Product | undefined;
+
+            if (item.productId && newProductMap.has(item.productId)) {
+              existingProd = newProductMap.get(item.productId);
+            }
+            if (!existingProd && item.productId && !item.productId.startsWith('NEW')) {
+              existingProd = updatedProducts.find(p => p.id === item.productId);
+            }
+            if (!existingProd && item.newProductName?.trim()) {
+              existingProd = updatedProducts.find(
+                p => p.name.trim().toLowerCase() === item.newProductName!.trim().toLowerCase()
+              );
+            }
+
+            let targetProductId = item.productId;
+            let targetProductName = item.productName || item.newProductName || 'Producto';
+            let targetVariantId = item.variantId;
+
+            // ─── 2. Determinar PV final según decisión de conflicto ─────────
+            let finalSalePrice = item.salePrice;
+            if (item.salePriceConflict === 'keep' && existingProd) {
+              finalSalePrice = existingProd.salePrice; // mantener el PV viejo
+            } else if (item.salePriceConflict === 'custom' && item.customSalePrice !== undefined) {
+              finalSalePrice = item.customSalePrice;
+            }
+            // 'update' o sin conflicto → usa item.salePrice (ya calculado)
+
+            if (existingProd) {
+              // ─── Producto existente ─────────────────────────────────────
+              targetProductId = existingProd.id;
+              targetProductName = existingProd.name;
+
+              // El costo del producto se actualiza con el nuevo totalCostPerUnitARS
+              existingProd.purchasePrice = item.totalCostPerUnitARS;
+
+              // PV según decisión del modal
+              if (item.salePriceConflict !== 'keep') {
+                existingProd.salePrice = finalSalePrice;
+              }
+
+              // Actualizar metadata si se proveyó
+              if (item.categoryId) existingProd.categoryId = item.categoryId;
+              if (item.newProductSku) existingProd.sku = item.newProductSku;
+              if (item.targetGender) existingProd.targetGender = item.targetGender;
+              if (item.description !== undefined) existingProd.description = item.description;
+              if (item.tag !== undefined) existingProd.tag = item.tag;
+              if (item.showTag !== undefined) existingProd.showTag = item.showTag;
+              if (item.olfactoryNotes !== undefined) existingProd.olfactoryNotes = item.olfactoryNotes;
+              if (item.duration !== undefined) existingProd.duration = item.duration;
+              if (item.intensity !== undefined) existingProd.intensity = item.intensity;
+              if (item.family !== undefined) existingProd.family = item.family;
+              if (item.showFeatures !== undefined) existingProd.showFeatures = item.showFeatures;
+              if (item.newProductImageUrls?.length) {
+                const merged = Array.from(new Set([...(existingProd.imageUrls || []), ...item.newProductImageUrls]));
+                existingProd.imageUrls = merged;
+              }
+
+              // Buscar variante por tamaño + color
+              const pSize = item.size.trim().toLowerCase();
+              const pColor = item.color.trim().toLowerCase();
+              const varIndex = existingProd.variants.findIndex(
+                v => v.size.trim().toLowerCase() === pSize && v.color.trim().toLowerCase() === pColor
+              );
+
+              if (varIndex !== -1) {
+                existingProd.variants[varIndex].stock += item.quantity;
+                existingProd.variants[varIndex].unitPurchasePrice = item.totalCostPerUnitARS;
+                existingProd.variants[varIndex].manualSalePrice = item.salePriceConflict !== 'keep'
+                  ? finalSalePrice
+                  : existingProd.variants[varIndex].manualSalePrice;
+                targetVariantId = existingProd.variants[varIndex].id;
+              } else {
+                targetVariantId = 'v-' + Math.random().toString(36).substr(2, 9);
+                existingProd.variants.push({
+                  id: targetVariantId,
+                  size: item.size,
+                  color: item.color,
+                  stock: item.quantity,
+                  unitPurchasePrice: item.totalCostPerUnitARS,
+                  manualSalePrice: finalSalePrice,
+                });
+              }
+            } else {
+              // ─── Producto nuevo ─────────────────────────────────────────
+              const createdId = 'prod-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+              targetProductId = createdId;
+              targetProductName = item.newProductName?.trim() || item.productName || 'Nuevo Producto';
+              targetVariantId = 'v-' + Math.random().toString(36).substr(2, 9);
+
+              const newProduct: Product = {
+                id: createdId,
+                name: targetProductName,
+                sku: item.newProductSku || '',
+                categoryId: item.categoryId || 'Perfumes de Mujer',
+                targetGender: item.targetGender || 'Unisex',
+                purchasePrice: item.totalCostPerUnitARS,
+                salePrice: finalSalePrice,
+                imageUrls: item.newProductImageUrls || [],
+                description: item.description,
+                tag: item.tag,
+                showTag: item.showTag,
+                olfactoryNotes: item.olfactoryNotes,
+                duration: item.duration,
+                intensity: item.intensity,
+                family: item.family,
+                showFeatures: item.showFeatures,
+                variants: [{
+                  id: targetVariantId,
+                  size: item.size,
+                  color: item.color,
+                  stock: item.quantity,
+                  unitPurchasePrice: item.totalCostPerUnitARS,
+                  manualSalePrice: finalSalePrice,
+                }],
+              };
+
+              updatedProducts.push(newProduct);
+              if (item.productId) newProductMap.set(item.productId, newProduct);
+              if (item.newProductName?.trim()) newProductMap.set(item.newProductName.trim().toLowerCase(), newProduct);
+            }
+
+            // ─── 3. Crear registro en historial ────────────────────────────
+            newPurchaseRecords.push({
+              id: 'pch-' + Math.random().toString(36).substr(2, 9),
+              date: new Date().toISOString(),
+              productId: targetProductId,
+              productName: targetProductName,
+              variantId: targetVariantId,
+              size: item.size,
+              color: item.color,
+              quantity: item.quantity,
+              unitPurchasePrice: item.totalCostPerUnitARS, // costo final con envío
+              totalCost: item.quantity * item.totalCostPerUnitARS,
+              // Campos extendidos
+              batchId: payload.batchNumber,
+              purchaseCurrency: payload.purchaseCurrency,
+              exchangeRate: payload.exchangeRate,
+              unitCostOriginal: item.unitCostOriginal,
+              shippingPerUnitARS: item.shippingPerUnitARS,
+              supplierName: payload.supplierName,
+            });
+          });
+
+          return {
+            products: updatedProducts,
+            purchases: [...state.purchases, ...newPurchaseRecords],
+          };
+        });
+      },
+
       registerSale: (clientName, clientPhone, items, paymentOptions) => {
+
         const ticketId = 'TICK-' + Math.random().toString(36).substr(2, 9).toUpperCase();
         set((state) => {
           const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];

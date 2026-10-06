@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Numeric, JSON, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Numeric, JSON, DateTime, Text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship
 import datetime
@@ -124,3 +124,60 @@ class OrderItem(Base):
 
     order = relationship("Order", back_populates="items")
 
+
+# === MÓDULO DE COMPRAS / INGRESO DE MERCADERÍA ===
+
+class Supplier(Base):
+    """Tabla de proveedores para el módulo de compras."""
+    __tablename__ = "suppliers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    purchase_batches = relationship("PurchaseBatch", back_populates="supplier")
+
+
+class PurchaseBatch(Base):
+    """Encabezado de un lote de compra (una factura/viaje de compras)."""
+    __tablename__ = "purchase_batches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_number = Column(String, unique=True, index=True)  # ej: LOTE-20261006-001
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=True)
+    purchase_date = Column(DateTime, nullable=False)
+    # Moneda de la compra
+    currency = Column(String, default="ARS")           # ARS | USD | BRL | PYG
+    exchange_rate = Column(Float, default=1.0)          # cotización vs ARS (1 si es ARS)
+    # Costo de envío
+    shipping_currency = Column(String, default="ARS")  # moneda del envío
+    shipping_cost_original = Column(Float, default=0.0) # valor en moneda elegida
+    shipping_cost_ars = Column(Float, default=0.0)      # convertido a ARS
+    # Totales
+    total_products_ars = Column(Float, default=0.0)     # suma de productos en ARS
+    total_cost_ars = Column(Float, default=0.0)         # total lote en ARS (productos + envío)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    supplier = relationship("Supplier", back_populates="purchase_batches")
+    items = relationship("PurchaseBatchItem", back_populates="batch", cascade="all, delete-orphan")
+
+
+class PurchaseBatchItem(Base):
+    """Ítem individual dentro de un lote de compra (por variante)."""
+    __tablename__ = "purchase_batch_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("purchase_batches.id"), nullable=False)
+    product_id = Column(String, nullable=False)          # ID en Zustand/frontend
+    variant_id = Column(String, nullable=False)          # ID de variante
+    product_name = Column(String, nullable=True)
+    variant_label = Column(String, nullable=True)        # ej: "100ml (Grande) - Azul"
+    quantity = Column(Integer, default=1)
+    unit_cost_original = Column(Float, default=0.0)     # en moneda de la compra
+    unit_cost_ars = Column(Float, default=0.0)           # convertido a ARS
+    shipping_per_unit_ars = Column(Float, default=0.0)  # envío proporcional ÷ cantidad
+    total_cost_per_unit_ars = Column(Float, default=0.0) # unit_cost_ars + shipping_per_unit_ars
+    sale_price = Column(Float, default=0.0)              # PV final ingresado por el admin
+
+    batch = relationship("PurchaseBatch", back_populates="items")

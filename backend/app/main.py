@@ -5,8 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
-from app.models import Base, Customer, Admin, SiteSetting, Province, City, CartItem, Order, OrderItem
-from app.schemas import CustomerCreateSchema, CustomerSchema, CustomerUpdateSchema, CustomerApprovalUpdateSchema, CustomerWholesaleUpdateSchema, AdminSchema, AdminCreateSchema, LoginSchema, Token, SiteSettingSchema, SiteSettingUpdateSchema, MediaMoveSchema, ProvinceSchema, CitySchema
+from app.models import Base, Customer, Admin, SiteSetting, Province, City, CartItem, Order, OrderItem, Supplier, PurchaseBatch, PurchaseBatchItem
+from app.schemas import (CustomerCreateSchema, CustomerSchema, CustomerUpdateSchema, CustomerApprovalUpdateSchema,
+    CustomerWholesaleUpdateSchema, AdminSchema, AdminCreateSchema, LoginSchema, Token, SiteSettingSchema,
+    SiteSettingUpdateSchema, MediaMoveSchema, ProvinceSchema, CitySchema,
+    SupplierCreateSchema, SupplierSchema, PurchaseBatchCreateSchema, PurchaseBatchSchema)
 from app.auth import get_password_hash, create_access_token
 import uuid
 
@@ -74,6 +77,17 @@ def _ensure_sqlite_columns():
                 conn.execute(text("ALTER TABLE order_items ADD COLUMN variant_info VARCHAR"))
             if "image_url" not in cols_items:
                 conn.execute(text("ALTER TABLE order_items ADD COLUMN image_url VARCHAR"))
+
+            # purchase_batches table columns (migración dinámica para SQLite)
+            res_pb = conn.execute(text("PRAGMA table_info(purchase_batches)")).fetchall()
+            cols_pb = [r[1] for r in res_pb]
+            if not cols_pb:
+                # Tabla no existe todavía → la creará Base.metadata.create_all arriba
+                pass
+            else:
+                if "total_products_ars" not in cols_pb:
+                    conn.execute(text("ALTER TABLE purchase_batches ADD COLUMN total_products_ars FLOAT DEFAULT 0"))
+
             conn.commit()
     except Exception as err:
         print("SQLite column check notice:", err)
@@ -562,3 +576,208 @@ def get_admin_notifications_summary(db: Session = Depends(get_db), current_admin
         "current_month": current_month
     }
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ENDPOINTS: PROVEEDORES
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/admin/suppliers", response_model=list[SupplierSchema], dependencies=[Depends(get_current_admin)])
+def get_suppliers(db: Session = Depends(get_db)):
+    """Lista todos los proveedores ordenados por nombre (para autocomplete)."""
+    return db.query(Supplier).order_by(Supplier.name).all()
+
+
+@app.post("/api/admin/suppliers", response_model=SupplierSchema, dependencies=[Depends(get_current_admin)])
+def create_supplier(data: SupplierCreateSchema, db: Session = Depends(get_db)):
+    """Crea un proveedor nuevo. Si ya existe con ese nombre, lo devuelve."""
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="El nombre del proveedor no puede estar vacío")
+    existing = db.query(Supplier).filter(Supplier.name.ilike(name)).first()
+    if existing:
+        return existing
+    supplier = Supplier(name=name)
+    db.add(supplier)
+    db.commit()
+    db.refresh(supplier)
+    return supplier
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ENDPOINTS: LOTES DE COMPRA
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _generate_batch_number(db: Session) -> str:
+    """Genera un número de lote único: LOTE-YYYYMMDD-NNN."""
+    import datetime as dt
+    today = dt.date.today().strftime("%Y%m%d")
+    prefix = f"LOTE-{today}-"
+    last = (
+        db.query(PurchaseBatch)
+        .filter(PurchaseBatch.batch_number.like(f"{prefix}%"))
+        .order_by(PurchaseBatch.batch_number.desc())
+        .first()
+    )
+    seq = 1
+    if last:
+        try:
+            seq = int(last.batch_number.split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            seq = 1
+    return f"{prefix}{seq:03d}"
+
+
+@app.get("/api/admin/purchase-batches", dependencies=[Depends(get_current_admin)])
+def get_purchase_batches(
+    skip: int = 0,
+    limit: int = 50,
+    supplier_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """Lista lotes de compra con datos de proveedor resueltos (para el historial)."""
+    query = db.query(PurchaseBatch).order_by(PurchaseBatch.purchase_date.desc(), PurchaseBatch.id.desc())
+    if supplier_id:
+        query = query.filter(PurchaseBatch.supplier_id == supplier_id)
+    total = query.count()
+    batches = query.offset(skip).limit(limit).all()
+
+    result = []
+    for b in batches:
+        supplier_name = b.supplier.name if b.supplier else None
+        items_count = len(b.items)
+        result.append({
+            "id": b.id,
+            "batch_number": b.batch_number,
+            "supplier_id": b.supplier_id,
+            "supplier_name": supplier_name,
+            "purchase_date": b.purchase_date.isoformat() if b.purchase_date else None,
+            "currency": b.currency,
+            "exchange_rate": b.exchange_rate,
+            "shipping_currency": b.shipping_currency,
+            "shipping_cost_original": b.shipping_cost_original,
+            "shipping_cost_ars": b.shipping_cost_ars,
+            "total_products_ars": b.total_products_ars,
+            "total_cost_ars": b.total_cost_ars,
+            "notes": b.notes,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+            "items_count": items_count,
+        })
+    return {"total": total, "batches": result}
+
+
+@app.get("/api/admin/purchase-batches/{batch_id}", dependencies=[Depends(get_current_admin)])
+def get_purchase_batch(batch_id: int, db: Session = Depends(get_db)):
+    """Devuelve el detalle completo de un lote con todos sus ítems."""
+    batch = db.query(PurchaseBatch).filter(PurchaseBatch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Lote no encontrado")
+    supplier_name = batch.supplier.name if batch.supplier else None
+    return {
+        "id": batch.id,
+        "batch_number": batch.batch_number,
+        "supplier_id": batch.supplier_id,
+        "supplier_name": supplier_name,
+        "purchase_date": batch.purchase_date.isoformat() if batch.purchase_date else None,
+        "currency": batch.currency,
+        "exchange_rate": batch.exchange_rate,
+        "shipping_currency": batch.shipping_currency,
+        "shipping_cost_original": batch.shipping_cost_original,
+        "shipping_cost_ars": batch.shipping_cost_ars,
+        "total_products_ars": batch.total_products_ars,
+        "total_cost_ars": batch.total_cost_ars,
+        "notes": batch.notes,
+        "created_at": batch.created_at.isoformat() if batch.created_at else None,
+        "items": [
+            {
+                "id": it.id,
+                "product_id": it.product_id,
+                "variant_id": it.variant_id,
+                "product_name": it.product_name,
+                "variant_label": it.variant_label,
+                "quantity": it.quantity,
+                "unit_cost_original": it.unit_cost_original,
+                "unit_cost_ars": it.unit_cost_ars,
+                "shipping_per_unit_ars": it.shipping_per_unit_ars,
+                "total_cost_per_unit_ars": it.total_cost_per_unit_ars,
+                "sale_price": it.sale_price,
+            }
+            for it in batch.items
+        ],
+    }
+
+
+@app.post("/api/admin/purchase-batches", dependencies=[Depends(get_current_admin)])
+def create_purchase_batch(data: PurchaseBatchCreateSchema, db: Session = Depends(get_db)):
+    """
+    Crea un lote de compra completo:
+    1. Resuelve/crea el proveedor si se envió nombre.
+    2. Genera número de lote automático.
+    3. Guarda el batch y sus ítems.
+    """
+    import datetime as dt
+
+    # 1. Proveedor
+    supplier_id = None
+    if data.supplier_name and data.supplier_name.strip():
+        name = data.supplier_name.strip()
+        supplier = db.query(Supplier).filter(Supplier.name.ilike(name)).first()
+        if not supplier:
+            supplier = Supplier(name=name)
+            db.add(supplier)
+            db.flush()  # obtener ID sin commit
+        supplier_id = supplier.id
+
+    # 2. Parsear fecha
+    try:
+        purchase_date = dt.datetime.fromisoformat(data.purchase_date)
+    except ValueError:
+        purchase_date = dt.datetime.utcnow()
+
+    # 3. Número de lote
+    batch_number = _generate_batch_number(db)
+
+    # 4. Crear batch
+    batch = PurchaseBatch(
+        batch_number=batch_number,
+        supplier_id=supplier_id,
+        purchase_date=purchase_date,
+        currency=data.currency,
+        exchange_rate=data.exchange_rate,
+        shipping_currency=data.shipping_currency,
+        shipping_cost_original=data.shipping_cost_original,
+        shipping_cost_ars=data.shipping_cost_ars,
+        total_products_ars=data.total_products_ars,
+        total_cost_ars=data.total_cost_ars,
+        notes=data.notes,
+    )
+    db.add(batch)
+    db.flush()  # obtener batch.id
+
+    # 5. Crear ítems
+    for it in data.items:
+        item = PurchaseBatchItem(
+            batch_id=batch.id,
+            product_id=it.product_id,
+            variant_id=it.variant_id,
+            product_name=it.product_name,
+            variant_label=it.variant_label,
+            quantity=it.quantity,
+            unit_cost_original=it.unit_cost_original,
+            unit_cost_ars=it.unit_cost_ars,
+            shipping_per_unit_ars=it.shipping_per_unit_ars,
+            total_cost_per_unit_ars=it.total_cost_per_unit_ars,
+            sale_price=it.sale_price,
+        )
+        db.add(item)
+
+    db.commit()
+    db.refresh(batch)
+
+    return {
+        "id": batch.id,
+        "batch_number": batch.batch_number,
+        "supplier_id": batch.supplier_id,
+        "supplier_name": data.supplier_name,
+        "total_cost_ars": batch.total_cost_ars,
+        "items_count": len(data.items),
+    }

@@ -94,3 +94,64 @@ class SiteSettingUpdateSchema(BaseModel):
 
 class MediaMoveSchema(BaseModel):
     new_category: str
+
+
+# === SCHEMAS: M\u00d3DULO DE COMPRAS ===
+
+class SupplierCreateSchema(BaseModel):
+    name: str
+
+class SupplierSchema(BaseModel):
+    id: int
+    name: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PurchaseBatchItemCreateSchema(BaseModel):
+    product_id: str
+    variant_id: str
+    product_name: Optional[str] = None
+    variant_label: Optional[str] = None
+    quantity: int
+    unit_cost_original: float
+    unit_cost_ars: float
+    shipping_per_unit_ars: float
+    total_cost_per_unit_ars: float
+    sale_price: float
+
+class PurchaseBatchItemSchema(PurchaseBatchItemCreateSchema):
+    id: int
+    batch_id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PurchaseBatchCreateSchema(BaseModel):
+    supplier_name: Optional[str] = None   # se crea/busca autom\u00e1ticamente
+    purchase_date: str                    # ISO string ej: "2026-10-06"
+    currency: str = "ARS"                 # ARS | USD | BRL | PYG
+    exchange_rate: float = 1.0
+    shipping_currency: str = "ARS"
+    shipping_cost_original: float = 0.0
+    shipping_cost_ars: float = 0.0
+    total_products_ars: float = 0.0
+    total_cost_ars: float = 0.0
+    notes: Optional[str] = None
+    items: List[PurchaseBatchItemCreateSchema]
+
+class PurchaseBatchSchema(BaseModel):
+    id: int
+    batch_number: str
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None   # campo resuelto en el endpoint
+    purchase_date: Optional[datetime] = None
+    currency: str
+    exchange_rate: float
+    shipping_currency: str
+    shipping_cost_original: float
+    shipping_cost_ars: float
+    total_products_ars: float
+    total_cost_ars: float
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+    items: List[PurchaseBatchItemSchema] = []
+    model_config = ConfigDict(from_attributes=True)
