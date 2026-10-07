@@ -15,6 +15,21 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
   // States for categories editor
   const [categoryCards, setCategoryCards] = useState<any[]>([]);
 
+  // States for donde-estamos editor
+  const [dondeEstamos, setDondeEstamos] = useState({
+    bannerImage: '',
+    bannerTitle: '¿Dónde estamos?',
+    bannerSubtitle: 'Fragancias que cuentan historias',
+    historyLabel: 'Nuestra Historia',
+    historyTitle: 'Sobre Ciara Bonita',
+    historyDescription: 'En Ciara Bonita creemos que cada fragancia cuenta una historia. Nos especializamos en ofrecer perfumes originales y de excelente calidad para quienes buscan destacar su personalidad con aromas únicos.',
+  });
+  const [uploadingDondeBanner, setUploadingDondeBanner] = useState(false);
+  const [mediaLibDonde, setMediaLibDonde] = useState(false);
+  const [mediaLibDondeImages, setMediaLibDondeImages] = useState<string[]>([]);
+  const [mediaLibDondeLoading, setMediaLibDondeLoading] = useState(false);
+  const [mediaLibDondeSearch, setMediaLibDondeSearch] = useState('');
+
   // States for header & logo editor
   const [headerSettings, setHeaderSettingsState] = useState({
     logoUrl: '/uploads/Logo/logo.webp',
@@ -159,6 +174,16 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
           { title: 'Labiales Exclusivos', subtitle: 'Detalles que resaltan', mediaUrl: "/uploads/Labiales/1.webp", link: "/catalog?category=Labios" }
         ]);
       }
+    } else if (section === 'donde_estamos') {
+      const de = settings['donde_estamos'] || {};
+      setDondeEstamos({
+        bannerImage: de.bannerImage || '',
+        bannerTitle: de.bannerTitle || '¿Dónde estamos?',
+        bannerSubtitle: de.bannerSubtitle || 'Fragancias que cuentan historias',
+        historyLabel: de.historyLabel || 'Nuestra Historia',
+        historyTitle: de.historyTitle || 'Sobre Ciara Bonita',
+        historyDescription: de.historyDescription || 'En Ciara Bonita creemos que cada fragancia cuenta una historia. Nos especializamos en ofrecer perfumes originales y de excelente calidad para quienes buscan destacar su personalidad con aromas únicos.',
+      });
     } else if (section === 'site_header') {
       const currentHeader = settings['site_header'] || {};
       setHeaderSettingsState({
@@ -1389,6 +1414,295 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
     </div>
   );
 
+  // ── Render: Donde Estamos Editor ──────────────────────────────────────────
+  const openDondeMediaLib = async (force = false) => {
+    if (mediaLibDonde && !force) { setMediaLibDonde(false); return; }
+    setMediaLibDonde(true);
+    if (!force && mediaLibDondeImages.length > 0) return;
+    setMediaLibDondeLoading(true);
+    try {
+      const res = await fetch(`/api/admin/media`, { headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` } });
+      if (res.ok) {
+        const data = await res.json();
+        const files = data.files || [];
+        const urls: string[] = files
+          .map((f: any) => (typeof f === 'string' ? f : f.url || ''))
+          .filter((u: string) => Boolean(u) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(u));
+        setMediaLibDondeImages(urls);
+      }
+    } catch { /* ignore */ } finally {
+      setMediaLibDondeLoading(false);
+    }
+  };
+
+  const renderDondeEstamosEditor = () => (
+    <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+      {saveSuccess && (
+        <div className="flex items-center gap-3 px-6 py-4 bg-emerald-500 text-white font-semibold text-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <span className="material-symbols-outlined text-xl">check_circle</span>
+          {saveSuccess}
+          <button type="button" onClick={() => setSaveSuccess(null)} className="ml-auto text-white/80 hover:text-white">
+            <span className="material-symbols-outlined text-lg">close</span>
+          </button>
+        </div>
+      )}
+      <div className="p-6 md:p-8 space-y-8">
+        <div className="flex items-center justify-between pb-6 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-3">
+            <span className="material-symbols-outlined text-amber-500 text-2xl">location_on</span>
+            <div>
+              <h2 className="text-xl font-bold dark:text-white">Editar Página ¿Dónde Estamos?</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Personaliza el banner de encabezado y la sección de historia de la página.</p>
+            </div>
+          </div>
+          <button onClick={() => setActiveEditor(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        {/* ── Banner Section ── */}
+        <div className="space-y-5">
+          <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+            <span className="material-symbols-outlined text-amber-400 text-[20px]">image</span>
+            Banner de Encabezado
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Título del Banner</label>
+              <input
+                type="text"
+                placeholder="¿Dónde estamos?"
+                value={dondeEstamos.bannerTitle}
+                onChange={e => setDondeEstamos(p => ({ ...p, bannerTitle: e.target.value }))}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Subtítulo del Banner</label>
+              <input
+                type="text"
+                placeholder="Fragancias que cuentan historias"
+                value={dondeEstamos.bannerSubtitle}
+                onChange={e => setDondeEstamos(p => ({ ...p, bannerSubtitle: e.target.value }))}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          {/* Image selector */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300">Imagen de Fondo del Banner</label>
+              <div className="flex items-center gap-2">
+                {/* Biblioteca */}
+                <button
+                  type="button"
+                  onClick={() => openDondeMediaLib()}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    mediaLibDonde
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[15px]">photo_library</span>
+                  Biblioteca
+                </button>
+                {/* Upload */}
+                <label className="cursor-pointer inline-flex items-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary font-bold px-3.5 py-1.5 rounded-lg text-xs transition">
+                  {uploadingDondeBanner ? (
+                    <><span className="material-symbols-outlined text-[16px] animate-spin">autorenew</span><span>Subiendo...</span></>
+                  ) : (
+                    <><span className="material-symbols-outlined text-[16px]">upload</span><span>{dondeEstamos.bannerImage ? 'Cambiar imagen' : 'Subir imagen'}</span></>
+                  )}
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    disabled={uploadingDondeBanner}
+                    onChange={async (e) => {
+                      setUploadingDondeBanner(true);
+                      const url = await handleFileUpload(e, 'Banners');
+                      if (url) {
+                        setDondeEstamos(p => ({ ...p, bannerImage: url }));
+                        setMediaLibDondeImages(prev => [url, ...prev.filter(u => u !== url)]);
+                      }
+                      setUploadingDondeBanner(false);
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Media Library Panel */}
+            {mediaLibDonde && (
+              <div className="mb-3 border border-indigo-200 dark:border-indigo-700 rounded-xl bg-white dark:bg-slate-900 shadow-lg overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50 dark:bg-indigo-900/40 border-b border-indigo-100 dark:border-indigo-800">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-indigo-500 text-[16px]">photo_library</span>
+                    <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">Biblioteca de Imágenes</span>
+                    {mediaLibDondeImages.length > 0 && !mediaLibDondeLoading && (
+                      <span className="text-[11px] text-indigo-400">({mediaLibDondeImages.length})</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => openDondeMediaLib(true)} title="Recargar"
+                      className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-800 text-indigo-400 transition">
+                      <span className="material-symbols-outlined text-[15px]">refresh</span>
+                    </button>
+                    <button type="button" onClick={() => setMediaLibDonde(false)}
+                      className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/40 text-slate-400 hover:text-red-500 transition">
+                      <span className="material-symbols-outlined text-[15px]">close</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                  <div className="relative">
+                    <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">search</span>
+                    <input type="text" value={mediaLibDondeSearch} onChange={e => setMediaLibDondeSearch(e.target.value)}
+                      placeholder="Buscar por nombre..."
+                      className="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                  </div>
+                </div>
+                <div className="p-3 max-h-52 overflow-y-auto">
+                  {mediaLibDondeLoading ? (
+                    <div className="flex items-center justify-center py-8 gap-2 text-slate-400">
+                      <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                      <span className="text-xs">Cargando imágenes...</span>
+                    </div>
+                  ) : mediaLibDondeImages.length === 0 ? (
+                    <div className="text-center py-8 text-xs text-slate-400">No hay imágenes en la biblioteca</div>
+                  ) : (() => {
+                    const filtered = mediaLibDondeSearch.trim()
+                      ? mediaLibDondeImages.filter(u => u.toLowerCase().includes(mediaLibDondeSearch.toLowerCase()))
+                      : mediaLibDondeImages;
+                    return filtered.length === 0 ? (
+                      <div className="text-center py-6 text-xs text-slate-400">Sin resultados para &quot;{mediaLibDondeSearch}&quot;</div>
+                    ) : (
+                      <div className="grid grid-cols-5 gap-2 sm:grid-cols-8">
+                        {filtered.map((url, i) => {
+                          const fullUrl = url.startsWith('http') ? url : `${apiUrl}${url}`;
+                          const isSelected = dondeEstamos.bannerImage === url;
+                          return (
+                            <button key={i} type="button" title={url.split('/').pop()}
+                              onClick={() => setDondeEstamos(p => ({ ...p, bannerImage: url }))}
+                              className={`relative group/lib aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                                isSelected ? 'border-indigo-500 ring-2 ring-indigo-300 scale-105' : 'border-transparent hover:border-indigo-400 hover:scale-105'
+                              }`}
+                            >
+                              <img src={fullUrl} alt="" className="w-full h-full object-cover" />
+                              {isSelected && (
+                                <div className="absolute inset-0 bg-indigo-500/30 flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-white text-[18px] drop-shadow">check_circle</span>
+                                </div>
+                              )}
+                              {!isSelected && (
+                                <div className="absolute inset-0 bg-black/0 group-hover/lib:bg-black/20 flex items-center justify-center opacity-0 group-hover/lib:opacity-100 transition-all">
+                                  <span className="material-symbols-outlined text-white text-[16px] drop-shadow">add_circle</span>
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="px-3 py-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 text-center">
+                  Hacé click en una imagen para usarla como fondo del banner
+                </div>
+              </div>
+            )}
+
+            {/* Preview */}
+            {dondeEstamos.bannerImage ? (
+              <div
+                className="relative h-44 w-full rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-inner flex items-center justify-center"
+                style={{ backgroundImage: `url('${getMediaSrc(dondeEstamos.bannerImage)}')`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+              >
+                <div className="absolute inset-0 bg-black/50" />
+                <div className="relative z-10 text-center">
+                  <p className="text-white text-xl font-black drop-shadow">{dondeEstamos.bannerTitle || '¿Dónde estamos?'}</p>
+                  <p className="text-slate-200 text-sm mt-1 drop-shadow">{dondeEstamos.bannerSubtitle}</p>
+                </div>
+                <div className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-md px-3 py-1 rounded-lg text-white text-xs font-semibold flex items-center gap-1.5 shadow">
+                  <span className="material-symbols-outlined text-sm text-emerald-400">check_circle</span>
+                  Vista previa
+                </div>
+              </div>
+            ) : (
+              <div className="p-6 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-400 bg-white/50 dark:bg-slate-900/50">
+                Sin imagen de fondo seleccionada. La página mostrará un fondo gris por defecto.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Historia Section ── */}
+        <div className="space-y-4 pt-6 border-t border-slate-200 dark:border-slate-700">
+          <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+            <span className="material-symbols-outlined text-rose-400 text-[20px]">auto_stories</span>
+            Sección &quot;Nuestra Historia&quot;
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Etiqueta superior (ej. &quot;Nuestra Historia&quot;)</label>
+              <input
+                type="text"
+                placeholder="Nuestra Historia"
+                value={dondeEstamos.historyLabel}
+                onChange={e => setDondeEstamos(p => ({ ...p, historyLabel: e.target.value }))}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Título (ej. &quot;Sobre Ciara Bonita&quot;)</label>
+              <input
+                type="text"
+                placeholder="Sobre Ciara Bonita"
+                value={dondeEstamos.historyTitle}
+                onChange={e => setDondeEstamos(p => ({ ...p, historyTitle: e.target.value }))}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Descripción / Texto de la sección</label>
+            <textarea
+              rows={4}
+              placeholder="En Ciara Bonita creemos que cada fragancia cuenta una historia..."
+              value={dondeEstamos.historyDescription}
+              onChange={e => setDondeEstamos(p => ({ ...p, historyDescription: e.target.value }))}
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white resize-none"
+            />
+          </div>
+        </div>
+
+        {/* ── Save buttons ── */}
+        <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700/80">
+          <button
+            type="button"
+            onClick={() => setActiveEditor(null)}
+            className="px-5 py-2.5 font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition"
+          >
+            ← Volver a Secciones
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => saveSettings('donde_estamos', dondeEstamos)}
+            className="px-6 py-2.5 font-bold text-xs bg-primary text-white hover:bg-primary/90 rounded-xl transition flex items-center gap-2 shadow-md shadow-primary/20 disabled:opacity-50"
+          >
+            <span className={`material-symbols-outlined text-base ${saving ? 'animate-spin' : ''}`}>
+              {saving ? 'progress_activity' : 'save'}
+            </span>
+            <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (loading) {
     return <div className="p-12 text-center text-slate-500"><span className="material-symbols-outlined animate-spin text-4xl">autorenew</span></div>;
   }
@@ -1396,6 +1710,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
   if (activeEditor === 'home_banner') return renderBannerEditor();
   if (activeEditor === 'home_categories') return renderCategoriesEditor();
   if (activeEditor === 'site_header') return renderHeaderEditor();
+  if (activeEditor === 'donde_estamos') return renderDondeEstamosEditor();
 
   return (
     <div className="space-y-6">
@@ -1474,6 +1789,22 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
             <span className="w-8 h-1.5 rounded-full bg-pink-500"></span>
             <span className="w-8 h-1.5 rounded-full bg-emerald-500"></span>
             <span className="w-8 h-1.5 rounded-full bg-blue-500"></span>
+          </div>
+          <span className="material-symbols-outlined absolute right-6 top-6 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+        </div>
+
+        {/* Página ¿Dónde Estamos? */}
+        <div onClick={() => handleEditSection('donde_estamos')} className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden flex flex-col items-start gap-4">
+          <div className="size-12 bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl flex items-center justify-center">
+            <span className="material-symbols-outlined">location_on</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-lg dark:text-white mb-1 group-hover:text-primary transition-colors">Página ¿Dónde Estamos?</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">Edita el banner de encabezado (imagen, título, subtítulo) y la sección &quot;Nuestra Historia&quot; con descripción propia.</p>
+          </div>
+          <div className="mt-auto pt-4 flex gap-2">
+            <span className="w-8 h-1.5 rounded-full bg-amber-500"></span>
+            <span className="w-8 h-1.5 rounded-full bg-rose-400"></span>
           </div>
           <span className="material-symbols-outlined absolute right-6 top-6 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
         </div>

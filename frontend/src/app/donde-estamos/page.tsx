@@ -8,14 +8,37 @@ import { useCompanyInfo } from '@/hooks/useCompanyInfo';
 export default function DondeEstamosPage() {
   const [mounted, setMounted] = useState(false);
   const company = useCompanyInfo();
+  const [dondeSettings, setDondeSettings] = useState<{
+    bannerImage?: string;
+    bannerTitle?: string;
+    bannerSubtitle?: string;
+    historyLabel?: string;
+    historyTitle?: string;
+    historyDescription?: string;
+  }>({});
 
   useEffect(() => {
     setMounted(true);
+    // Fetch custom donde_estamos settings
+    fetch('/api/settings')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: any[]) => {
+        const found = data.find((item: any) => item.key === 'donde_estamos');
+        if (found && found.value) setDondeSettings(found.value);
+      })
+      .catch(() => {});
   }, []);
 
   if (!mounted) return null;
 
   const cleanWhatsapp = (company.whatsapp || '').replace(/[^0-9]/g, '');
+
+  const bannerImage = dondeSettings.bannerImage || '';
+  const bannerTitle = dondeSettings.bannerTitle || '¿Dónde estamos?';
+  const bannerSubtitle = dondeSettings.bannerSubtitle || (company.tagline || 'Conocé nuestro showroom y descubrí nuestras fragancias en persona.');
+  const historyLabel = dondeSettings.historyLabel || 'Nuestra Historia';
+  const historyTitle = dondeSettings.historyTitle || `Sobre ${company.name}`;
+  const historyDescription = dondeSettings.historyDescription || company.description || '';
 
   return (
     <div className="relative flex min-h-screen w-full flex-col bg-white dark:bg-slate-900">
@@ -25,17 +48,17 @@ export default function DondeEstamosPage() {
         {/* Background Image */}
         <div 
           className="absolute inset-0 bg-cover bg-center z-0"
-          style={{ backgroundImage: "url('/uploads/Perfumes/3.webp')" }}
+          style={{ backgroundImage: bannerImage ? `url('${bannerImage}')` : "url('/uploads/Perfumes/3.webp')" }}
         />
         {/* Overlay */}
         <div className="absolute inset-0 bg-black/60 z-10" />
         
         <div className="relative z-20 text-center px-6 flex flex-col gap-4 max-w-3xl mx-auto">
           <h1 className="text-4xl md:text-6xl font-black text-white tracking-tight drop-shadow-lg">
-            ¿Dónde estamos?
+            {bannerTitle}
           </h1>
           <p className="text-lg md:text-xl font-medium text-slate-200 drop-shadow-md">
-            {company.tagline || 'Conocé nuestro showroom y descubrí nuestras fragancias en persona.'}
+            {bannerSubtitle}
           </p>
         </div>
       </section>
@@ -44,10 +67,10 @@ export default function DondeEstamosPage() {
         
         {/* Sobre la Empresa */}
         <section className="flex flex-col items-center text-center max-w-4xl mx-auto gap-6">
-          <span className="text-primary font-bold tracking-widest uppercase text-sm">Nuestra Historia</span>
-          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">Sobre {company.name}</h2>
+          <span className="text-primary font-bold tracking-widest uppercase text-sm">{historyLabel}</span>
+          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">{historyTitle}</h2>
           <p className="text-slate-600 dark:text-slate-400 text-lg leading-relaxed whitespace-pre-line">
-            {company.description}
+            {historyDescription}
           </p>
         </section>
 
