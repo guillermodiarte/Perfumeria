@@ -42,6 +42,7 @@ model Customer {
   password_hash      String?     @default("")
   name               String
   phone              String?     @unique
+  dni                String?
   address            String?
   province           String?
   city               String?
@@ -54,8 +55,21 @@ model Customer {
   wholesale_until    DateTime?
   cart_items         CartItem[]
   orders             Order[]
+  oauth_accounts     OAuthAccount[]
 
   @@map("customers")
+}
+
+model OAuthAccount {
+  id                  Int      @id @default(autoincrement())
+  customer_id         Int
+  provider            String
+  provider_account_id String
+  customer            Customer @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_account_id])
+  @@index([customer_id])
+  @@map("oauth_accounts")
 }
 
 model Admin {

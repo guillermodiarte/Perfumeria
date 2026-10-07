@@ -10,6 +10,7 @@ const FIELD_LABELS: Record<string, string> = {
   name: 'Nombre Completo',
   email: 'Email',
   phone: 'Celular',
+  dni: 'DNI',
   province: 'Provincia',
   city: 'Localidad',
   postal_code: 'Código Postal',
@@ -22,6 +23,7 @@ interface FormState {
   name: string;
   email: string;
   phone: string;
+  dni: string;
   password: string;
   address: string;
   province: string;
@@ -47,6 +49,7 @@ export default function ProfilePage() {
     name: user?.name || '',
     email: user?.email || '',
     phone: user?.phone || '',
+    dni: user?.dni || '',
     password: '',
     address: user?.address || '',
     province: user?.province || '',
@@ -99,6 +102,7 @@ export default function ProfilePage() {
         name: user.name || '',
         email: user.email || '',
         phone: user.phone || '',
+        dni: user.dni || '',
         password: '',
         address: user.address || '',
         province: user.province || '',
@@ -213,6 +217,7 @@ export default function ProfilePage() {
         name: updatedUser.name || '',
         email: updatedUser.email || '',
         phone: updatedUser.phone || '',
+        dni: updatedUser.dni || '',
         password: '',
         address: updatedUser.address || '',
         province: updatedUser.province || '',
@@ -360,6 +365,23 @@ export default function ProfilePage() {
               />
             ) : (
               <div className={readonlyCls}>{formData.phone || '—'}</div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              DNI <span className="text-slate-400 font-normal text-xs">(opcional - para envíos)</span>
+            </label>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.dni}
+                onChange={e => setFormData({ ...formData, dni: e.target.value })}
+                placeholder="Ej: 35123456"
+                className={editCls}
+              />
+            ) : (
+              <div className={readonlyCls}>{formData.dni || '—'}</div>
             )}
           </div>
 

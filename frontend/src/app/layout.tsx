@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import AuthModal from '@/components/auth/AuthModal'
+import CompleteProfileModal from '@/components/auth/CompleteProfileModal'
 import Header from '@/components/layout/Header'
 import CartDrawer from '@/components/cart/CartDrawer'
 import Toast from '@/components/ui/Toast'
@@ -114,6 +115,7 @@ export default async function RootLayout({
           <CartDrawer />
           <Toast />
           <AuthModal />
+          <CompleteProfileModal />
           {children}
         </NextAuthProvider>
       </body>

@@ -6,41 +6,106 @@ import { createToken } from '@/lib/auth';
 
 /**
  * POST /api/auth/oauth-callback
- * Called from the client after a successful NextAuth OAuth sign-in.
- * Finds or creates the Customer record and returns our own JWT.
+ * Called from client after NextAuth OAuth sign-in.
+ * Links or creates the Customer record with multi-provider support.
  */
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user?.email) {
+    if (!session?.user) {
       return NextResponse.json({ detail: 'No hay sesión OAuth activa' }, { status: 401 });
     }
 
-    const { email, name, image } = session.user;
+    const provider = ((session as any).provider as string) || '';
+    const providerAccountId = ((session as any).providerAccountId as string) || '';
+    const rawEmail = session.user.email ? session.user.email.trim().toLowerCase() : null;
+    const name = session.user.name || (rawEmail ? rawEmail.split('@')[0] : 'Usuario');
 
-    // Find or create the customer
-    let customer = await prisma.customer.findUnique({ where: { email: email! } });
+    let customer = null;
 
+    // 1. Check if this specific OAuth account is already linked to a customer
+    if (provider && providerAccountId) {
+      const linkedAccount = await prisma.oAuthAccount.findUnique({
+        where: {
+          provider_provider_account_id: {
+            provider,
+            provider_account_id: providerAccountId,
+          },
+        },
+        include: { customer: true },
+      });
+
+      if (linkedAccount?.customer) {
+        customer = linkedAccount.customer;
+      }
+    }
+
+    // 2. If not found by OAuth link, check by verified email (same email across Google/Facebook/Twitter)
+    if (!customer && rawEmail) {
+      customer = await prisma.customer.findUnique({
+        where: { email: rawEmail },
+      });
+
+      if (customer) {
+        // Auto-approve and mark email verified since OAuth verified it
+        if (!customer.is_approved || !customer.email_verified) {
+          customer = await prisma.customer.update({
+            where: { id: customer.id },
+            data: { is_approved: true, email_verified: true },
+          });
+        }
+
+        // Link this provider account to the existing customer
+        if (provider && providerAccountId) {
+          await prisma.oAuthAccount.upsert({
+            where: {
+              provider_provider_account_id: {
+                provider,
+                provider_account_id: providerAccountId,
+              },
+            },
+            create: {
+              customer_id: customer.id,
+              provider,
+              provider_account_id: providerAccountId,
+            },
+            update: {
+              customer_id: customer.id,
+            },
+          });
+        }
+      }
+    }
+
+    // 3. If customer still does not exist, create new customer
     if (!customer) {
-      // Auto-approve OAuth users — they have already verified their identity with a provider
+      // If provider gave no email (e.g. Twitter without email permission), use a unique pending placeholder
+      const emailToUse =
+        rawEmail ||
+        `temp_oauth_${provider || 'unknown'}_${providerAccountId || Math.random().toString(36).slice(2)}@pending.oauth`;
+
       customer = await prisma.customer.create({
         data: {
-          email: email!,
-          password_hash: '', // No password for OAuth users
-          name: name || email!.split('@')[0],
-          phone: '', // Will be filled in profile if needed
-          email_verified: true,
+          email: emailToUse,
+          password_hash: '',
+          name: name,
+          phone: null,
+          email_verified: Boolean(rawEmail),
           is_approved: true,
           created_at: new Date(),
         },
       });
-    } else if (!customer.is_approved) {
-      // Existing account pending approval — auto-approve via OAuth
-      customer = await prisma.customer.update({
-        where: { id: customer.id },
-        data: { is_approved: true, email_verified: true },
-      });
+
+      if (provider && providerAccountId) {
+        await prisma.oAuthAccount.create({
+          data: {
+            customer_id: customer.id,
+            provider,
+            provider_account_id: providerAccountId,
+          },
+        });
+      }
     }
 
     const token = createToken({ sub: customer.email, type: 'customer', id: customer.id });
@@ -53,6 +118,7 @@ export async function POST(req: NextRequest) {
         email: customer.email,
         name: customer.name,
         phone: customer.phone,
+        dni: customer.dni,
         address: customer.address,
         province: customer.province,
         city: customer.city,
