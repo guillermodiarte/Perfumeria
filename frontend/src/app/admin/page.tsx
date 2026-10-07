@@ -33,9 +33,11 @@ export default function AdminDashboard() {
     return v && VALID_VIEWS.includes(v) ? v : 'dashboard';
   };
   const [activeView, setActiveViewState] = useState<ViewId>('dashboard');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const setActiveView = (v: ViewId) => {
     localStorage.setItem('lyg_active_view', v);
     setActiveViewState(v);
+    setIsMobileSidebarOpen(false);
   };
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -669,16 +671,24 @@ export default function AdminDashboard() {
 
   return (
     <div className="relative flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 transition-colors duration-200">
+      {/* Mobile Sidebar Backdrop */}
+      {isMobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark shrink-0">
-        <div className="p-6 flex items-center gap-3">
+      <aside className={`fixed inset-y-0 left-0 w-72 max-w-[85%] bg-white dark:bg-background-dark z-50 flex flex-col border-r border-slate-200 dark:border-slate-800 shadow-2xl transition-transform duration-300 md:relative md:w-64 md:translate-x-0 md:shadow-none md:z-auto shrink-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <div className="p-4 sm:p-6 flex items-center justify-between border-b md:border-b-0 border-slate-100 dark:border-slate-800">
           {currentAdminRole === 'super_admin' ? (
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-primary flex items-center justify-center text-white shadow-md shadow-purple-500/20 flex-shrink-0">
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-primary flex items-center justify-center text-white shadow-md shadow-purple-500/20 flex-shrink-0">
                 <span className="material-symbols-outlined text-2xl">shield_person</span>
               </div>
               <div className="min-w-0">
-                <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white leading-tight">
+                <h2 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white leading-tight">
                   Super Admin
                 </h2>
                 <span className="inline-block text-[11px] font-bold text-purple-600 dark:text-purple-400">
@@ -688,9 +698,18 @@ export default function AdminDashboard() {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Logo height={38} className="w-auto" />
+              <Logo height={36} className="w-auto" />
             </div>
           )}
+
+          {/* Close button on mobile */}
+          <button
+            onClick={() => setIsMobileSidebarOpen(false)}
+            className="md:hidden p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl"
+            aria-label="Cerrar menú"
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
         </div>
 
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
@@ -842,26 +861,35 @@ export default function AdminDashboard() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Header Bar */}
-        <header className="h-16 px-8 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between shrink-0 z-20">
-          <div className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-white">
-            <span className="material-symbols-outlined text-primary text-xl">admin_panel_settings</span>
-            <span className="capitalize">
+        <header className="h-16 px-3 sm:px-6 md:px-8 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between shrink-0 z-20">
+          <div className="flex items-center gap-2 sm:gap-3 text-sm font-bold text-slate-800 dark:text-white min-w-0">
+            {/* Hamburger button on mobile */}
+            <button
+              onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+              className="md:hidden p-2 -ml-1 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors shrink-0"
+              aria-label="Abrir menú"
+            >
+              <span className="material-symbols-outlined text-2xl">menu</span>
+            </button>
+
+            <span className="material-symbols-outlined text-primary text-xl shrink-0 hidden sm:inline">admin_panel_settings</span>
+            <span className="capitalize truncate text-xs sm:text-sm">
               {activeView === 'dashboard' ? 'Panel de Control General' :
                activeView === 'products' ? 'Productos y Stock' :
                activeView === 'sections' ? 'Secciones y Banner' :
                activeView === 'compras' ? 'Compras de Proveedores' :
                activeView === 'ventas' ? 'Punto de Venta / Caja' :
-               (activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador') ? 'Historial de Ventas Realizadas' :
-               activeView === 'pedidos_web' ? 'Pedidos Tienda Web' :
-               activeView === 'cobros_pendientes' ? 'Cobros Pendientes y Cuotas' :
-               activeView === 'users' ? 'Clientes Registrados' :
+               (activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador') ? 'Historial de Ventas' :
+               activeView === 'pedidos_web' ? 'Pedidos Web' :
+               activeView === 'cobros_pendientes' ? 'Cobros Pendientes' :
+               activeView === 'users' ? 'Clientes' :
                activeView === 'admins' ? 'Administradores' :
-               activeView === 'finanzas' ? 'Finanzas y Caja' :
-               activeView === 'media' ? 'Biblioteca de Archivos' : 'Configuración'}
+               activeView === 'finanzas' ? 'Finanzas' :
+               activeView === 'media' ? 'Biblioteca' : 'Configuración'}
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* Campana de Notificaciones */}
             <NotificationBell 
               apiKey={apiKey} 
@@ -871,7 +899,7 @@ export default function AdminDashboard() {
             <Link
               href="/"
               target="_blank"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700"
             >
               <span className="material-symbols-outlined text-sm">open_in_new</span>
               <span className="hidden sm:inline">Ver Tienda</span>
@@ -880,10 +908,10 @@ export default function AdminDashboard() {
         </header>
 
         {/* Content Section */}
-        <div className="flex-1 overflow-y-auto p-8 bg-background-light dark:bg-background-dark/30">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 bg-background-light dark:bg-background-dark/30">
           <>
             {activeView === 'dashboard' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto">
+              <div className="max-w-[1600px] w-full px-0 sm:px-2 mx-auto">
                 <DashboardView setActiveView={setActiveView} apiKey={apiKey} pendingUserCount={pendingCount} />
               </div>
             ) : activeView === 'products' ? (

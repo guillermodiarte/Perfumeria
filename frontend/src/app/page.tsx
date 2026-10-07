@@ -112,8 +112,8 @@ export default function Home() {
 
         <main className="flex flex-col flex-1">
           {/* Hero Section */}
-          <section className="px-4 md:px-10 py-6 relative">
-            <div className="relative min-h-[600px] w-full overflow-hidden rounded-3xl group">
+          <section className="px-3 sm:px-6 md:px-10 py-3 sm:py-6 relative">
+            <div className="relative min-h-[500px] sm:min-h-[580px] md:min-h-[620px] w-full overflow-hidden rounded-2xl sm:rounded-3xl group">
               {slides.map((slide: any, idx: number) => {
                 const isVideo = slide.mediaUrl && slide.mediaUrl.match(/\.(mp4|webm|ogg)$/i);
                 const tagline = slide.tagline !== undefined ? slide.tagline : 'CIARA BONITA COLLECTION';
@@ -132,7 +132,7 @@ export default function Home() {
                 return (
                   <div
                     key={idx}
-                    className={`absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out flex flex-col items-start justify-end p-8 md:p-16 ${idx === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}
+                    className={`absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out flex flex-col items-start justify-end p-6 sm:p-10 md:p-16 ${idx === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}
                   >
                     {isVideo ? (
                       <video
@@ -151,17 +151,17 @@ export default function Home() {
                     )}
 
                     {/* Gradient Overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-0" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/50 to-transparent z-0" />
 
-                    <div className="relative z-10 max-w-2xl flex flex-col gap-6 transform transition-all duration-1000 delay-300">
-                      <div className="flex flex-col gap-3">
+                    <div className="relative z-10 max-w-2xl flex flex-col gap-4 sm:gap-6 transform transition-all duration-1000 delay-300">
+                      <div className="flex flex-col gap-2 sm:gap-3">
                         {tagline && (
-                          <span className="text-primary font-bold tracking-widest uppercase text-sm">
+                          <span className="text-primary font-bold tracking-widest uppercase text-xs sm:text-sm">
                             {tagline}
                           </span>
                         )}
                         {(title || highlightTitle) && (
-                          <h1 className="text-white text-5xl md:text-7xl font-black leading-[1.1] tracking-tighter drop-shadow-lg">
+                          <h1 className="text-white text-3xl sm:text-5xl md:text-7xl font-black leading-[1.1] tracking-tighter drop-shadow-lg">
                             {title && <span>{title.toUpperCase()}</span>}
                             {title && highlightTitle && <br />}
                             {highlightTitle && (
@@ -172,14 +172,14 @@ export default function Home() {
                           </h1>
                         )}
                         {description && (
-                          <p className="text-slate-200 text-lg md:text-xl font-medium max-w-lg leading-relaxed drop-shadow-md">
+                          <p className="text-slate-200 text-sm sm:text-lg md:text-xl font-medium max-w-lg leading-relaxed drop-shadow-md line-clamp-3 sm:line-clamp-none">
                             {description}
                           </p>
                         )}
                       </div>
                       {buttonText && (
-                        <div className="flex flex-wrap gap-4">
-                          <Link href={buttonLink} className="flex min-w-[160px] cursor-pointer items-center justify-center rounded-full h-14 px-8 bg-primary text-white text-base font-bold hover:scale-105 transition-transform shadow-lg shadow-primary/30">
+                        <div className="flex flex-wrap gap-4 pt-1 sm:pt-0">
+                          <Link href={buttonLink} className="flex min-w-[140px] sm:min-w-[160px] cursor-pointer items-center justify-center rounded-full h-12 sm:h-14 px-6 sm:px-8 bg-primary text-white text-sm sm:text-base font-bold hover:scale-105 transition-transform shadow-lg shadow-primary/30">
                             {buttonText}
                           </Link>
                         </div>
@@ -191,12 +191,12 @@ export default function Home() {
 
               {/* Carousel Indicators */}
               {slides.length > 1 && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex gap-3 bg-black/20 backdrop-blur-sm px-4 py-2 rounded-full">
+                <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-20 flex gap-2 sm:gap-3 bg-black/25 backdrop-blur-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-full">
                   {slides.map((_: any, idx: number) => (
                     <button
                       key={idx}
                       onClick={() => setCurrentSlide(idx)}
-                      className={`h-2 rounded-full transition-all duration-500 ${idx === currentSlide ? 'w-8 bg-primary' : 'w-2 bg-white/50 hover:bg-white/80'}`}
+                      className={`h-2 rounded-full transition-all duration-500 ${idx === currentSlide ? 'w-6 sm:w-8 bg-primary' : 'w-2 bg-white/50 hover:bg-white/80'}`}
                     />
                   ))}
                 </div>
@@ -207,13 +207,13 @@ export default function Home() {
                 <>
                   <button
                     onClick={() => setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length)}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 z-20 size-12 flex items-center justify-center rounded-full bg-black/20 hover:bg-black/50 text-white backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0"
+                    className="absolute left-4 top-1/2 -translate-y-1/2 z-20 size-10 sm:size-12 hidden sm:flex items-center justify-center rounded-full bg-black/20 hover:bg-black/50 text-white backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0"
                   >
                     <span className="material-symbols-outlined">chevron_left</span>
                   </button>
                   <button
                     onClick={() => setCurrentSlide((prev) => (prev + 1) % slides.length)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 z-20 size-12 flex items-center justify-center rounded-full bg-black/20 hover:bg-black/50 text-white backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 z-20 size-10 sm:size-12 hidden sm:flex items-center justify-center rounded-full bg-black/20 hover:bg-black/50 text-white backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0"
                   >
                     <span className="material-symbols-outlined">chevron_right</span>
                   </button>
@@ -223,27 +223,27 @@ export default function Home() {
           </section>
 
           {/* Featured Categories */}
-          <section className="px-4 md:px-20 py-12">
-            <div className="flex items-end justify-between mb-10">
-              <div className="flex flex-col gap-2">
-                <h2 className="text-slate-900 dark:text-white text-3xl font-extrabold tracking-tight">Comprar por Categoría</h2>
-                <div className="h-1 w-20 bg-primary rounded-full"></div>
+          <section className="px-4 sm:px-6 md:px-20 py-8 sm:py-12">
+            <div className="flex items-end justify-between mb-6 sm:mb-10">
+              <div className="flex flex-col gap-1.5 sm:gap-2">
+                <h2 className="text-slate-900 dark:text-white text-xl sm:text-3xl font-extrabold tracking-tight">Comprar por Categoría</h2>
+                <div className="h-1 w-14 sm:w-20 bg-primary rounded-full"></div>
               </div>
-              <Link className="text-primary font-bold flex items-center gap-1 hover:gap-2 transition-all" href="/catalog">
-                Ver Todo <span className="material-symbols-outlined">trending_flat</span>
+              <Link className="text-primary font-bold text-xs sm:text-sm flex items-center gap-1 hover:gap-2 transition-all" href="/catalog">
+                Ver Todo <span className="material-symbols-outlined text-base">trending_flat</span>
               </Link>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
               {categoryCards.map((cat: any, idx: number) => (
                 <Link key={idx} href={cat.link || "/catalog"} className="group relative aspect-[3/4] overflow-hidden rounded-2xl cursor-pointer">
                   <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
                     style={{ backgroundImage: `url('${cat.mediaUrl?.startsWith('http') ? cat.mediaUrl : `${API_URL}${cat.mediaUrl}`}')` }}></div>
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                  <div className="absolute bottom-0 left-0 p-8">
-                    <h3 className="text-white text-2xl font-bold mb-2">{cat.title}</h3>
-                    <p className="text-slate-300 text-sm mb-4">{cat.subtitle}</p>
-                    <span className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-white text-slate-900 group-hover:bg-primary group-hover:text-white transition-colors">
-                      <span className="material-symbols-outlined">arrow_forward</span>
+                  <div className="absolute bottom-0 left-0 p-3.5 sm:p-6 md:p-8">
+                    <h3 className="text-white text-base sm:text-xl md:text-2xl font-bold mb-1 leading-tight">{cat.title}</h3>
+                    <p className="text-slate-300 text-xs sm:text-sm mb-2 sm:mb-4 line-clamp-1">{cat.subtitle}</p>
+                    <span className="inline-flex items-center justify-center h-7 w-7 sm:h-10 sm:w-10 rounded-full bg-white text-slate-900 group-hover:bg-primary group-hover:text-white transition-colors">
+                      <span className="material-symbols-outlined text-sm sm:text-base">arrow_forward</span>
                     </span>
                   </div>
                 </Link>

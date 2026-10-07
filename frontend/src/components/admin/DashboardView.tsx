@@ -391,56 +391,56 @@ export default function DashboardView({ setActiveView, apiKey, pendingUserCount 
   return (
     <div className="space-y-6 pb-12">
       {/* Saludo y Encabezado */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-purple-950 to-slate-900 dark:from-slate-800 dark:via-purple-900/50 dark:to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl shadow-purple-950/10 border border-purple-800/20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-purple-950 to-slate-900 dark:from-slate-800 dark:via-purple-900/50 dark:to-slate-900 text-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xl shadow-purple-950/10 border border-purple-800/20">
         <div>
           <div className="flex items-center gap-2 text-purple-300 text-xs font-bold uppercase tracking-wider mb-2">
             <span className="material-symbols-outlined text-sm">dashboard</span>
             Panel de Control General
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight leading-tight">
             Buenos días, Administración
           </h1>
-          <p className="text-slate-300 text-sm mt-1 max-w-xl">
+          <p className="text-slate-300 text-xs sm:text-sm mt-1.5 max-w-xl">
             Tenés <strong className="text-amber-300">{pendingReviewOrders.length} pedidos web</strong> por revisar,{' '}
             <strong className="text-blue-300">{pendingDeliveries.length} envíos</strong> pendientes y{' '}
             <strong className="text-emerald-300">{pendingApprovalUsers.length} solicitudes de registro</strong>.
           </p>
         </div>
 
-        <div className="flex items-center gap-3 self-start md:self-center">
+        <div className="flex items-center gap-2 sm:gap-3 self-stretch sm:self-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-0 border-purple-900/40">
           <button
             onClick={() => { fetchData(); fetchCurrencies(); }}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold transition-all border border-white/10 shadow-sm"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold transition-all border border-white/10 shadow-sm"
             title="Actualizar datos"
           >
             <span className={`material-symbols-outlined text-sm ${loading ? 'animate-spin' : ''}`}>sync</span>
-            {loading ? 'Actualizando...' : 'Actualizar'}
+            <span>{loading ? '...' : 'Actualizar'}</span>
           </button>
           <button
             onClick={() => setActiveView('ventas')}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-pink-500 hover:from-primary/90 hover:to-pink-600 text-white text-xs font-bold transition-all shadow-lg shadow-primary/30"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-pink-500 hover:from-primary/90 hover:to-pink-600 text-white text-xs font-bold transition-all shadow-lg shadow-primary/30"
           >
             <span className="material-symbols-outlined text-sm">point_of_sale</span>
-            Nueva Venta
+            <span>Nueva Venta</span>
           </button>
         </div>
       </div>
 
       {/* Widget: Cotizaciones (Dólar Blue, Oficial, Real, Guaraní) */}
-      <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
+      <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 p-3.5 sm:p-5 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-1.5">
           <div className="flex items-center gap-2">
-            <div className="size-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
+            <div className="size-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center shrink-0">
               <span className="material-symbols-outlined text-base">currency_exchange</span>
             </div>
             <div>
-              <h2 className="text-sm font-black text-slate-900 dark:text-white">Cotizaciones de Monedas</h2>
-              <p className="text-[11px] text-slate-400">Tipo de cambio referencial (Dólar Blue y Oficial, Real y Guaraní)</p>
+              <h2 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">Cotizaciones de Monedas</h2>
+              <p className="text-[10px] sm:text-[11px] text-slate-400">Tipo de cambio referencial (Dólar Blue, Oficial, Real y Guaraní)</p>
             </div>
           </div>
           {ratesLastUpdated && (
-            <span className="text-[11px] font-medium text-slate-400">
+            <span className="text-[10px] sm:text-[11px] font-medium text-slate-400 self-end sm:self-auto">
               Actualizado: {ratesLastUpdated} hs
             </span>
           )}

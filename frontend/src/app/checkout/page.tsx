@@ -218,17 +218,17 @@ export default function CheckoutPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto flex flex-col lg:flex-row gap-8">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 py-6 sm:py-12 px-3 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto flex flex-col lg:flex-row gap-6 sm:gap-8">
         
         {/* Cart Items */}
-        <div className="flex-1 bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 md:p-8">
-          <div className="flex items-center justify-between mb-8">
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-3">
-              <span className="material-symbols-outlined text-primary">shopping_cart</span>
+        <div className="flex-1 bg-white dark:bg-slate-800 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 sm:p-6 md:p-8">
+          <div className="flex items-center justify-between mb-6 sm:mb-8">
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
+              <span className="material-symbols-outlined text-primary text-2xl">shopping_cart</span>
               Tu Carrito
             </h1>
-            <Link href="/catalog" className="text-sm font-bold text-slate-500 hover:text-primary transition-colors">
+            <Link href="/catalog" className="text-xs sm:text-sm font-bold text-slate-500 hover:text-primary transition-colors">
               Seguir comprando
             </Link>
           </div>
@@ -239,49 +239,60 @@ export default function CheckoutPage() {
               <p className="text-slate-500 font-medium">Tu carrito está vacío.</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-4 sm:gap-6">
               {items.map((item, idx) => (
-                <div key={idx} className="flex gap-4 p-4 border border-slate-100 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-900/50">
-                  <div className="w-24 h-24 rounded-xl bg-white overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700">
-                    {item.product.imageUrls?.[0] ? (
-                      <img
-                        src={parseImageUrl(item.product.imageUrls[0])}
-                        alt={item.product.name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          const img = e.currentTarget;
-                          img.style.display = 'none';
-                          if (img.parentElement) {
-                            img.parentElement.innerHTML = '<span class="material-symbols-outlined text-slate-300 text-4xl flex items-center justify-center h-full w-full">image_not_supported</span>';
-                          }
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <span className="material-symbols-outlined text-slate-300 text-4xl">image_not_supported</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 flex flex-col justify-center">
-                    <h3 className="font-bold text-slate-900 dark:text-white">{item.product.name}</h3>
-                    <p className="text-sm text-slate-500 capitalize">{item.color} - {item.size}</p>
-                    <div className="flex items-center justify-between mt-2">
-                      <div className="flex items-center gap-3 bg-white dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-600">
-                        <button onClick={() => updateQuantity(item.product.id, item.variantId, Math.max(1, item.quantity - 1))} className="text-slate-400 hover:text-primary font-bold px-1">-</button>
-                        <span className="font-bold text-slate-900 dark:text-white w-4 text-center">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.product.id, item.variantId, item.quantity + 1)} className="text-slate-400 hover:text-primary font-bold px-1">+</button>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-black text-slate-900 dark:text-white">${(getItemUnitPrice(item) * item.quantity).toLocaleString()}</p>
-                        <p className="text-xs text-slate-400 font-medium">${getItemUnitPrice(item).toLocaleString()} c/u</p>
-                        {(isUserWholesale || item.quantity >= wholesaleConfig.minQuantity) && (
-                          <p className="text-[10px] font-bold text-green-500 uppercase">-{wholesaleConfig.discountPercentage}% Mayorista aplicado</p>
-                        )}
-                      </div>
+                <div key={idx} className="relative flex flex-col sm:flex-row gap-3 sm:gap-4 p-3.5 sm:p-4 border border-slate-100 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-900/50">
+                  <div className="flex items-start gap-3 sm:gap-4 flex-1">
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-white overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700">
+                      {item.product.imageUrls?.[0] ? (
+                        <img
+                          src={parseImageUrl(item.product.imageUrls[0])}
+                          alt={item.product.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            img.style.display = 'none';
+                            if (img.parentElement) {
+                              img.parentElement.innerHTML = '<span class="material-symbols-outlined text-slate-300 text-3xl flex items-center justify-center h-full w-full">image_not_supported</span>';
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <span className="material-symbols-outlined text-slate-300 text-3xl">image_not_supported</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 pr-6 sm:pr-0">
+                      <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-tight line-clamp-2">{item.product.name}</h3>
+                      <p className="text-xs text-slate-500 mt-1 capitalize">{item.color} - {item.size}</p>
+                      <p className="text-xs text-slate-400 mt-0.5 sm:hidden">${getItemUnitPrice(item).toLocaleString()} c/u</p>
                     </div>
                   </div>
-                  <button onClick={() => removeItem(item.product.id, item.variantId)} className="text-slate-400 hover:text-red-500 p-2 shrink-0">
-                    <span className="material-symbols-outlined">delete</span>
+
+                  {/* Quantity and Price Section */}
+                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-0 border-slate-200/60 dark:border-slate-700">
+                    <div className="flex items-center gap-2.5 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-600">
+                      <button onClick={() => updateQuantity(item.product.id, item.variantId, Math.max(1, item.quantity - 1))} className="text-slate-400 hover:text-primary font-bold px-1 text-base">-</button>
+                      <span className="font-bold text-slate-900 dark:text-white w-5 text-center text-sm">{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.product.id, item.variantId, item.quantity + 1)} className="text-slate-400 hover:text-primary font-bold px-1 text-base">+</button>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-base sm:text-lg text-slate-900 dark:text-white">${(getItemUnitPrice(item) * item.quantity).toLocaleString()}</p>
+                      <p className="text-[11px] text-slate-400 font-medium hidden sm:block">${getItemUnitPrice(item).toLocaleString()} c/u</p>
+                      {(isUserWholesale || item.quantity >= wholesaleConfig.minQuantity) && (
+                        <p className="text-[9px] font-bold text-green-500 uppercase">-{wholesaleConfig.discountPercentage}% Mayorista</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Delete Button */}
+                  <button 
+                    onClick={() => removeItem(item.product.id, item.variantId)} 
+                    className="absolute top-2 right-2 sm:relative sm:top-auto sm:right-auto text-slate-400 hover:text-red-500 p-1.5 sm:p-2 shrink-0 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                    aria-label="Eliminar del carrito"
+                  >
+                    <span className="material-symbols-outlined text-[18px] sm:text-[20px]">delete</span>
                   </button>
                 </div>
               ))}

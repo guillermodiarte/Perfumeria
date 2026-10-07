@@ -548,7 +548,29 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
             </div>
           </div>
         </footer>
+
+        {/* Mobile Sticky Bottom Buy Bar */}
+        <div className="fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 p-3.5 sm:hidden z-40 flex items-center justify-between gap-3 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+          <div className="flex flex-col min-w-0">
+            <span className="text-[11px] text-slate-400 font-bold uppercase truncate max-w-[130px]">{product.name}</span>
+            <span className="text-lg font-black text-primary leading-tight">${currentPrice.toLocaleString('es-AR')}</span>
+          </div>
+          <button
+            onClick={handleAddToCart}
+            disabled={maxStock <= 0}
+            className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm shadow-md transition-all disabled:opacity-50 ${
+              added 
+                ? 'bg-green-500 text-white' 
+                : 'bg-primary text-white hover:bg-primary/90'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">{added ? 'check' : 'shopping_bag'}</span>
+            <span>{added ? '¡Añadido!' : 'Añadir'}</span>
+          </button>
+        </div>
+
       </div>
     </div>
   );
 }
+

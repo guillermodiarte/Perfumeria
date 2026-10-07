@@ -128,7 +128,8 @@ export default function CartDrawer() {
                   {/* Delete Button */}
                   <button 
                     onClick={() => removeItem(item.product.id, item.variantId)}
-                    className="absolute -top-2 -right-2 w-8 h-8 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-full flex items-center justify-center text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 shadow-sm opacity-0 group-hover:opacity-100 transition-all"
+                    className="absolute top-2 right-2 sm:-top-2 sm:-right-2 w-8 h-8 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-full flex items-center justify-center text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all z-10"
+                    aria-label="Eliminar producto"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>

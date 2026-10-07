@@ -1,20 +1,23 @@
 'use client';
 
-import Image from 'next/image'
-import Link from 'next/link'
+import Image from 'next/image';
+import Link from 'next/link';
 import { API_URL } from '@/utils/api';
 import { useStockFlowStore } from '@/store/useStockStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAuthModalStore } from '@/store/useAuthModalStore';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useState, useEffect, Suspense, useMemo } from 'react';
+import { Filter, X, ArrowUpDown, Check, ChevronDown, Sparkles } from 'lucide-react';
 
 function CatalogContent() {
   const storeProducts = useStockFlowStore(s => s.products);
   const user = useAuthStore(s => s.user);
   const searchParams = useSearchParams();
   const router = useRouter();
+
   const categoryFilter = searchParams.get('category');
+  const searchQuery = searchParams.get('q') || '';
 
   const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
 
@@ -23,6 +26,8 @@ function CatalogContent() {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(initialExpandedGroup);
 
   const [mounted, setMounted] = useState(false);
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<'default' | 'price_asc' | 'price_desc' | 'name_asc'>('default');
 
   // Extract unique filter options from storeProducts
   const allSizes = useMemo(() => Array.from(new Set(storeProducts.flatMap(p => p.variants.map(v => v.size)))).filter(s => s && s !== 'Unico' && s !== 'Único').sort(), [storeProducts]);
@@ -50,24 +55,48 @@ function CatalogContent() {
     setPriceRange(highestPrice);
   }, [highestPrice]);
 
-  // Apply Filters
+  // Lock scroll when mobile filters are open
+  useEffect(() => {
+    if (isMobileFiltersOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isMobileFiltersOpen]);
+
+  // Apply Filters & Search
   const filteredProducts = useMemo(() => {
-    let result = categoryFilter
-      ? storeProducts.filter(p => {
-          if (categoryFilter === 'Perfumes de Mujer') {
-            const isWomanOrUnisex = p.targetGender === 'Mujer' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Mujer');
-            return isWomanOrUnisex && p.targetGender !== 'Hombre';
-          }
-          if (categoryFilter === 'Perfumes de Hombre') {
-            const isManOrUnisex = p.targetGender === 'Hombre' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Hombre');
-            return isManOrUnisex && p.targetGender !== 'Mujer';
-          }
-          if (categoryFilter === 'Unisex') {
-            return p.targetGender === 'Unisex' || p.categoryId === 'Unisex';
-          }
-          return p.categoryId === categoryFilter;
-        })
-      : storeProducts;
+    let result = storeProducts;
+
+    // Search query filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(p => 
+        (p.name && p.name.toLowerCase().includes(q)) ||
+        (p.description && p.description.toLowerCase().includes(q)) ||
+        (p.categoryId && p.categoryId.toLowerCase().includes(q)) ||
+        (p.sku && p.sku.toLowerCase().includes(q))
+      );
+    }
+
+    // Category filter
+    if (categoryFilter) {
+      result = result.filter(p => {
+        if (categoryFilter === 'Perfumes de Mujer') {
+          const isWomanOrUnisex = p.targetGender === 'Mujer' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Mujer');
+          return isWomanOrUnisex && p.targetGender !== 'Hombre';
+        }
+        if (categoryFilter === 'Perfumes de Hombre') {
+          const isManOrUnisex = p.targetGender === 'Hombre' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Hombre');
+          return isManOrUnisex && p.targetGender !== 'Mujer';
+        }
+        if (categoryFilter === 'Unisex') {
+          return p.targetGender === 'Unisex' || p.categoryId === 'Unisex';
+        }
+        return p.categoryId === categoryFilter;
+      });
+    }
 
     if (selectedSize) {
       result = result.filter(p => p.variants.some(v => v.size === selectedSize));
@@ -81,16 +110,38 @@ function CatalogContent() {
       result = result.filter(p => (p.salePrice || 0) <= priceRange);
     }
 
-    return result;
-  }, [storeProducts, categoryFilter, selectedSize, selectedColor, priceRange, highestPrice]);
+    // Sorting
+    const sorted = [...result];
+    if (sortBy === 'price_asc') {
+      sorted.sort((a, b) => (a.salePrice || 0) - (b.salePrice || 0));
+    } else if (sortBy === 'price_desc') {
+      sorted.sort((a, b) => (b.salePrice || 0) - (a.salePrice || 0));
+    } else if (sortBy === 'name_asc') {
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return sorted;
+  }, [storeProducts, searchQuery, categoryFilter, selectedSize, selectedColor, priceRange, highestPrice, sortBy]);
+
+  const activeFiltersCount = (selectedSize ? 1 : 0) + (selectedColor ? 1 : 0) + (priceRange < highestPrice ? 1 : 0) + (categoryFilter ? 1 : 0);
+
+  const clearAllFilters = () => {
+    setSelectedSize('');
+    setSelectedColor('');
+    setPriceRange(highestPrice);
+    if (categoryFilter || searchQuery) {
+      router.push('/catalog');
+    }
+  };
 
   if (!mounted) return null;
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-white dark:bg-slate-900">
       <div className="layout-container flex h-full grow flex-col">
-        <main className="flex flex-1 px-6 lg:px-20 py-8 gap-10">
-          {/* Sidebar Filters */}
+        <main className="flex flex-1 px-4 sm:px-6 lg:px-20 py-4 sm:py-8 gap-8 lg:gap-10">
+
+          {/* DESKTOP SIDEBAR FILTERS */}
           <aside className="hidden lg:flex flex-col w-72 shrink-0 gap-8">
             <div className="flex flex-col gap-4">
               <div className="flex flex-col border-b border-slate-200 dark:border-slate-800 pb-4">
@@ -163,7 +214,7 @@ function CatalogContent() {
                     onClick={() => toggleFilter('talle')}
                     className="flex items-center justify-between w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 text-sm font-bold text-slate-700 dark:text-slate-300"
                   >
-                    Talle <span className={`material-symbols-outlined text-sm transition-transform ${expandedFilters.talle ? 'rotate-180' : ''}`}>expand_more</span>
+                    Talle / Mililitros <span className={`material-symbols-outlined text-sm transition-transform ${expandedFilters.talle ? 'rotate-180' : ''}`}>expand_more</span>
                   </button>
                   {expandedFilters.talle && (
                     <div className="p-4 bg-white dark:bg-slate-900">
@@ -190,7 +241,7 @@ function CatalogContent() {
                     onClick={() => toggleFilter('color')}
                     className="flex items-center justify-between w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 text-sm font-bold text-slate-700 dark:text-slate-300"
                   >
-                    Color <span className={`material-symbols-outlined text-sm transition-transform ${expandedFilters.color ? 'rotate-180' : ''}`}>expand_more</span>
+                    Color / Tono <span className={`material-symbols-outlined text-sm transition-transform ${expandedFilters.color ? 'rotate-180' : ''}`}>expand_more</span>
                   </button>
                   {expandedFilters.color && (
                     <div className="p-4 bg-white dark:bg-slate-900">
@@ -246,166 +297,352 @@ function CatalogContent() {
             </div>
           </aside>
 
-          {/* Product Grid Content */}
-          <div className="flex-1">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4 bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
+          {/* MAIN PRODUCT GRID & CONTROLS */}
+          <div className="flex-1 min-w-0">
+
+            {/* QUICK CATEGORY CHIPS IN MOBILE */}
+            <div className="lg:hidden flex items-center gap-2 overflow-x-auto pb-3 mb-3 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
+              <Link
+                href="/catalog"
+                className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  !categoryFilter
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                Todos
+              </Link>
+              <Link
+                href="/catalog?category=Perfumes de Mujer"
+                className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  categoryFilter === 'Perfumes de Mujer'
+                    ? 'bg-pink-600 text-white shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                Mujer
+              </Link>
+              <Link
+                href="/catalog?category=Perfumes de Hombre"
+                className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  categoryFilter === 'Perfumes de Hombre'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                Hombre
+              </Link>
+              <Link
+                href="/catalog?category=Unisex"
+                className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  categoryFilter === 'Unisex'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                Unisex
+              </Link>
+            </div>
+
+            {/* TOP BAR: Title, Search Info, Mobile Filter Trigger, Sort */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3 bg-slate-50 dark:bg-slate-800/40 p-4 sm:p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
               <div>
-                <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100">{categoryFilter || 'Catálogo Completo'}</h1>
-                <p className="text-slate-500 mt-2 font-medium flex items-center gap-2">
-                  <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-sm font-bold">{filteredProducts.length}</span>
-                  artículos encontrados
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span>{categoryFilter || (searchQuery ? `Búsqueda: "${searchQuery}"` : 'Catálogo Completo')}</span>
+                </h1>
+                <p className="text-slate-500 text-xs sm:text-sm mt-1 font-medium flex items-center gap-2">
+                  <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs font-bold">
+                    {filteredProducts.length}
+                  </span>
+                  artículos disponibles
                 </p>
               </div>
-              <div className="flex gap-2 shrink-0">
-                <button className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-300 hover:border-primary transition-colors">
-                  <span className="material-symbols-outlined text-[18px]">sort</span>
-                  Ordenar por
-                  <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+
+              {/* ACTION BUTTONS: Filters button on Mobile + Sort */}
+              <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end">
+                {/* Mobile Filter Button */}
+                <button
+                  onClick={() => setIsMobileFiltersOpen(true)}
+                  className="lg:hidden flex items-center gap-2 px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 shadow-sm"
+                >
+                  <Filter className="w-4 h-4 text-primary" />
+                  <span>Filtros</span>
+                  {activeFiltersCount > 0 && (
+                    <span className="size-5 rounded-full bg-primary text-white text-[10px] font-black flex items-center justify-center">
+                      {activeFiltersCount}
+                    </span>
+                  )}
                 </button>
+
+                {/* Sort Dropdown */}
+                <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 shadow-sm">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="bg-transparent border-none text-xs sm:text-sm font-bold focus:ring-0 cursor-pointer pr-1"
+                  >
+                    <option value="default">Recomendados</option>
+                    <option value="price_asc">Menor Precio</option>
+                    <option value="price_desc">Mayor Precio</option>
+                    <option value="name_asc">Nombre A-Z</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* Grid Layout (Zustand Render) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {/* RESPONSIVE PRODUCT GRID: 2 COLUMNS ON MOBILE */}
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
               {filteredProducts.map((product: any) => (
-                <Link key={product.id} href={`/product/${product.id}`} className="group flex flex-col gap-4 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300">
-                  <div className="relative overflow-hidden rounded-xl aspect-[3/4] bg-slate-50 dark:bg-slate-800">
-                    {product.imageUrls && product.imageUrls.length > 0 ? (
-                      <div
-                        className="w-full h-full bg-center bg-cover transition-transform duration-700 group-hover:scale-110"
-                        style={{ backgroundImage: `url("${product.imageUrls[0].startsWith('http') ? product.imageUrls[0] : `${API_URL}${product.imageUrls[0]}`}")` }}
-                      ></div>
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 transition-transform duration-500 group-hover:scale-105">
-                        <span className="material-symbols-outlined text-4xl opacity-40 mb-2">image</span>
-                      </div>
-                    )}
-
-                    <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest text-primary shadow-sm">
-                      Nuevo
-                    </div>
-
-                    <button className="absolute bottom-3 right-3 h-10 w-10 rounded-full bg-white text-slate-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 hover:text-red-500 hover:scale-110 shadow-lg">
-                      <span className="material-symbols-outlined text-[20px]">favorite</span>
-                    </button>
-                  </div>
-                  <div className="flex flex-col gap-1 px-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-slate-400 text-xs font-bold uppercase tracking-wider truncate">{product.categoryId}</p>
-                      {product.targetGender === 'Unisex' && (
-                        <span className="text-[10px] font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 px-1.5 py-0.2 rounded border border-purple-200 dark:border-purple-800 uppercase tracking-wider">
-                          Unisex
-                        </span>
+                <Link
+                  key={product.id}
+                  href={`/product/${product.id}`}
+                  className="group flex flex-col justify-between bg-white dark:bg-slate-900 p-2.5 sm:p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300"
+                >
+                  <div>
+                    {/* Product Image */}
+                    <div className="relative overflow-hidden rounded-xl aspect-[3/4] bg-slate-50 dark:bg-slate-800 mb-2.5">
+                      {product.imageUrls && product.imageUrls.length > 0 ? (
+                        <div
+                          className="w-full h-full bg-center bg-cover transition-transform duration-700 group-hover:scale-105"
+                          style={{
+                            backgroundImage: `url("${product.imageUrls[0].startsWith('http') ? product.imageUrls[0] : `${API_URL}${product.imageUrls[0]}`}")`
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
+                          <span className="material-symbols-outlined text-3xl opacity-40">image</span>
+                        </div>
                       )}
+
+                      {/* Badges */}
+                      <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+                        {product.showTag && product.tag ? (
+                          <span className="bg-primary text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                            {product.tag}
+                          </span>
+                        ) : (
+                          <span className="bg-white/90 dark:bg-slate-900/90 text-primary text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                            Nuevo
+                          </span>
+                        )}
+                        {product.targetGender && (
+                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full backdrop-blur-md shadow-sm ${
+                            product.targetGender === 'Unisex'
+                              ? 'bg-purple-600/90 text-white'
+                              : product.targetGender === 'Hombre'
+                              ? 'bg-blue-600/90 text-white'
+                              : 'bg-pink-600/90 text-white'
+                          }`}>
+                            {product.targetGender}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <h3 className="text-slate-900 dark:text-slate-100 text-sm font-bold group-hover:text-primary transition-colors line-clamp-2 leading-tight">{product.name}</h3>
-                    <div className="flex items-center justify-between mt-2">
-                      {(() => {
-                        const variantPrices = product.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
-                        const minP = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.salePrice || 0);
-                        const maxP = variantPrices.length > 0 ? Math.max(...variantPrices) : (product.salePrice || 0);
-                        const priceDisplay = variantPrices.length > 1 && minP !== maxP
-                          ? `Desde $${minP.toLocaleString('es-AR')}`
-                          : `$${(product.salePrice || minP).toLocaleString('es-AR')}`;
-                        return <p className="text-primary font-black text-lg">{priceDisplay}</p>;
-                      })()}
+
+                    {/* Product Metadata */}
+                    <div className="flex flex-col gap-1 px-1">
+                      <p className="text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider truncate">
+                        {product.categoryId || 'Fragancia'}
+                      </p>
+                      <h3
+                        className="text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-bold group-hover:text-primary transition-colors line-clamp-2 leading-tight"
+                        title={product.name}
+                      >
+                        {product.name}
+                      </h3>
                     </div>
+                  </div>
+
+                  {/* Price & Action */}
+                  <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 px-1 flex items-baseline justify-between">
+                    {(() => {
+                      const variantPrices = product.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
+                      const minP = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.salePrice || 0);
+                      const maxP = variantPrices.length > 0 ? Math.max(...variantPrices) : (product.salePrice || 0);
+                      const priceDisplay = variantPrices.length > 1 && minP !== maxP
+                        ? `Desde $${minP.toLocaleString('es-AR')}`
+                        : `$${(product.salePrice || minP).toLocaleString('es-AR')}`;
+                      return (
+                        <p className="text-primary font-black text-sm sm:text-base leading-none">
+                          {priceDisplay}
+                        </p>
+                      );
+                    })()}
                   </div>
                 </Link>
               ))}
             </div>
 
-            {/* Pagination Placeholder */}
-            {filteredProducts.length > 0 && (
-              <div className="mt-16 flex justify-center items-center gap-2">
-                <button className="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                  <span className="material-symbols-outlined">chevron_left</span>
-                </button>
-                <button className="h-10 w-10 flex items-center justify-center rounded-xl bg-primary text-white font-bold shadow-md shadow-primary/20">1</button>
-                <button className="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                  <span className="material-symbols-outlined">chevron_right</span>
-                </button>
-              </div>
-            )}
-
+            {/* EMPTY STATE */}
             {filteredProducts.length === 0 && (
-              <div className="mt-8 p-12 text-center bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700">
-                <div className="w-20 h-20 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm border border-slate-100 dark:border-slate-700">
-                  <span className="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-500 block">search_off</span>
+              <div className="mt-8 p-8 sm:p-12 text-center bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100 dark:border-slate-700">
+                  <span className="material-symbols-outlined text-3xl sm:text-4xl text-slate-300 dark:text-slate-500 block">search_off</span>
                 </div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">No se encontraron productos</h3>
-                <p className="text-slate-500 mb-8 max-w-md mx-auto">No hay artículos que coincidan con los filtros seleccionados. Intenta ajustar los criterios de búsqueda.</p>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white mb-2">No se encontraron productos</h3>
+                <p className="text-slate-500 mb-6 max-w-md mx-auto text-xs sm:text-sm">
+                  No hay artículos que coincidan con los filtros seleccionados o el término de búsqueda.
+                </p>
                 <button
-                  onClick={() => {
-                    setSelectedSize('');
-                    setSelectedColor('');
-                    setPriceRange(highestPrice);
-                    router.push('/catalog');
-                  }}
-                  className="inline-flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-xl font-bold hover:bg-primary-dark transition-colors shadow-md shadow-primary/20"
+                  onClick={clearAllFilters}
+                  className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl font-bold hover:bg-primary/90 transition-colors shadow-md shadow-primary/20 text-xs sm:text-sm"
                 >
-                  <span className="material-symbols-outlined">restart_alt</span> Limpiar Filtros
+                  <span className="material-symbols-outlined text-base">restart_alt</span> Limpiar Filtros
                 </button>
               </div>
             )}
           </div>
         </main>
 
-        {/* Footer Section */}
-        <footer className="mt-20 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-6 lg:px-20 py-16">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
-            <div className="flex flex-col gap-6">
-              <div className="flex items-center gap-2 text-primary">
-                <span className="material-symbols-outlined text-3xl">spa</span>
-                <h2 className="text-xl font-black tracking-tight leading-none text-slate-900 dark:text-white">Ciara Bonita <br /><span className="text-sm font-bold text-primary">Perfumería Exclusiva</span></h2>
+        {/* MOBILE FILTERS BOTTOM SHEET / DRAWER */}
+        {isMobileFiltersOpen && (
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[130] lg:hidden animate-in fade-in duration-200"
+            onClick={() => setIsMobileFiltersOpen(false)}
+          />
+        )}
+
+        <div
+          className={`fixed inset-x-0 bottom-0 max-h-[85vh] bg-white dark:bg-slate-900 rounded-t-3xl shadow-2xl z-[140] lg:hidden flex flex-col transform transition-transform duration-300 ease-in-out ${
+            isMobileFiltersOpen ? 'translate-y-0' : 'translate-y-full'
+          }`}
+        >
+          {/* Sheet Header */}
+          <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2">
+              <Filter className="w-5 h-5 text-primary" />
+              <h3 className="font-black text-lg text-slate-900 dark:text-white">Filtrar Productos</h3>
+              {activeFiltersCount > 0 && (
+                <span className="bg-primary/10 text-primary text-xs font-bold px-2 py-0.5 rounded-full">
+                  {activeFiltersCount} activo{activeFiltersCount > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setIsMobileFiltersOpen(false)}
+              className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Sheet Scrollable Body */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-6">
+
+            {/* Categorías */}
+            <div>
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Categorías</h4>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => router.push('/catalog')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                    !categoryFilter ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  Todas las categorías
+                </button>
+                {categoriesConfig.flatMap(g => g.opciones).map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => router.push(`/catalog?category=${encodeURIComponent(opt)}`)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                      categoryFilter === opt ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
               </div>
-              <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
-                Descubre la esencia que mejor te representa con nuestra selección exclusiva de fragancias y accesorios.
-              </p>
             </div>
 
+            {/* Talles */}
             <div>
-              <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider text-sm">Tienda</h4>
-              <ul className="flex flex-col gap-4 text-sm text-slate-500 dark:text-slate-400 font-medium">
-                <li><Link className="hover:text-primary transition-colors" href="#">Perfumes</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Maquillaje</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Cuidado Personal</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Accesorios</Link></li>
-              </ul>
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Talle / Mililitros</h4>
+              <div className="flex flex-wrap gap-2">
+                {allSizes.map(size => (
+                  <button
+                    key={size}
+                    onClick={() => setSelectedSize(selectedSize === size ? '' : size)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                      selectedSize === size ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div>
-              <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider text-sm">Soporte</h4>
-              <ul className="flex flex-col gap-4 text-sm text-slate-500 dark:text-slate-400 font-medium">
-                <li><Link className="hover:text-primary transition-colors" href="#">Guía de Talles</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Política de Envíos</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Cambios y Devoluciones</Link></li>
-                <li><Link className="hover:text-primary transition-colors" href="#">Contáctanos</Link></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase tracking-wider text-sm">Mantente Inspirada</h4>
-              <div className="flex flex-col gap-4">
-                <div className="flex rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
-                  <input className="bg-transparent border-none focus:ring-0 text-sm px-4 py-2 w-full text-slate-900 dark:text-white placeholder:text-slate-400" placeholder="Tu correo electrónico" type="email" />
-                  <button className="bg-primary text-white px-4 py-2 rounded-lg font-bold hover:bg-primary-dark transition-colors"><span className="material-symbols-outlined text-sm">send</span></button>
-                </div>
-                <div className="flex gap-4 mt-2">
-                  <Link className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:bg-primary hover:text-white transition-colors" href="#"><span className="material-symbols-outlined text-[18px]">public</span></Link>
-                  <Link className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:bg-primary hover:text-white transition-colors" href="#"><span className="material-symbols-outlined text-[18px]">share</span></Link>
-                  <Link className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:bg-primary hover:text-white transition-colors" href="#"><span className="material-symbols-outlined text-[18px]">photo_camera</span></Link>
+            {/* Colores */}
+            {allColors.length > 0 && (
+              <div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Color / Variante</h4>
+                <div className="flex flex-wrap gap-2">
+                  {allColors.map(color => (
+                    <button
+                      key={color}
+                      onClick={() => setSelectedColor(selectedColor === color ? '' : color)}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold capitalize transition-all ${
+                        selectedColor === color ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {color}
+                    </button>
+                  ))}
                 </div>
               </div>
+            )}
+
+            {/* Precio Máximo */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Precio Máximo</h4>
+                <span className="text-xs font-black text-primary">${priceRange.toLocaleString('es-AR')}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={highestPrice}
+                step={1000}
+                value={priceRange}
+                onChange={(e) => setPriceRange(Number(e.target.value))}
+                className="w-full accent-primary h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
+              />
             </div>
           </div>
-          <div className="mt-16 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-slate-400 dark:text-slate-500 text-sm font-medium">
-            © {new Date().getFullYear()} Ciara Bonita. Todos los derechos reservados.
+
+          {/* Sheet Footer */}
+          <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center gap-3 shrink-0">
+            <button
+              onClick={clearAllFilters}
+              className="py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 transition-colors"
+            >
+              Limpiar
+            </button>
+            <button
+              onClick={() => setIsMobileFiltersOpen(false)}
+              className="flex-1 py-3 px-4 bg-primary text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-primary/20 hover:bg-primary/90 transition-all text-center"
+            >
+              Ver {filteredProducts.length} productos
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <footer className="mt-20 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-6 lg:px-20 py-12">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
+            <p>© {new Date().getFullYear()} Ciara Bonita. Todos los derechos reservados.</p>
+            <div className="flex items-center gap-4">
+              <Link href="/catalog" className="hover:text-primary transition-colors">Catálogo</Link>
+              <Link href="/donde-estamos" className="hover:text-primary transition-colors">¿Dónde estamos?</Link>
+              <a href="https://wa.me/5493704747426" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">WhatsApp</a>
+            </div>
           </div>
         </footer>
       </div>
     </div>
-  )
+  );
 }
 
 export default function CatalogPage() {
