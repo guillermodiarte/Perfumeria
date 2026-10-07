@@ -233,9 +233,9 @@ export default function Home() {
                 Ver Todo <span className="material-symbols-outlined">trending_flat</span>
               </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
               {categoryCards.map((cat: any, idx: number) => (
-                <Link key={idx} href={cat.link || "/catalog"} className="group relative aspect-[4/5] overflow-hidden rounded-2xl cursor-pointer">
+                <Link key={idx} href={cat.link || "/catalog"} className="group relative aspect-[3/4] overflow-hidden rounded-2xl cursor-pointer">
                   <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
                     style={{ backgroundImage: `url('${cat.mediaUrl?.startsWith('http') ? cat.mediaUrl : `${API_URL}${cat.mediaUrl}`}')` }}></div>
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
