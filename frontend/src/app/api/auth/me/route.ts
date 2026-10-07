@@ -50,7 +50,7 @@ async function handleUpdate(req: NextRequest) {
 
     // If changing password, verify current password first if provided
     if (password) {
-      if (current_password && !verifyPassword(current_password, customer.password_hash)) {
+      if (current_password && customer.password_hash && !verifyPassword(current_password, customer.password_hash)) {
         return NextResponse.json({ detail: 'Contraseña actual incorrecta' }, { status: 400 });
       }
     }

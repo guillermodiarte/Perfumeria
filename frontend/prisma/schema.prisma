@@ -39,9 +39,9 @@ model City {
 model Customer {
   id                 Int         @id @default(autoincrement())
   email              String      @unique
-  password_hash      String
+  password_hash      String?     @default("")
   name               String
-  phone              String      @unique
+  phone              String?     @unique
   address            String?
   province           String?
   city               String?

@@ -44,9 +44,9 @@ fi
 # Apuntar DATABASE_URL al archivo en el volumen persistente
 export DATABASE_URL="file:/app/data/dev.db"
 
-# Ejecutar migraciones de Prisma (seguro incluso si ya están aplicadas)
-echo "Aplicando migraciones de Prisma..."
-node /app/node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma || echo "ADVERTENCIA: No se pudo ejecutar migrate deploy (continuando de todas formas)"
+# Sincronizar esquema de Prisma en la base de datos persistente
+echo "Aplicando esquema de Prisma en /app/data/dev.db..."
+node /app/node_modules/.bin/prisma db push --accept-data-loss --schema=/app/prisma/schema.prisma || node /app/node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma || echo "ADVERTENCIA: No se pudo ejecutar prisma db push/migrate deploy (continuando de todas formas)"
 
 # Ajustar permisos
 chmod -R 777 /app/data 2>/dev/null || true

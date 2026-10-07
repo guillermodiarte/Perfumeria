@@ -17,6 +17,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ detail: 'Correo o contraseña incorrectos' }, { status: 401 });
     }
 
+    if (!customer.password_hash) {
+      return NextResponse.json({ detail: 'Esta cuenta fue creada con Google, Facebook o X. Iniciá sesión con esa red social.' }, { status: 401 });
+    }
+
     if (!verifyPassword(password, customer.password_hash)) {
       return NextResponse.json({ detail: 'Correo o contraseña incorrectos' }, { status: 401 });
     }

@@ -6,6 +6,7 @@ import Header from '@/components/layout/Header'
 import CartDrawer from '@/components/cart/CartDrawer'
 import Toast from '@/components/ui/Toast'
 import SiteHeadSync from '@/components/layout/SiteHeadSync'
+import NextAuthProvider from '@/components/auth/NextAuthProvider'
 import { prisma } from '@/lib/prisma'
 
 const inter = Inter({
@@ -107,12 +108,14 @@ export default async function RootLayout({
         usada tanto en index.html como catalog.html
       */}
       <body className={`bg-background-light dark:bg-background-dark font-sans text-slate-900 dark:text-slate-100 antialiased min-h-screen flex flex-col`}>
-        <SiteHeadSync />
-        <Header />
-        <CartDrawer />
-        <Toast />
-        <AuthModal />
-        {children}
+        <NextAuthProvider>
+          <SiteHeadSync />
+          <Header />
+          <CartDrawer />
+          <Toast />
+          <AuthModal />
+          {children}
+        </NextAuthProvider>
       </body>
     </html>
   )

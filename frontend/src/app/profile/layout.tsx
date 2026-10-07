@@ -19,13 +19,13 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   if (!mounted) return null;
 
   if (!user) {
-    router.push('/login');
+    router.push('/');
     return null;
   }
 
   const handleLogout = () => {
     logout();
-    router.push('/login');
+    router.push('/');
   };
 
   return (

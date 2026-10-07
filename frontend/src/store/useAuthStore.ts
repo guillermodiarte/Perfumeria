@@ -40,6 +40,12 @@ export const useAuthStore = create<AuthState>()(
         });
       },
       logout: () => {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('auth_logged_out', 'true');
+          import('next-auth/react').then(({ signOut }) => {
+            signOut({ redirect: false }).catch(() => {});
+          });
+        }
         set({ token: null, user: null });
         import('./useCartStore').then(({ useCartStore }) => {
           useCartStore.getState().syncUserCart(null);
