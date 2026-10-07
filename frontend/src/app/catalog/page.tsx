@@ -53,7 +53,20 @@ function CatalogContent() {
   // Apply Filters
   const filteredProducts = useMemo(() => {
     let result = categoryFilter
-      ? storeProducts.filter(p => p.categoryId === categoryFilter)
+      ? storeProducts.filter(p => {
+          if (categoryFilter === 'Perfumes de Mujer') {
+            const isWomanOrUnisex = p.targetGender === 'Mujer' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Mujer');
+            return isWomanOrUnisex && p.targetGender !== 'Hombre';
+          }
+          if (categoryFilter === 'Perfumes de Hombre') {
+            const isManOrUnisex = p.targetGender === 'Hombre' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Hombre');
+            return isManOrUnisex && p.targetGender !== 'Mujer';
+          }
+          if (categoryFilter === 'Unisex') {
+            return p.targetGender === 'Unisex' || p.categoryId === 'Unisex';
+          }
+          return p.categoryId === categoryFilter;
+        })
       : storeProducts;
 
     if (selectedSize) {
@@ -277,7 +290,14 @@ function CatalogContent() {
                     </button>
                   </div>
                   <div className="flex flex-col gap-1 px-1">
-                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider truncate">{product.categoryId}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-slate-400 text-xs font-bold uppercase tracking-wider truncate">{product.categoryId}</p>
+                      {product.targetGender === 'Unisex' && (
+                        <span className="text-[10px] font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 px-1.5 py-0.2 rounded border border-purple-200 dark:border-purple-800 uppercase tracking-wider">
+                          Unisex
+                        </span>
+                      )}
+                    </div>
                     <h3 className="text-slate-900 dark:text-slate-100 text-sm font-bold group-hover:text-primary transition-colors line-clamp-2 leading-tight">{product.name}</h3>
                     <div className="flex items-center justify-between mt-2">
                       {(() => {

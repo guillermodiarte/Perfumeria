@@ -179,13 +179,29 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
     const matchesSearch = 
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.categoryId.toLowerCase().includes(searchQuery.toLowerCase());
+      p.categoryId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.targetGender && p.targetGender.toLowerCase().includes(searchQuery.toLowerCase()));
       
     if (!matchesSearch) return false;
 
     const grupo = getGrupoByCategory(p.categoryId);
     const matchesMain = selectedMainCategory === 'Todo' || grupo === selectedMainCategory;
-    const matchesSub = selectedSubCategory === 'Todo' || p.categoryId === selectedSubCategory;
+    
+    // Filtrado de subcategoría respetando género
+    let matchesSub = false;
+    if (selectedSubCategory === 'Todo') {
+      matchesSub = true;
+    } else if (selectedSubCategory === 'Perfumes de Mujer') {
+      const isWomanOrUnisex = p.targetGender === 'Mujer' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Mujer');
+      matchesSub = isWomanOrUnisex && p.targetGender !== 'Hombre';
+    } else if (selectedSubCategory === 'Perfumes de Hombre') {
+      const isManOrUnisex = p.targetGender === 'Hombre' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Hombre');
+      matchesSub = isManOrUnisex && p.targetGender !== 'Mujer';
+    } else if (selectedSubCategory === 'Unisex') {
+      matchesSub = p.targetGender === 'Unisex' || p.categoryId === 'Unisex';
+    } else {
+      matchesSub = p.categoryId === selectedSubCategory;
+    }
 
     return matchesMain && matchesSub;
   });
@@ -419,7 +435,22 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                             <ProductGallery urls={p.imageUrls || []} name={p.name} />
                             
                             <div className="p-5 flex-1 flex flex-col">
-                                 <div className="text-[10px] font-black text-primary mb-1 uppercase tracking-wider bg-primary/10 inline-block px-2 py-0.5 rounded mr-auto">{p.categoryId}</div>
+                                 <div className="flex items-center gap-1.5 mb-1 mr-auto flex-wrap">
+                                     <span className="text-[10px] font-black text-primary uppercase tracking-wider bg-primary/10 px-2 py-0.5 rounded">
+                                         {p.categoryId}
+                                     </span>
+                                     {p.targetGender && (
+                                         <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                             p.targetGender === 'Unisex'
+                                                 ? 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 border-purple-200 dark:border-purple-800'
+                                                 : p.targetGender === 'Hombre'
+                                                 ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border-blue-200 dark:border-blue-800'
+                                                 : 'text-pink-700 dark:text-pink-300 bg-pink-50 dark:bg-pink-950/60 border-pink-200 dark:border-pink-800'
+                                         }`}>
+                                             {p.targetGender}
+                                         </span>
+                                     )}
+                                 </div>
                                  <h4 className="text-lg font-black text-slate-900 dark:text-white leading-tight pr-14 mt-1">{p.name}</h4>
                                  <div className="text-xs text-slate-400 font-mono mt-1 mb-4">{p.sku}</div>
                                  
@@ -538,7 +569,16 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                             <select 
                                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" 
                                 value={editForm.categoryId} 
-                                onChange={e => setEditForm((prev:any) => ({...prev, categoryId: e.target.value}))}
+                                onChange={e => {
+                                    const cat = e.target.value;
+                                    setEditForm((prev: any) => {
+                                        const next = { ...prev, categoryId: cat };
+                                        if (cat === 'Perfumes de Hombre') next.targetGender = 'Hombre';
+                                        else if (cat === 'Perfumes de Mujer') next.targetGender = 'Mujer';
+                                        else if (cat === 'Unisex') next.targetGender = 'Unisex';
+                                        return next;
+                                    });
+                                }}
                             >
                                 {categoriesConfig.map(g => (
                                     <optgroup key={g.grupo} label={g.grupo}>
@@ -549,7 +589,30 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-500 mb-1">Público</label>
-                            <select className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.targetGender || 'Unisex'} onChange={e => setEditForm((prev:any) => ({...prev, targetGender: e.target.value}))}>
+                            <select 
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" 
+                                value={editForm.targetGender || 'Unisex'} 
+                                onChange={e => {
+                                    const val = e.target.value;
+                                    setEditForm((prev: any) => {
+                                        const next = { ...prev, targetGender: val };
+                                        if (val === 'Hombre') {
+                                            if (prev.categoryId === 'Perfumes de Mujer' || prev.categoryId === 'Unisex') {
+                                                next.categoryId = 'Perfumes de Hombre';
+                                            }
+                                        } else if (val === 'Mujer') {
+                                            if (prev.categoryId === 'Perfumes de Hombre' || prev.categoryId === 'Unisex') {
+                                                next.categoryId = 'Perfumes de Mujer';
+                                            }
+                                        } else if (val === 'Unisex') {
+                                            if (prev.categoryId === 'Perfumes de Mujer' || prev.categoryId === 'Perfumes de Hombre') {
+                                                next.categoryId = 'Unisex';
+                                            }
+                                        }
+                                        return next;
+                                    });
+                                }}
+                            >
                                 <option value="Mujer">Mujer</option>
                                 <option value="Hombre">Hombre</option>
                                 <option value="Unisex">Unisex</option>

@@ -301,13 +301,26 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
 
                 {/* Header */}
                 <div className="flex flex-col gap-2">
-                  {/* Tag / Badge */}
-                  {product.showTag && product.tag && (
-                    <div className="inline-flex items-center gap-1.5 text-primary font-bold text-xs uppercase tracking-widest w-fit">
-                      <span className="material-symbols-outlined text-sm">local_fire_department</span>
-                      {product.tag}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Tag / Badge */}
+                    {product.showTag && product.tag && (
+                      <div className="inline-flex items-center gap-1.5 text-primary font-bold text-xs uppercase tracking-widest w-fit">
+                        <span className="material-symbols-outlined text-sm">local_fire_department</span>
+                        {product.tag}
+                      </div>
+                    )}
+                    {product.targetGender && (
+                      <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded border ${
+                        product.targetGender === 'Unisex'
+                          ? 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 border-purple-200 dark:border-purple-800'
+                          : product.targetGender === 'Hombre'
+                          ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border-blue-200 dark:border-blue-800'
+                          : 'text-pink-700 dark:text-pink-300 bg-pink-50 dark:bg-pink-950/60 border-pink-200 dark:border-pink-800'
+                      }`}>
+                        {product.targetGender}
+                      </span>
+                    )}
+                  </div>
                   <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white leading-tight">{product.name}</h1>
                   {product.sku && <p className="text-slate-400 font-mono text-sm">SKU: {product.sku}</p>}
                   
