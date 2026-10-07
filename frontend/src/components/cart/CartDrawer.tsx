@@ -4,7 +4,7 @@ import { useCartStore } from '@/store/useCartStore';
 import { useCartUIStore } from '@/store/useCartUIStore';
 import { useStockFlowStore } from '@/store/useStockStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import { API_URL } from '@/utils/api';
+import { API_URL, parseImageUrl } from '@/utils/api';
 import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -49,9 +49,9 @@ export default function CartDrawer() {
 
   if (!mounted) return null;
 
-  const parseImageUrl = (imgUrl?: string) => {
+  const getImageUrl = (imgUrl?: string) => {
     if (!imgUrl) return '';
-    return imgUrl.startsWith('http') ? imgUrl : `http://${API_URL.split('://')[1]}${imgUrl}`;
+    return parseImageUrl(imgUrl);
   };
 
   const minWholesaleQty = wholesaleConfig?.minQuantity || 6;

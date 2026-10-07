@@ -47,5 +47,11 @@ fi
 chmod -R 777 /app/data 2>/dev/null || true
 chmod -R 777 /app/uploads 2>/dev/null || true
 
+# Migración automática del esquema de base de datos SQLite
+echo "Verificando y aplicando migraciones de Prisma..."
+if [ -f "/app/prisma/migrate.js" ]; then
+  node /app/prisma/migrate.js || true
+fi
+
 echo "Iniciando servidor Next.js en el puerto 3000..."
 exec node server.js

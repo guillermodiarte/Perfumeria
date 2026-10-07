@@ -83,10 +83,14 @@ function Lightbox({ images, startIndex, onClose }: { images: string[]; startInde
 function ProductGallery({ urls, name }: { urls: string[]; name: string }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  const parseUrl = (url: string) => url.startsWith('http') ? url : `${API_URL}${url}`;
-  const parsedUrls = urls.map(parseUrl);
+  const parseUrl = (url: string) => {
+    if (!url) return '/logo.webp';
+    if (url.startsWith('http')) return url;
+    const cleanPath = url.startsWith('/') ? url : `/${url}`;
+    return `${API_URL}${cleanPath}`;
+  };
 
-  if (!urls || urls.length === 0) return null;
+  const parsedUrls = (urls && urls.length > 0) ? urls.map(parseUrl) : ['/logo.webp'];
 
   return (
     <>
@@ -97,7 +101,14 @@ function ProductGallery({ urls, name }: { urls: string[]; name: string }) {
         className="w-full h-48 bg-slate-100 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700 overflow-hidden flex-shrink-0 relative cursor-zoom-in"
         onClick={() => setLightboxIndex(0)}
       >
-        <img src={parsedUrls[0]} alt={name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+        <img
+          src={parsedUrls[0]}
+          alt={name}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).src = '/logo.webp';
+          }}
+        />
         {parsedUrls.length > 1 && (
           <div className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur-md text-white px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm border border-white/10 flex items-center gap-1">
             <span className="material-symbols-outlined text-[12px]">collections</span>
