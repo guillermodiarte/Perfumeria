@@ -39,6 +39,40 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
   const [uploadingCatIdx, setUploadingCatIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Media library picker for banner slides
+  const [mediaLibSlideIdx, setMediaLibSlideIdx] = useState<number | null>(null);
+  const [mediaLibImages, setMediaLibImages] = useState<string[]>([]);
+  const [mediaLibLoading, setMediaLibLoading] = useState(false);
+  const [mediaLibSearch, setMediaLibSearch] = useState('');
+
+  const openSlideMediaLib = async (idx: number, force = false) => {
+    // Toggle: if already open on this slide and not forcing reload, close it
+    if (mediaLibSlideIdx === idx && !force) {
+      setMediaLibSlideIdx(null);
+      return;
+    }
+    setMediaLibSlideIdx(idx);
+    if (!force && mediaLibImages.length > 0) return; // already loaded
+    setMediaLibLoading(true);
+    try {
+      const res = await fetch(`/api/admin/media`, {
+        headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const files = data.files || [];
+        const urls: string[] = files
+          .map((f: any) => (typeof f === 'string' ? f : f.url || ''))
+          .filter((u: string) => Boolean(u) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(u));
+        setMediaLibImages(urls);
+      }
+    } catch { /* ignore */ } finally {
+      setMediaLibLoading(false);
+    }
+  };
+
+
+
   const getMediaSrc = (url: string) => {
     if (!url) return '';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
@@ -351,36 +385,144 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
                 <label className="block text-xs font-bold text-slate-600 dark:text-slate-300">
                   Imagen o Video de Fondo
                 </label>
-                <label className="cursor-pointer inline-flex items-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary font-bold px-3.5 py-1.5 rounded-lg text-xs transition">
-                  {uploadingSlideIdx === idx ? (
-                    <>
-                      <span className="material-symbols-outlined text-[16px] animate-spin">autorenew</span>
-                      <span>Subiendo archivo...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="material-symbols-outlined text-[16px]">upload</span>
-                      <span>{slide.mediaUrl ? 'Cambiar archivo' : 'Subir imagen o video'}</span>
-                    </>
-                  )}
-                  <input
-                    type="file"
-                    disabled={uploadingSlideIdx !== null}
-                    className="hidden"
-                    accept="image/*,video/*"
-                    onChange={async (e) => {
-                      setUploadingSlideIdx(idx);
-                      const url = await handleFileUpload(e, 'Banners');
-                      if (url) {
-                        const n = [...bannerSlides];
-                        n[idx].mediaUrl = url;
-                        setBannerSlides(n);
-                      }
-                      setUploadingSlideIdx(null);
-                    }}
-                  />
-                </label>
+                <div className="flex items-center gap-2">
+                  {/* Biblioteca picker button */}
+                  <button
+                    type="button"
+                    onClick={() => openSlideMediaLib(idx)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      mediaLibSlideIdx === idx
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">photo_library</span>
+                    Biblioteca
+                  </button>
+                  {/* Upload button */}
+                  <label className="cursor-pointer inline-flex items-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary font-bold px-3.5 py-1.5 rounded-lg text-xs transition">
+                    {uploadingSlideIdx === idx ? (
+                      <>
+                        <span className="material-symbols-outlined text-[16px] animate-spin">autorenew</span>
+                        <span>Subiendo archivo...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-[16px]">upload</span>
+                        <span>{slide.mediaUrl ? 'Cambiar archivo' : 'Subir imagen o video'}</span>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      disabled={uploadingSlideIdx !== null}
+                      className="hidden"
+                      accept="image/*,video/*"
+                      onChange={async (e) => {
+                        setUploadingSlideIdx(idx);
+                        const url = await handleFileUpload(e, 'Banners');
+                        if (url) {
+                          const n = [...bannerSlides];
+                          n[idx].mediaUrl = url;
+                          setBannerSlides(n);
+                          setMediaLibImages(prev => [url, ...prev.filter(u => u !== url)]);
+                        }
+                        setUploadingSlideIdx(null);
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
+
+              {/* ── Media Library Picker Panel ── */}
+              {mediaLibSlideIdx === idx && (
+                <div className="mb-3 border border-indigo-200 dark:border-indigo-700 rounded-xl bg-white dark:bg-slate-900 shadow-lg overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50 dark:bg-indigo-900/40 border-b border-indigo-100 dark:border-indigo-800">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-indigo-500 text-[16px]">photo_library</span>
+                      <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">Biblioteca de Imágenes</span>
+                      {mediaLibImages.length > 0 && !mediaLibLoading && (
+                        <span className="text-[11px] text-indigo-400">({mediaLibImages.length})</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => openSlideMediaLib(idx, true)} title="Recargar"
+                        className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-800 text-indigo-400 transition">
+                        <span className="material-symbols-outlined text-[15px]">refresh</span>
+                      </button>
+                      <button type="button" onClick={() => setMediaLibSlideIdx(null)}
+                        className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/40 text-slate-400 hover:text-red-500 transition">
+                        <span className="material-symbols-outlined text-[15px]">close</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Search */}
+                  <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="relative">
+                      <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">search</span>
+                      <input type="text" value={mediaLibSearch} onChange={e => setMediaLibSearch(e.target.value)}
+                        placeholder="Buscar por nombre..."
+                        className="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                    </div>
+                  </div>
+
+                  {/* Grid */}
+                  <div className="p-3 max-h-52 overflow-y-auto">
+                    {mediaLibLoading ? (
+                      <div className="flex items-center justify-center py-8 gap-2 text-slate-400">
+                        <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                        <span className="text-xs">Cargando imágenes...</span>
+                      </div>
+                    ) : mediaLibImages.length === 0 ? (
+                      <div className="text-center py-8 text-xs text-slate-400">No hay imágenes en la biblioteca</div>
+                    ) : (() => {
+                      const filtered = mediaLibSearch.trim()
+                        ? mediaLibImages.filter(u => u.toLowerCase().includes(mediaLibSearch.toLowerCase()))
+                        : mediaLibImages;
+                      return filtered.length === 0 ? (
+                        <div className="text-center py-6 text-xs text-slate-400">Sin resultados para "{mediaLibSearch}"</div>
+                      ) : (
+                        <div className="grid grid-cols-5 gap-2 sm:grid-cols-8">
+                          {filtered.map((url, i) => {
+                            const fullUrl = url.startsWith('http') ? url : `${apiUrl}${url}`;
+                            const isSelected = bannerSlides[idx]?.mediaUrl === url;
+                            return (
+                              <button key={i} type="button" title={url.split('/').pop()}
+                                onClick={() => {
+                                  const n = [...bannerSlides];
+                                  n[idx].mediaUrl = url;
+                                  setBannerSlides(n);
+                                }}
+                                className={`relative group/lib aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                                  isSelected
+                                    ? 'border-indigo-500 ring-2 ring-indigo-300 scale-105'
+                                    : 'border-transparent hover:border-indigo-400 hover:scale-105'
+                                }`}
+                              >
+                                <img src={fullUrl} alt="" className="w-full h-full object-cover" />
+                                {isSelected && (
+                                  <div className="absolute inset-0 bg-indigo-500/30 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-white text-[18px] drop-shadow">check_circle</span>
+                                  </div>
+                                )}
+                                {!isSelected && (
+                                  <div className="absolute inset-0 bg-black/0 group-hover/lib:bg-black/20 flex items-center justify-center opacity-0 group-hover/lib:opacity-100 transition-all">
+                                    <span className="material-symbols-outlined text-white text-[16px] drop-shadow">add_circle</span>
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div className="px-3 py-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 text-center">
+                    Hacé click en una imagen para usarla como fondo del slide
+                  </div>
+                </div>
+              )}
 
               {slide.mediaUrl ? (
                 <div className="relative h-44 w-full rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 group shadow-inner">
@@ -403,6 +545,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
                 </div>
               )}
             </div>
+
           </div>
         ))}
         <button

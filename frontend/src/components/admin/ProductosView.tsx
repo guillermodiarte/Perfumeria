@@ -159,6 +159,39 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   const [editForm, setEditForm] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Media library picker state
+  const [showMediaLib, setShowMediaLib] = useState(false);
+  const [mediaLibImages, setMediaLibImages] = useState<string[]>([]);
+  const [mediaLibLoading, setMediaLibLoading] = useState(false);
+  const [mediaLibSearch, setMediaLibSearch] = useState('');
+
+  const openMediaLib = async (force = false) => {
+    setShowMediaLib(true);
+    if (!force && mediaLibImages.length > 0) return; // already loaded
+    setMediaLibLoading(true);
+    try {
+      const token = apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') || '' : '');
+      // Always use relative URL for Next.js API route (works in both dev & prod)
+      const res = await fetch(`/api/admin/media`, {
+        headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // API returns { files: [{url, filename, category, size}] }
+        const files = data.files || [];
+        const urls: string[] = files
+          .map((f: any) => (typeof f === 'string' ? f : f.url || ''))
+          .filter((u: string) => Boolean(u) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(u));
+        setMediaLibImages(urls);
+      }
+    } catch (e) {
+      // ignore
+    } finally {
+      setMediaLibLoading(false);
+    }
+  };
+
   
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
   const variantGroupsConfig = useStockFlowStore(s => s.variantGroupsConfig);
@@ -634,6 +667,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                     <div className="flex flex-col gap-2">
                         <label className="block text-xs font-bold text-slate-500">Imágenes del Producto</label>
                         <div className="flex items-center gap-3 w-full border border-slate-200 dark:border-slate-700/60 p-2 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+                            {/* Upload new */}
                             <label className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border rounded-lg transition-colors text-xs font-bold whitespace-nowrap ${isUploading
                                 ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 text-blue-600 cursor-wait'
                                 : 'bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer'
@@ -670,6 +704,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                                     if (res.ok) {
                                                         const data = await res.json();
                                                         uploadedUrls.push(data.url);
+                                                        setMediaLibImages(prev => [data.url, ...prev]); // refresh lib cache
                                                     } else {
                                                         const errData = await res.json().catch(() => ({}));
                                                         showAlert(`Error al subir ${file.name}: ${errData.detail || res.statusText}`);
@@ -690,6 +725,16 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                 />
                             </label>
 
+                            {/* Pick from library */}
+                            <button
+                                type="button"
+                                onClick={openMediaLib}
+                                className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border border-indigo-200 dark:border-indigo-700 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 text-indigo-600 dark:text-indigo-300 text-xs font-bold whitespace-nowrap transition-colors"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">photo_library</span>
+                                Biblioteca
+                            </button>
+
                             <div className="flex gap-2 overflow-x-auto flex-1 min-w-0">
                                 {(editForm.imageUrls || []).map((imgUrl: string, imgIdx: number) => (
                                     <div key={imgIdx} className="size-10 rounded-md flex-shrink-0 border border-slate-200 dark:border-slate-700 overflow-hidden relative group/img cursor-pointer"
@@ -709,6 +754,116 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                 ))}
                             </div>
                         </div>
+
+                        {/* ── Media Library Picker ── */}
+                        {showMediaLib && (
+                            <div className="border border-indigo-200 dark:border-indigo-700 rounded-xl bg-white dark:bg-slate-900 shadow-xl overflow-hidden">
+                                {/* Header */}
+                                <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 dark:bg-indigo-900/40 border-b border-indigo-100 dark:border-indigo-800">
+                                    <div className="flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-indigo-500 text-[18px]">photo_library</span>
+                                        <span className="text-sm font-bold text-indigo-700 dark:text-indigo-300">Biblioteca de Imágenes</span>
+                                        {mediaLibImages.length > 0 && (
+                                            <span className="text-xs text-indigo-400 font-medium">({mediaLibImages.length} imágenes)</span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => openMediaLib(true)}
+                                            title="Recargar"
+                                            className="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-800 text-indigo-500 transition-colors"
+                                        >
+                                            <span className="material-symbols-outlined text-[16px]">refresh</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowMediaLib(false)}
+                                            className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 text-slate-400 hover:text-red-500 transition-colors"
+                                        >
+                                            <span className="material-symbols-outlined text-[16px]">close</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Search */}
+                                <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
+                                    <div className="relative">
+                                        <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]">search</span>
+                                        <input
+                                            type="text"
+                                            value={mediaLibSearch}
+                                            onChange={e => setMediaLibSearch(e.target.value)}
+                                            placeholder="Buscar por nombre..."
+                                            className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Grid */}
+                                <div className="p-3 max-h-64 overflow-y-auto">
+                                    {mediaLibLoading ? (
+                                        <div className="flex items-center justify-center py-10 gap-2 text-slate-400">
+                                            <span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span>
+                                            <span className="text-sm">Cargando imágenes...</span>
+                                        </div>
+                                    ) : mediaLibImages.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-10 text-slate-400 gap-2">
+                                            <span className="material-symbols-outlined text-4xl">image_not_supported</span>
+                                            <span className="text-sm">No hay imágenes en la biblioteca</span>
+                                        </div>
+                                    ) : (() => {
+                                        const filtered = mediaLibSearch.trim()
+                                            ? mediaLibImages.filter(u => u.toLowerCase().includes(mediaLibSearch.toLowerCase()))
+                                            : mediaLibImages;
+                                        return filtered.length === 0 ? (
+                                            <div className="text-center py-6 text-xs text-slate-400">Sin resultados para "{mediaLibSearch}"</div>
+                                        ) : (
+                                            <div className="grid grid-cols-5 gap-2 sm:grid-cols-7">
+                                                {filtered.map((url, i) => {
+                                                    const fullUrl = url.startsWith('http') ? url : (apiUrl ? `${apiUrl}${url}` : url);
+                                                    const alreadyAdded = (editForm.imageUrls || []).includes(url);
+                                                    return (
+                                                        <button
+                                                            key={i}
+                                                            type="button"
+                                                            title={url.split('/').pop()}
+                                                            onClick={() => {
+                                                                if (!alreadyAdded) {
+                                                                    setEditForm((prev: any) => ({ ...prev, imageUrls: [...(prev.imageUrls || []), url] }));
+                                                                }
+                                                            }}
+                                                            className={`relative group/lib aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                                                                alreadyAdded
+                                                                    ? 'border-indigo-400 ring-2 ring-indigo-300 opacity-70 cursor-default'
+                                                                    : 'border-transparent hover:border-indigo-400 cursor-pointer hover:scale-105'
+                                                            }`}
+                                                        >
+                                                            <img src={fullUrl} alt="" className="w-full h-full object-cover" />
+                                                            {alreadyAdded && (
+                                                                <div className="absolute inset-0 bg-indigo-500/30 flex items-center justify-center">
+                                                                    <span className="material-symbols-outlined text-white text-[18px] drop-shadow">check_circle</span>
+                                                                </div>
+                                                            )}
+                                                            {!alreadyAdded && (
+                                                                <div className="absolute inset-0 bg-black/0 group-hover/lib:bg-black/20 flex items-center justify-center opacity-0 group-hover/lib:opacity-100 transition-all">
+                                                                    <span className="material-symbols-outlined text-white text-[18px] drop-shadow">add_circle</span>
+                                                                </div>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+
+                                {/* Footer hint */}
+                                <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 text-center">
+                                    Hacé click en una imagen para agregarla al producto • Las marcadas con ✓ ya están agregadas
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* ── Badge / Tag ── */}
