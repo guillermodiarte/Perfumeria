@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useStockFlowStore } from '@/store/useStockStore';
+import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
 type Currency = 'ARS' | 'USD' | 'BRL' | 'PYG';
 
@@ -121,6 +122,25 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   useEffect(() => {
     if (activeTab === 'historial') fetchBatches();
   }, [activeTab, fetchBatches]);
+
+  const [syncingBatchId, setSyncingBatchId] = useState<number | null>(null);
+
+  const syncBatchToStore = async (id: number) => {
+    setSyncingBatchId(id);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${id}`, {
+        headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (!res.ok) throw new Error('No se pudo cargar el lote desde el servidor');
+      const batchData = await res.json();
+      const count = syncBatchItemsToStore(batchData, registerPurchaseBatch, Number(globalMarkupPrc) || 50);
+      showAlert(`✅ ¡Éxito! Se sincronizaron ${count} productos del lote ${batchData.batch_number} al inventario.`);
+    } catch (e: any) {
+      showAlert(`Error al sincronizar: ${e.message}`);
+    } finally {
+      setSyncingBatchId(null);
+    }
+  };
 
   const fetchBatchDetail = async (id: number) => {
     setLoadingDetail(true);
@@ -549,11 +569,16 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                         {prod._uploading ? 'Subiendo...' : 'Subir'}
                         <input type="file" accept="image/*" multiple disabled={prod._uploading} className="hidden"
                           onChange={async e => {
-                            const files = Array.from(e.target.files || []); if (!files.length) return; if (!apiKey) { showAlert('Sin conexión.'); return; }
+                            const files = Array.from(e.target.files || []); if (!files.length) return;
+                            const token = apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') || '' : '');
+                            if (!token) { showAlert('Sin credenciales de administrador.'); return; }
                             updateProduct(pIdx, '_uploading', true); const uploadedUrls: string[] = [];
+                            const uploadEndpoint = apiUrl
+                              ? `${apiUrl}/api/admin/product-image?subcategory=${encodeURIComponent(prod.categoryId || 'General')}`
+                              : `/api/admin/product-image?subcategory=${encodeURIComponent(prod.categoryId || 'General')}`;
                             for (const file of files) {
                               const fd = new FormData(); fd.append('file', file);
-                              try { const r = await fetch(`${apiUrl}/api/admin/product-image?subcategory=${encodeURIComponent(prod.categoryId)}`, { method: 'POST', headers: { 'X-API-KEY': apiKey }, body: fd }); if (r.ok) { const d = await r.json(); uploadedUrls.push(d.url); } else showAlert(`Error subiendo ${file.name}`); } catch { showAlert(`Error de red`); }
+                              try { const r = await fetch(uploadEndpoint, { method: 'POST', headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }, body: fd }); if (r.ok) { const d = await r.json(); uploadedUrls.push(d.url); } else showAlert(`Error subiendo ${file.name}`); } catch { showAlert(`Error de red`); }
                             }
                             updateProduct(pIdx, 'newProductImageUrls', [...(prod.newProductImageUrls || []), ...uploadedUrls]); updateProduct(pIdx, '_uploading', false); e.target.value = '';
                           }}
@@ -760,6 +785,34 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
               </div>
             </div>
 
+            {/* Banner de sincronización si el inventario local está vacío */}
+            {productsStore.length === 0 && batches.length > 0 && (
+              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in">
+                <div className="flex items-center gap-3">
+                  <div className="size-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
+                    <span className="material-symbols-outlined text-2xl">inventory_2</span>
+                  </div>
+                  <div>
+                    <h4 className="font-black text-sm text-emerald-900 dark:text-emerald-200">
+                      Lote registrado disponible para cargar al Inventario
+                    </h4>
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                      Tu inventario local actualmente está vacío. Podés cargar los {batches[0].items_count || 24} productos de <strong>{batches[0].batch_number} ({batches[0].supplier_name})</strong> directamente con un clic.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => syncBatchToStore(batches[0].id)}
+                  disabled={syncingBatchId === batches[0].id}
+                  className="whitespace-nowrap px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-600/20 transition-all flex items-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-sm">{syncingBatchId === batches[0].id ? 'sync' : 'download'}</span>
+                  {syncingBatchId === batches[0].id ? 'Cargando...' : 'Cargar al Inventario Ahora'}
+                </button>
+              </div>
+            )}
+
             {loadingBatches ? (
               <div className="flex items-center justify-center py-16 text-slate-400">
                 <span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>
@@ -842,6 +895,15 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                               className="text-amber-600 hover:bg-amber-100/60 dark:hover:bg-amber-950/40 p-1.5 rounded-lg transition-colors"
                             >
                               <span className="material-symbols-outlined text-lg">edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => syncBatchToStore(b.id)}
+                              disabled={syncingBatchId === b.id}
+                              title="Cargar productos de este lote al inventario"
+                              className="text-emerald-600 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/40 p-1.5 rounded-lg transition-colors disabled:opacity-50"
+                            >
+                              <span className="material-symbols-outlined text-lg">{syncingBatchId === b.id ? 'sync' : 'inventory_2'}</span>
                             </button>
                             <button
                               type="button"

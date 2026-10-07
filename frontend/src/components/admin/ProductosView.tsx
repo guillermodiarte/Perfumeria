@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useStockFlowStore, Product } from '@/store/useStockStore';
 import { API_URL } from '@/utils/api';
+import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
 /** Full-screen lightbox with arrow navigation */
 function Lightbox({ images, startIndex, onClose }: { images: string[]; startIndex: number; onClose: () => void }) {
@@ -115,7 +116,39 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   const products = useStockFlowStore(s => s.products);
   const deleteProduct = useStockFlowStore(s => s.deleteProduct);
   const updateProduct = useStockFlowStore(s => s.updateProduct);
+  const registerPurchaseBatch = useStockFlowStore(s => s.registerPurchaseBatch);
   const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
+
+  const [loadingSync, setLoadingSync] = useState(false);
+  const effectiveApiUrl = apiUrl || API_URL;
+
+  const handleSyncFromBatch = async () => {
+    setLoadingSync(true);
+    try {
+      const headers: Record<string, string> = {};
+      if (apiKey) {
+        headers['X-API-KEY'] = apiKey;
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      const res = await fetch(`${effectiveApiUrl}/api/admin/purchase-batches?limit=10`, { headers });
+      if (!res.ok) throw new Error('Error al consultar lotes del servidor');
+      const data = await res.json();
+      const firstBatch = data.batches?.[0];
+      if (!firstBatch) {
+        showAlert('No se encontraron lotes de compra en el sistema.');
+        return;
+      }
+      const detRes = await fetch(`${effectiveApiUrl}/api/admin/purchase-batches/${firstBatch.id}`, { headers });
+      if (!detRes.ok) throw new Error('Error al consultar detalle del lote');
+      const batchData = await detRes.json();
+      const count = syncBatchItemsToStore(batchData, registerPurchaseBatch, Number(globalMarkupPrc) || 50);
+      showAlert(`✅ ¡Listo! Se cargaron ${count} productos al inventario desde el lote ${batchData.batch_number}.`);
+    } catch (e: any) {
+      showAlert(`Error: ${e.message}`);
+    } finally {
+      setLoadingSync(false);
+    }
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMainCategory, setSelectedMainCategory] = useState<string>('Todo');
@@ -336,9 +369,28 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
       </div>
 
       {filteredProducts.length === 0 ? (
-          <div className="text-center py-20 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-              <span className="material-symbols-outlined text-6xl text-slate-300">search_off</span>
-              <p className="text-slate-500 font-bold mt-4">No se encontraron productos con estos filtros.</p>
+          <div className="text-center py-16 px-6 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm max-w-xl mx-auto my-8">
+              <span className="material-symbols-outlined text-6xl text-slate-300">
+                {products.length === 0 ? 'inventory_2' : 'search_off'}
+              </span>
+              <p className="text-slate-700 dark:text-slate-300 font-bold text-base mt-3">
+                {products.length === 0 ? 'Tu inventario está vacío' : 'No se encontraron productos con estos filtros.'}
+              </p>
+              {products.length === 0 && (
+                <div className="mt-4 space-y-4">
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Detectamos el lote de compra de <strong>Serena.G CDE (24 productos)</strong> registrado en el sistema. Podés cargarlos a tu catálogo directamente con este botón:
+                  </p>
+                  <button
+                    onClick={handleSyncFromBatch}
+                    disabled={loadingSync}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-sm shadow-lg shadow-primary/25 transition-all disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-lg">{loadingSync ? 'sync' : 'cloud_download'}</span>
+                    {loadingSync ? 'Cargando productos...' : 'Cargar 24 Productos desde Lote de Compra'}
+                  </button>
+                </div>
+              )}
           </div>
       ) : (
           <div className="animate-in fade-in duration-500">
@@ -526,32 +578,51 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                 <span className="material-symbols-outlined text-[16px]">{isUploading ? 'sync' : 'add_photo_alternate'}</span>
                                 {isUploading ? 'Subiendo...' : 'Subir'}
                                 <input
-                                    type="file" accept="image/*" multiple disabled={isUploading || !apiKey || !apiUrl} className="hidden"
+                                    type="file" accept="image/*" multiple disabled={isUploading} className="hidden"
                                     onChange={async e => {
                                         const files = Array.from(e.target.files || []);
                                         if (files.length === 0) return;
-                                        if (!apiKey || !apiUrl) { showAlert('Faltan credenciales API.'); return; }
+                                        const token = apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') || '' : '');
+                                        if (!token) { showAlert('Falta sesión de administrador. Por favor recargá la página.'); return; }
 
                                         setIsUploading(true);
                                         const uploadedUrls: string[] = [];
+                                        const uploadEndpoint = apiUrl
+                                            ? `${apiUrl}/api/admin/product-image?subcategory=${encodeURIComponent(editForm.categoryId || 'General')}`
+                                            : `/api/admin/product-image?subcategory=${encodeURIComponent(editForm.categoryId || 'General')}`;
 
-                                        for (const file of files) {
-                                            const formData = new FormData();
-                                            formData.append('file', file);
-                                            try {
-                                                const res = await fetch(`${apiUrl}/api/admin/product-image?subcategory=${encodeURIComponent(editForm.categoryId)}`,
-                                                    { method: 'POST', headers: { 'X-API-KEY': apiKey }, body: formData }
-                                                );
-                                                if (res.ok) {
-                                                    const data = await res.json();
-                                                    uploadedUrls.push(data.url);
+                                        try {
+                                            for (const file of files) {
+                                                const formData = new FormData();
+                                                formData.append('file', file);
+                                                try {
+                                                    const res = await fetch(uploadEndpoint, {
+                                                        method: 'POST',
+                                                        headers: {
+                                                            'X-API-KEY': token,
+                                                            'Authorization': `Bearer ${token}`
+                                                        },
+                                                        body: formData
+                                                    });
+                                                    if (res.ok) {
+                                                        const data = await res.json();
+                                                        uploadedUrls.push(data.url);
+                                                    } else {
+                                                        const errData = await res.json().catch(() => ({}));
+                                                        showAlert(`Error al subir ${file.name}: ${errData.detail || res.statusText}`);
+                                                    }
+                                                } catch (err: any) {
+                                                    showAlert(`Error al subir ${file.name}: ${err.message || 'Error de red'}`);
                                                 }
-                                            } catch (err) {}
-                                        }
+                                            }
 
-                                        setEditForm((prev: any) => ({ ...prev, imageUrls: [...(prev.imageUrls || []), ...uploadedUrls] }));
-                                        setIsUploading(false);
-                                        e.target.value = '';
+                                            if (uploadedUrls.length > 0) {
+                                                setEditForm((prev: any) => ({ ...prev, imageUrls: [...(prev.imageUrls || []), ...uploadedUrls] }));
+                                            }
+                                        } finally {
+                                            setIsUploading(false);
+                                            e.target.value = '';
+                                        }
                                     }}
                                 />
                             </label>
