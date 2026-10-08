@@ -1,5 +1,5 @@
 import { useStockFlowStore, CategoryConfig, VariantGroupConfig } from '@/store/useStockStore';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function CatalogConfig() {
   const { categoriesConfig, variantGroupsConfig, setCategoriesConfig, setVariantGroupsConfig } = useStockFlowStore();
@@ -7,8 +7,43 @@ export default function CatalogConfig() {
   const [cats, setCats] = useState<CategoryConfig[]>(categoriesConfig || []);
   const [vGroups, setVGroups] = useState<VariantGroupConfig[]>(variantGroupsConfig || []);
 
-  const saveCats = (c: CategoryConfig[]) => { setCats(c); setCategoriesConfig(c); };
-  const saveVGroups = (v: VariantGroupConfig[]) => { setVGroups(v); setVariantGroupsConfig(v); };
+  useEffect(() => {
+    if (categoriesConfig) setCats(categoriesConfig);
+  }, [categoriesConfig]);
+
+  useEffect(() => {
+    if (variantGroupsConfig) setVGroups(variantGroupsConfig);
+  }, [variantGroupsConfig]);
+
+  const saveCats = (c: CategoryConfig[]) => {
+    setCats(c);
+    setCategoriesConfig(c);
+    // Persistir directamente a la base de datos backend
+    const currentState = useStockFlowStore.getState();
+    fetch('/api/store/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...currentState,
+        categoriesConfig: c,
+      }),
+    }).catch(e => console.error('Error sincronizando categorías a DB:', e));
+  };
+
+  const saveVGroups = (v: VariantGroupConfig[]) => {
+    setVGroups(v);
+    setVariantGroupsConfig(v);
+    // Persistir directamente a la base de datos backend
+    const currentState = useStockFlowStore.getState();
+    fetch('/api/store/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...currentState,
+        variantGroupsConfig: v,
+      }),
+    }).catch(e => console.error('Error sincronizando variantes a DB:', e));
+  };
 
   return (
     <div className="space-y-8">

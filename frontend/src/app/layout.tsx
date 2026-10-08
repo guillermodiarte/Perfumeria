@@ -7,6 +7,7 @@ import Header from '@/components/layout/Header'
 import CartDrawer from '@/components/cart/CartDrawer'
 import Toast from '@/components/ui/Toast'
 import SiteHeadSync from '@/components/layout/SiteHeadSync'
+import StoreSyncProvider from '@/components/layout/StoreSyncProvider'
 import NextAuthProvider from '@/components/auth/NextAuthProvider'
 import { prisma } from '@/lib/prisma'
 
@@ -111,6 +112,7 @@ export default async function RootLayout({
       <body className={`bg-background-light dark:bg-background-dark font-sans text-slate-900 dark:text-slate-100 antialiased min-h-screen flex flex-col`}>
         <NextAuthProvider>
           <SiteHeadSync />
+          <StoreSyncProvider />
           <Header />
           <CartDrawer />
           <Toast />

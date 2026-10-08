@@ -254,9 +254,12 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
     const dataToExport = {
       globalMarkupPrc: state.globalMarkupPrc,
       wholesaleConfig: state.wholesaleConfig,
+      categoriesConfig: state.categoriesConfig,
+      variantGroupsConfig: state.variantGroupsConfig,
       products: state.products,
       purchases: state.purchases,
-      sales: state.sales
+      sales: state.sales,
+      exportedAt: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -271,11 +274,18 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const json = JSON.parse(evt.target?.result as string);
         importData(json);
-        showModal('Catálogo Restaurado', 'Catálogo y datos restaurados exitosamente.', 'success');
+        // Persistir también inmediatamente a la base de datos backend
+        await fetch('/api/store/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(json),
+        }).catch(err => console.error('Error sincronizando JSON a DB:', err));
+
+        showModal('Catálogo Restaurado', 'Catálogo, categorías y finanzas restaurados exitosamente.', 'success');
       } catch (err) {
         showModal('Error en Archivo', 'El archivo seleccionado no contiene un formato JSON válido.', 'error');
       }
@@ -287,6 +297,24 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
   // --- DB EXPORT / IMPORT ---
   const handleExportDB = async () => {
     try {
+      setLoading(true);
+      // 1. Guardar primero el catálogo actual en la base de datos para que el .db contenga absolutamente todo
+      const state = getZustandState();
+      await fetch('/api/store/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          products: state.products,
+          categoriesConfig: state.categoriesConfig,
+          variantGroupsConfig: state.variantGroupsConfig,
+          purchases: state.purchases,
+          sales: state.sales,
+          globalMarkupPrc: state.globalMarkupPrc,
+          wholesaleConfig: state.wholesaleConfig,
+        }),
+      }).catch(err => console.error('Error sincronizando antes de exportar DB:', err));
+
+      // 2. Descargar el archivo .db con todo el catálogo adentro
       const adminToken = getAuthToken();
       const res = await fetch(`${API_URL}/api/admin/backup/db`, {
         headers: { 'X-API-KEY': adminToken, 'Authorization': `Bearer ${adminToken}` }
@@ -301,6 +329,8 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
       URL.revokeObjectURL(url);
     } catch (e) {
       showModal('Error de Descarga', 'Error al descargar la copia de seguridad de la base de datos.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -318,7 +348,20 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
         body: formData
       });
       if (res.ok) {
-        showModal('Base de Datos Restaurada', 'La base de datos SQLite se restauró exitosamente.', 'success');
+        // Cargar inmediatamente el catálogo recién restaurado desde la base de datos SQLite
+        try {
+          const syncRes = await fetch('/api/store/sync', { cache: 'no-store' });
+          if (syncRes.ok) {
+            const syncJson = await syncRes.json();
+            if (syncJson.data) {
+              importData(syncJson.data);
+            }
+          }
+        } catch (syncErr) {
+          console.warn('Error leyendo catálogo de la DB restaurada:', syncErr);
+        }
+
+        showModal('Base de Datos Restaurada', 'La base de datos SQLite y todo el catálogo fueron restaurados exitosamente.', 'success');
       } else {
         const err = await res.json().catch(() => ({}));
         showModal('Error al Restaurar', err.detail || 'Error al restaurar la base de datos.', 'error');

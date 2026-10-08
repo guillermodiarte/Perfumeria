@@ -1429,6 +1429,8 @@ export const useStockFlowStore = create<StockFlowState>()(
           set((state) => ({
               globalMarkupPrc: data.globalMarkupPrc ?? state.globalMarkupPrc,
               wholesaleConfig: data.wholesaleConfig ?? state.wholesaleConfig,
+              categoriesConfig: data.categoriesConfig ?? state.categoriesConfig,
+              variantGroupsConfig: data.variantGroupsConfig ?? state.variantGroupsConfig,
               products: data.products ?? state.products,
               purchases: data.purchases ?? state.purchases,
               sales: data.sales ?? state.sales
