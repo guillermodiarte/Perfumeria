@@ -1142,7 +1142,7 @@ export default function AdminDashboard() {
             ) : activeView === 'compras' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ComprasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : activeView === 'ventas' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasView showAlert={showAlert} /></div>
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : (activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador') ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasRealizadasView apiKey={apiKey} showAlert={showAlert} /></div>
             ) : activeView === 'pedidos_web' ? (

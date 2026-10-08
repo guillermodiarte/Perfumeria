@@ -9,6 +9,7 @@ interface Customer {
   name: string;
   email: string;
   phone: string;
+  dni?: string;
   address?: string;
   province?: string;
   city?: string;
@@ -16,6 +17,8 @@ interface Customer {
   email_verified: boolean;
   is_approved: boolean;
   is_wholesale?: boolean;
+  is_special_wholesale?: boolean;
+  customer_type?: 'normal' | 'wholesale' | 'special_wholesale';
   wholesale_until?: string | null;
   created_at?: string;
 }
@@ -47,6 +50,210 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
   const [newClientEmail, setNewClientEmail] = useState('');
   const [newClientPassword, setNewClientPassword] = useState('perfumeria123');
   const [creatingAccount, setCreatingAccount] = useState(false);
+
+  // Modal Crear Cliente Manualmente (Administrador)
+  const [showCreateManualModal, setShowCreateManualModal] = useState(false);
+  const [manualModalError, setManualModalError] = useState<string | null>(null);
+  const [manualForm, setManualForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    dni: '',
+    address: '',
+    province: '',
+    city: '',
+    postal_code: '',
+    password: 'perfumeria123',
+    customer_type: 'normal' as 'normal' | 'wholesale' | 'special_wholesale',
+  });
+  const [submittingManual, setSubmittingManual] = useState(false);
+
+  const updateManualField = (field: string, value: any) => {
+    if (manualModalError) setManualModalError(null);
+    setManualForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Provincias y Localidades (selector dinámico como el registro original)
+  const [provinces, setProvinces] = useState<{ id: number; name: string }[]>([]);
+
+  // Para crear cliente
+  const [manualProvId, setManualProvId] = useState('');
+  const [manualCities, setManualCities] = useState<{ id: number; name: string; postal_code?: string }[]>([]);
+  const [manualCityId, setManualCityId] = useState('');
+  const [loadingManualCities, setLoadingManualCities] = useState(false);
+
+  // Para editar cliente
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [editModalError, setEditModalError] = useState<string | null>(null);
+  const [editProvId, setEditProvId] = useState('');
+  const [editCities, setEditCities] = useState<{ id: number; name: string; postal_code?: string }[]>([]);
+  const [editCityId, setEditCityId] = useState('');
+  const [loadingEditCities, setLoadingEditCities] = useState(false);
+
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    dni: '',
+    address: '',
+    province: '',
+    city: '',
+    postal_code: '',
+    password: '',
+    customer_type: 'normal' as 'normal' | 'wholesale' | 'special_wholesale',
+  });
+  const [submittingEdit, setSubmittingEdit] = useState(false);
+
+  // Cargar provincias una sola vez al montar
+  useEffect(() => {
+    fetch('/api/locations/provinces')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setProvinces(data);
+      })
+      .catch(err => console.error('Error cargando provincias:', err));
+  }, []);
+
+  const handleManualProvinceChange = async (provId: string) => {
+    setManualProvId(provId);
+    setManualCityId('');
+    const foundProv = provinces.find(p => p.id.toString() === provId);
+    updateManualField('province', foundProv?.name || '');
+    updateManualField('city', '');
+    updateManualField('postal_code', '');
+
+    if (provId) {
+      setLoadingManualCities(true);
+      try {
+        const res = await fetch(`/api/locations/provinces/${provId}/cities`);
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setManualCities(data);
+        } else {
+          setManualCities([]);
+        }
+      } catch {
+        setManualCities([]);
+      } finally {
+        setLoadingManualCities(false);
+      }
+    } else {
+      setManualCities([]);
+    }
+  };
+
+  const handleManualCityChange = (cityId: string) => {
+    setManualCityId(cityId);
+    const foundCity = manualCities.find(c => c.id.toString() === cityId);
+    updateManualField('city', foundCity?.name || '');
+    if (foundCity?.postal_code) {
+      updateManualField('postal_code', foundCity.postal_code);
+    }
+  };
+
+  const handleEditProvinceChange = async (provId: string) => {
+    setEditProvId(provId);
+    setEditCityId('');
+    const foundProv = provinces.find(p => p.id.toString() === provId);
+    updateEditField('province', foundProv?.name || '');
+    updateEditField('city', '');
+    updateEditField('postal_code', '');
+
+    if (provId) {
+      setLoadingEditCities(true);
+      try {
+        const res = await fetch(`/api/locations/provinces/${provId}/cities`);
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setEditCities(data);
+        } else {
+          setEditCities([]);
+        }
+      } catch {
+        setEditCities([]);
+      } finally {
+        setLoadingEditCities(false);
+      }
+    } else {
+      setEditCities([]);
+    }
+  };
+
+  const handleEditCityChange = (cityId: string) => {
+    setEditCityId(cityId);
+    const foundCity = editCities.find(c => c.id.toString() === cityId);
+    updateEditField('city', foundCity?.name || '');
+    if (foundCity?.postal_code) {
+      updateEditField('postal_code', foundCity.postal_code);
+    }
+  };
+
+  const updateEditField = (field: string, value: any) => {
+    if (editModalError) setEditModalError(null);
+    setEditForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleOpenEdit = async (c: Customer) => {
+    setEditingCustomer(c);
+    setEditModalError(null);
+    setEditForm({
+      name: c.name || '',
+      email: c.email || '',
+      phone: c.phone || '',
+      dni: c.dni || '',
+      address: c.address || '',
+      province: c.province || '',
+      city: c.city || '',
+      postal_code: c.postal_code || '',
+      password: '',
+      customer_type: (c.customer_type || (c.is_special_wholesale ? 'special_wholesale' : c.is_wholesale ? 'wholesale' : 'normal')) as any,
+    });
+
+    // Auto-detectar provincia y cargar localidades para edición
+    if (c.province) {
+      let currentProvinces = provinces;
+      if (currentProvinces.length === 0) {
+        try {
+          const pRes = await fetch('/api/locations/provinces');
+          currentProvinces = await pRes.json();
+          if (Array.isArray(currentProvinces)) setProvinces(currentProvinces);
+        } catch {}
+      }
+
+      const foundProv = currentProvinces.find(p => p.name.trim().toLowerCase() === c.province?.trim().toLowerCase());
+      if (foundProv) {
+        setEditProvId(foundProv.id.toString());
+        setLoadingEditCities(true);
+        try {
+          const res = await fetch(`/api/locations/provinces/${foundProv.id}/cities`);
+          const cData = await res.json();
+          if (Array.isArray(cData)) {
+            setEditCities(cData);
+            if (c.city) {
+              const foundCity = cData.find((ci: any) => ci.name.trim().toLowerCase() === c.city?.trim().toLowerCase());
+              if (foundCity) {
+                setEditCityId(foundCity.id.toString());
+              } else {
+                setEditCityId('');
+              }
+            }
+          }
+        } catch {
+          setEditCities([]);
+        } finally {
+          setLoadingEditCities(false);
+        }
+      } else {
+        setEditProvId('');
+        setEditCities([]);
+        setEditCityId('');
+      }
+    } else {
+      setEditProvId('');
+      setEditCities([]);
+      setEditCityId('');
+    }
+  };
 
   // Mayorista automático (Super Admin)
   const [autoWholesaleEnabled, setAutoWholesaleEnabled] = useState(false);
@@ -116,26 +323,207 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
     }
   };
 
-  // Alternar cuenta mayorista permanente de un cliente
-  const handleTogglePermanentWholesale = async (customer: Customer) => {
+  // Cambiar tipo de cliente (Normal, Mayorista, Mayorista Especial)
+  const handleUpdateCustomerType = async (customer: Customer, newType: 'normal' | 'wholesale' | 'special_wholesale') => {
     setActionLoadingId(customer.id);
-    const nextVal = !customer.is_wholesale;
     try {
+      const isWholesale = newType === 'wholesale' || newType === 'special_wholesale';
+      const isSpecialWholesale = newType === 'special_wholesale';
       const res = await fetch(`${API_URL}/api/admin/users/${customer.id}/wholesale`, {
         method: 'PATCH',
         headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_wholesale: nextVal })
+        body: JSON.stringify({
+          customer_type: newType,
+          is_wholesale: isWholesale,
+          is_special_wholesale: isSpecialWholesale,
+        }),
       });
       if (res.ok) {
-        showAlert(nextVal ? `✓ ${customer.name} ahora tiene Cuenta Mayorista Permanente.` : `Se removió la cuenta mayorista permanente de ${customer.name}.`, 'success');
+        const label = newType === 'special_wholesale' ? 'Mayorista Especial (Precios Manuales)' : newType === 'wholesale' ? 'Mayorista Estándar' : 'Cliente Normal';
+        showAlert(`✓ ${customer.name} ahora es ${label}.`, 'success');
         fetchCustomers();
       } else {
-        showAlert('Error al actualizar cuenta mayorista.', 'error');
+        showAlert('Error al actualizar tipo de cliente.', 'error');
       }
     } catch {
       showAlert('Error de red.', 'error');
     } finally {
       setActionLoadingId(null);
+    }
+  };
+
+  // Crear cliente manualmente desde el panel de admin
+  const handleCreateManualCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setManualModalError(null);
+
+    // Validaciones locales antes de enviar al servidor
+    if (!manualForm.name.trim()) {
+      const msg = '⚠️ El nombre completo del cliente es obligatorio.';
+      setManualModalError(msg);
+      showAlert(msg, 'error');
+      return;
+    }
+    if (!manualForm.email.trim()) {
+      const msg = '⚠️ El correo electrónico es obligatorio.';
+      setManualModalError(msg);
+      showAlert(msg, 'error');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(manualForm.email.trim())) {
+      const msg = '⚠️ El formato del correo electrónico no es válido (ejemplo: usuario@correo.com).';
+      setManualModalError(msg);
+      showAlert(msg, 'error');
+      return;
+    }
+    if (!manualForm.phone.trim()) {
+      const msg = '⚠️ El teléfono / WhatsApp del cliente es obligatorio.';
+      setManualModalError(msg);
+      showAlert(msg, 'error');
+      return;
+    }
+
+    setSubmittingManual(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/customers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': apiKey,
+        },
+        body: JSON.stringify({
+          name: manualForm.name.trim(),
+          email: manualForm.email.trim().toLowerCase(),
+          phone: manualForm.phone.trim(),
+          dni: manualForm.dni.trim(),
+          address: manualForm.address.trim(),
+          province: manualForm.province.trim(),
+          city: manualForm.city.trim(),
+          postal_code: manualForm.postal_code.trim(),
+          password: manualForm.password || 'perfumeria123',
+          customer_type: manualForm.customer_type,
+          is_wholesale: manualForm.customer_type === 'wholesale' || manualForm.customer_type === 'special_wholesale',
+          is_special_wholesale: manualForm.customer_type === 'special_wholesale',
+        }),
+      });
+
+      if (res.ok) {
+        const typeLabel = manualForm.customer_type === 'special_wholesale'
+          ? 'Mayorista Especial'
+          : manualForm.customer_type === 'wholesale'
+          ? 'Mayorista'
+          : 'Normal';
+        showAlert(`✅ Cliente "${manualForm.name}" creado exitosamente como ${typeLabel}.`, 'success');
+        setShowCreateManualModal(false);
+        setManualModalError(null);
+        setManualProvId('');
+        setManualCities([]);
+        setManualCityId('');
+        setManualForm({
+          name: '',
+          email: '',
+          phone: '',
+          dni: '',
+          address: '',
+          province: '',
+          city: '',
+          postal_code: '',
+          password: 'perfumeria123',
+          customer_type: 'normal',
+        });
+        fetchCustomers();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        const errorDetail = err.detail || (err.technical ? `Error en la base de datos: ${err.technical}` : '❌ Error inesperado al crear el cliente. Por favor intentá nuevamente.');
+        setManualModalError(errorDetail);
+        showAlert(errorDetail, 'error');
+      }
+    } catch (err: any) {
+      console.error('Error de red al crear cliente:', err);
+      const networkError = '❌ No se pudo conectar con el servidor. Verificá que el servidor esté activo e intentá nuevamente.';
+      setManualModalError(networkError);
+      showAlert(networkError, 'error');
+    } finally {
+      setSubmittingManual(false);
+    }
+  };
+
+  // Guardar edición de cliente
+  const handleSaveEditCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomer) return;
+    setEditModalError(null);
+
+    // Validaciones locales
+    if (!editForm.name.trim()) {
+      const msg = '⚠️ El nombre completo del cliente es obligatorio.';
+      setEditModalError(msg);
+      showAlert(msg, 'error');
+      return;
+    }
+    if (!editForm.email.trim()) {
+      const msg = '⚠️ El correo electrónico es obligatorio.';
+      setEditModalError(msg);
+      showAlert(msg, 'error');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(editForm.email.trim())) {
+      const msg = '⚠️ El formato del correo electrónico no es válido (ejemplo: usuario@correo.com).';
+      setEditModalError(msg);
+      showAlert(msg, 'error');
+      return;
+    }
+    if (!editForm.phone.trim()) {
+      const msg = '⚠️ El teléfono / WhatsApp del cliente es obligatorio.';
+      setEditModalError(msg);
+      showAlert(msg, 'error');
+      return;
+    }
+
+    setSubmittingEdit(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/users/${editingCustomer.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': apiKey,
+        },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          email: editForm.email.trim().toLowerCase(),
+          phone: editForm.phone.trim(),
+          dni: editForm.dni.trim(),
+          address: editForm.address.trim(),
+          province: editForm.province.trim(),
+          city: editForm.city.trim(),
+          postal_code: editForm.postal_code.trim(),
+          password: editForm.password ? editForm.password.trim() : undefined,
+          customer_type: editForm.customer_type,
+          is_wholesale: editForm.customer_type === 'wholesale' || editForm.customer_type === 'special_wholesale',
+          is_special_wholesale: editForm.customer_type === 'special_wholesale',
+        }),
+      });
+
+      if (res.ok) {
+        showAlert(`✅ Cliente "${editForm.name}" actualizado exitosamente.`, 'success');
+        setEditingCustomer(null);
+        setEditModalError(null);
+        fetchCustomers();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        const errorDetail = err.detail || '❌ Error al actualizar el cliente.';
+        setEditModalError(errorDetail);
+        showAlert(errorDetail, 'error');
+      }
+    } catch (err: any) {
+      console.error('Error al actualizar cliente:', err);
+      const networkError = '❌ Error de conexión al actualizar el cliente.';
+      setEditModalError(networkError);
+      showAlert(networkError, 'error');
+    } finally {
+      setSubmittingEdit(false);
     }
   };
 
@@ -427,20 +815,36 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {/* Header */}
         <div className="p-5 border-b border-slate-100 dark:border-slate-700">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">Solicitudes de Registro y Clientes</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Aprobá las solicitudes de registro para habilitar compras</p>
+              <p className="text-xs text-slate-500 mt-0.5">Aprobá las solicitudes de registro y gestioná los tipos de clientes</p>
             </div>
-            <div className="sm:ml-auto relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Buscar por nombre, email, teléfono..."
-                className="pl-9 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white w-72"
-              />
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <div className="relative">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Buscar por nombre, email, teléfono..."
+                  className="pl-9 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white w-full sm:w-64 md:w-72"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setManualModalError(null);
+                  setManualProvId('');
+                  setManualCities([]);
+                  setManualCityId('');
+                  setShowCreateManualModal(true);
+                }}
+                className="px-4 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-bold text-sm shadow-md shadow-primary/25 transition-all flex items-center justify-center gap-2 shrink-0"
+              >
+                <span className="material-symbols-outlined text-lg">person_add</span>
+                Nuevo Cliente
+              </button>
             </div>
           </div>
 
@@ -633,37 +1037,38 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
                       </a>
                     </td>
 
-                    {/* Mayorista */}
+                    {/* Mayorista / Tipo de Cliente */}
                     <td className="px-5 py-4">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {c.is_wholesale ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                      <div className="flex flex-col gap-1.5 items-start">
+                        {c.is_special_wholesale || c.customer_type === 'special_wholesale' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shadow-sm" title="Ventas con precios manuales por producto">
+                            <span className="material-symbols-outlined text-[13px] text-amber-600">crown</span>
+                            Mayorista Especial
+                          </span>
+                        ) : c.is_wholesale || c.customer_type === 'wholesale' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
                             <span className="material-symbols-outlined text-[12px]">verified</span>
-                            Permanente
+                            Mayorista
                           </span>
                         ) : c.wholesale_until && new Date(c.wholesale_until) > new Date() ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" title={`Vence el ${new Date(c.wholesale_until).toLocaleDateString('es-AR')}`}>
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" title={`Vence el ${new Date(c.wholesale_until).toLocaleDateString('es-AR')}`}>
                             <span className="material-symbols-outlined text-[12px]">schedule</span>
                             30D ({Math.ceil((new Date(c.wholesale_until).getTime() - Date.now()) / (1000 * 60 * 60 * 24))}d)
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-400">Regular</span>
+                          <span className="text-xs text-slate-400 font-medium">Normal</span>
                         )}
 
-                        <button
-                          onClick={() => handleTogglePermanentWholesale(c)}
+                        <select
+                          value={c.is_special_wholesale || c.customer_type === 'special_wholesale' ? 'special_wholesale' : (c.is_wholesale || c.customer_type === 'wholesale') ? 'wholesale' : 'normal'}
+                          onChange={(e) => handleUpdateCustomerType(c, e.target.value as any)}
                           disabled={actionLoadingId === c.id}
-                          title={c.is_wholesale ? "Quitar cuenta mayorista permanente" : "Hacer mayorista permanente"}
-                          className={`p-1 rounded-lg border text-xs transition-colors ${
-                            c.is_wholesale 
-                              ? 'text-purple-600 border-purple-200 hover:bg-purple-50' 
-                              : 'text-slate-400 border-slate-200 hover:text-purple-600 hover:border-purple-300'
-                          }`}
+                          className="text-[11px] font-bold rounded-lg px-2 py-1 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-primary cursor-pointer hover:border-slate-300"
                         >
-                          <span className="material-symbols-outlined text-[14px]">
-                            {c.is_wholesale ? 'star' : 'star_border'}
-                          </span>
-                        </button>
+                          <option value="normal">👤 Normal</option>
+                          <option value="wholesale">🏷️ Mayorista</option>
+                          <option value="special_wholesale">👑 Mayorista Especial</option>
+                        </select>
                       </div>
                     </td>
 
@@ -705,6 +1110,15 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
                             Suspender
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(c)}
+                          disabled={actionLoadingId === c.id}
+                          className="size-8 inline-flex items-center justify-center rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-500 hover:text-primary hover:border-primary/50 transition-all disabled:opacity-30 shadow-sm"
+                          title="Editar cliente"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">edit</span>
+                        </button>
                         <button
                           onClick={() => setDeleteConfirmId(c.id)}
                           disabled={actionLoadingId === c.id}
@@ -823,6 +1237,531 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
                     <>
                       <span className="material-symbols-outlined text-sm">how_to_reg</span>
                       Crear y Vincular
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Crear Cliente Manualmente (Administrador) */}
+      {showCreateManualModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-200 my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className="size-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+                  <span className="material-symbols-outlined text-2xl">person_add</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">Crear Nuevo Cliente</h3>
+                  <p className="text-xs text-slate-500">Alta manual de usuario con perfil y modalidad de compra</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateManualModal(false)}
+                className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-500 flex items-center justify-center transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateManualCustomer} className="space-y-4 pt-4">
+              
+              {/* Selector de Tipo de Cliente */}
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                  Tipo de Cliente / Modalidad de Precios <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => updateManualField('customer_type', 'normal')}
+                    className={`p-3 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
+                      manualForm.customer_type === 'normal'
+                        ? 'border-primary bg-primary/5 text-primary shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <span className="material-symbols-outlined text-base">person</span>
+                      Normal
+                    </div>
+                    <p className="text-[11px] opacity-75">Cliente regular minorista con precios de catálogo.</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => updateManualField('customer_type', 'wholesale')}
+                    className={`p-3 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
+                      manualForm.customer_type === 'wholesale'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <span className="material-symbols-outlined text-base text-purple-600">verified</span>
+                      Mayorista
+                    </div>
+                    <p className="text-[11px] opacity-75">Aplica descuentos y lista de precios mayoristas.</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => updateManualField('customer_type', 'special_wholesale')}
+                    className={`p-3 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
+                      manualForm.customer_type === 'special_wholesale'
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <span className="material-symbols-outlined text-base text-amber-600">crown</span>
+                      Mayorista Especial
+                    </div>
+                    <p className="text-[11px] opacity-75">Asignación manual de precios por producto en ventas.</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Form Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Nombre Completo <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={manualForm.name}
+                    onChange={e => updateManualField('name', e.target.value)}
+                    placeholder="Ej: Laura González"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={manualForm.email}
+                    onChange={e => updateManualField('email', e.target.value)}
+                    placeholder="cliente@correo.com"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Teléfono / WhatsApp</label>
+                  <input
+                    type="tel"
+                    value={manualForm.phone}
+                    onChange={e => updateManualField('phone', e.target.value)}
+                    placeholder="Ej: 3764123456"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">DNI / Identificación</label>
+                  <input
+                    type="text"
+                    value={manualForm.dni}
+                    onChange={e => updateManualField('dni', e.target.value)}
+                    placeholder="Ej: 35123456"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                {/* Selector de Provincia */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Provincia
+                  </label>
+                  <select
+                    value={manualProvId}
+                    onChange={e => handleManualProvinceChange(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  >
+                    <option value="">Seleccionar Provincia...</option>
+                    {provinces.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Selector de Localidad / Ciudad */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Localidad / Ciudad
+                  </label>
+                  <select
+                    value={manualCityId}
+                    onChange={e => handleManualCityChange(e.target.value)}
+                    disabled={!manualProvId || loadingManualCities}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white disabled:opacity-50"
+                  >
+                    <option value="">
+                      {loadingManualCities ? 'Cargando localidades...' : !manualProvId ? 'Elegí primero una provincia' : 'Seleccionar Localidad...'}
+                    </option>
+                    {manualCities.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Código Postal */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Código Postal
+                  </label>
+                  <input
+                    type="text"
+                    value={manualForm.postal_code}
+                    onChange={e => updateManualField('postal_code', e.target.value)}
+                    placeholder="Ej: 3600"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                {/* Dirección */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Dirección (Calle, N°, Piso, Depto)
+                  </label>
+                  <input
+                    type="text"
+                    value={manualForm.address}
+                    onChange={e => updateManualField('address', e.target.value)}
+                    placeholder="Ej: Av. Antártida Argentina 1035, Piso 2, Depto B"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Contraseña Inicial</label>
+                  <input
+                    type="text"
+                    value={manualForm.password}
+                    onChange={e => updateManualField('password', e.target.value)}
+                    placeholder="perfumeria123"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white font-mono"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">El cliente puede usar esta clave para acceder a la tienda online.</p>
+                </div>
+              </div>
+
+              {manualForm.customer_type === 'special_wholesale' && (
+                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+                  <span className="material-symbols-outlined text-lg text-amber-600 shrink-0">crown</span>
+                  <div>
+                    <p className="font-bold">Modalidad Mayorista Especial seleccionada</p>
+                    <p className="text-[11px] opacity-85 mt-0.5">Al registrar ventas a este cliente en Caja / Punto de Venta, podrás editar manualmente el precio de venta de cada producto añadido.</p>
+                  </div>
+                </div>
+              )}
+
+              {manualModalError && (
+                <div className="bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-200 rounded-2xl p-4 text-xs font-semibold flex items-start gap-3 animate-in fade-in duration-200">
+                  <span className="material-symbols-outlined text-red-600 text-xl shrink-0">error</span>
+                  <div className="flex-1">
+                    <p className="font-bold text-red-900 dark:text-red-100">No se pudo registrar el cliente:</p>
+                    <p className="mt-0.5 leading-relaxed font-normal">{manualModalError}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateManualModal(false)}
+                  className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingManual}
+                  className="flex-1 py-3 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/25 disabled:opacity-50"
+                >
+                  {submittingManual ? (
+                    <>
+                      <span className="material-symbols-outlined animate-spin text-sm">sync</span>
+                      Creando Cliente...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm">how_to_reg</span>
+                      Crear Cliente
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Editar Cliente (Administrador) */}
+      {editingCustomer && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-200 my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className="size-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+                  <span className="material-symbols-outlined text-2xl">edit_note</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">Editar Cliente</h3>
+                  <p className="text-xs text-slate-500">Modificar datos, modalidad de precios y acceso de {editingCustomer.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingCustomer(null)}
+                className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-500 flex items-center justify-center transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditCustomer} className="space-y-4 pt-4">
+              
+              {/* Selector de Tipo de Cliente */}
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                  Tipo de Cliente / Modalidad de Precios <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => updateEditField('customer_type', 'normal')}
+                    className={`p-3 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
+                      editForm.customer_type === 'normal'
+                        ? 'border-primary bg-primary/5 text-primary shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <span className="material-symbols-outlined text-base">person</span>
+                      Normal
+                    </div>
+                    <p className="text-[11px] opacity-75">Cliente regular minorista con precios de catálogo.</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => updateEditField('customer_type', 'wholesale')}
+                    className={`p-3 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
+                      editForm.customer_type === 'wholesale'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <span className="material-symbols-outlined text-base text-purple-600">verified</span>
+                      Mayorista
+                    </div>
+                    <p className="text-[11px] opacity-75">Aplica descuentos y lista de precios mayoristas.</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => updateEditField('customer_type', 'special_wholesale')}
+                    className={`p-3 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
+                      editForm.customer_type === 'special_wholesale'
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <span className="material-symbols-outlined text-base text-amber-600">crown</span>
+                      Mayorista Especial
+                    </div>
+                    <p className="text-[11px] opacity-75">Asignación manual de precios por producto en ventas.</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Form Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Nombre Completo <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.name}
+                    onChange={e => updateEditField('name', e.target.value)}
+                    placeholder="Ej: Laura González"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={editForm.email}
+                    onChange={e => updateEditField('email', e.target.value)}
+                    placeholder="cliente@correo.com"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Teléfono / WhatsApp <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={editForm.phone}
+                    onChange={e => updateEditField('phone', e.target.value)}
+                    placeholder="Ej: 3764123456"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">DNI / Identificación</label>
+                  <input
+                    type="text"
+                    value={editForm.dni}
+                    onChange={e => updateEditField('dni', e.target.value)}
+                    placeholder="Ej: 35123456"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                {/* Selector de Provincia */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Provincia
+                  </label>
+                  <select
+                    value={editProvId}
+                    onChange={e => handleEditProvinceChange(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  >
+                    <option value="">Seleccionar Provincia...</option>
+                    {provinces.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Selector de Localidad / Ciudad */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Localidad / Ciudad
+                  </label>
+                  <select
+                    value={editCityId}
+                    onChange={e => handleEditCityChange(e.target.value)}
+                    disabled={!editProvId || loadingEditCities}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white disabled:opacity-50"
+                  >
+                    <option value="">
+                      {loadingEditCities ? 'Cargando localidades...' : !editProvId ? 'Elegí primero una provincia' : 'Seleccionar Localidad...'}
+                    </option>
+                    {editCities.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Código Postal */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Código Postal
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.postal_code}
+                    onChange={e => updateEditField('postal_code', e.target.value)}
+                    placeholder="Ej: 3600"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                {/* Dirección */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Dirección (Calle, N°, Piso, Depto)
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.address}
+                    onChange={e => updateEditField('address', e.target.value)}
+                    placeholder="Ej: Av. Antártida Argentina 1035, Piso 2, Depto B"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nueva Contraseña (Opcional)</label>
+                  <input
+                    type="text"
+                    value={editForm.password}
+                    onChange={e => updateEditField('password', e.target.value)}
+                    placeholder="Dejar en blanco para conservar la actual"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-primary dark:text-white font-mono"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Si escribís una nueva contraseña, se actualizará el acceso del cliente a la tienda online.</p>
+                </div>
+              </div>
+
+              {editForm.customer_type === 'special_wholesale' && (
+                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+                  <span className="material-symbols-outlined text-lg text-amber-600 shrink-0">crown</span>
+                  <div>
+                    <p className="font-bold">Modalidad Mayorista Especial seleccionada</p>
+                    <p className="text-[11px] opacity-85 mt-0.5">Al registrar ventas a este cliente en Caja / Punto de Venta, podrás editar manualmente el precio de venta de cada producto añadido.</p>
+                  </div>
+                </div>
+              )}
+
+              {editModalError && (
+                <div className="bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-200 rounded-2xl p-4 text-xs font-semibold flex items-start gap-3 animate-in fade-in duration-200">
+                  <span className="material-symbols-outlined text-red-600 text-xl shrink-0">error</span>
+                  <div className="flex-1">
+                    <p className="font-bold text-red-900 dark:text-red-100">No se pudo actualizar el cliente:</p>
+                    <p className="mt-0.5 leading-relaxed font-normal">{editModalError}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setEditingCustomer(null)}
+                  className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingEdit}
+                  className="flex-1 py-3 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/25 disabled:opacity-50"
+                >
+                  {submittingEdit ? (
+                    <>
+                      <span className="material-symbols-outlined animate-spin text-sm">sync</span>
+                      Guardando Cambios...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm">save</span>
+                      Guardar Cambios
                     </>
                   )}
                 </button>

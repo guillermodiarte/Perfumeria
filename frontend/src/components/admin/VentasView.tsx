@@ -3,15 +3,24 @@ import { useState, useEffect } from 'react';
 import { useStockFlowStore } from '@/store/useStockStore';
 import { generateTicketPDF } from '@/utils/generateTicket';
 
-export default function VentasView({ showAlert }: { showAlert: (msg: string) => void }) {
+interface VentasViewProps {
+  showAlert: (msg: string) => void;
+  apiKey?: string;
+  apiUrl?: string;
+}
+
+export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProps) {
   const products = useStockFlowStore(s => s.products);
   const registerSale = useStockFlowStore(s => s.registerSale);
   const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
   const allCategories = categoriesConfig.flatMap(g => g.opciones);
 
+  const [customers, setCustomers] = useState<any[]>([]);
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+  const [clientType, setClientType] = useState<'normal' | 'wholesale' | 'special_wholesale'>('normal');
+  const [customUnitPriceInput, setCustomUnitPriceInput] = useState<string>('');
   
   const [selectedParentCategory, setSelectedParentCategory] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -34,6 +43,28 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
   const [isDraftLoaded, setIsDraftLoaded] = useState(false);
   const DRAFT_VENTAS_KEY = 'lyg_draft_venta';
 
+  // Cargar clientes registrados para autocompletado y detección de tipo de cuenta
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      try {
+        const key = apiKey || (typeof window !== 'undefined' ? localStorage.getItem('admin_api_key') || '' : '');
+        const base = apiUrl || '';
+        const res = await fetch(`${base}/api/admin/users`, {
+          headers: key ? { 'X-API-KEY': key } : {}
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setCustomers(data);
+          }
+        }
+      } catch (err) {
+        console.error('Error al cargar clientes en VentasView:', err);
+      }
+    };
+    fetchCustomers();
+  }, [apiKey, apiUrl]);
+
   // Verifica si hay algún dato cargado
   const hasDraftData = Boolean(
     clientName.trim() !== '' ||
@@ -43,7 +74,8 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     selectedParentCategory !== '' ||
     selectedCategory !== '' ||
     selectedProductId !== '' ||
-    productSearchText.trim() !== ''
+    productSearchText.trim() !== '' ||
+    clientType !== 'normal'
   );
 
   // Cargar borrador persistido al montar
@@ -55,6 +87,8 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
         if (parsed.clientName !== undefined) setClientName(parsed.clientName);
         if (parsed.clientPhone !== undefined) setClientPhone(parsed.clientPhone);
         if (parsed.clientEmail !== undefined) setClientEmail(parsed.clientEmail);
+        if (parsed.clientType !== undefined) setClientType(parsed.clientType);
+        if (parsed.customUnitPriceInput !== undefined) setCustomUnitPriceInput(parsed.customUnitPriceInput);
         if (Array.isArray(parsed.cart)) setCart(parsed.cart);
         if (parsed.selectedParentCategory !== undefined) setSelectedParentCategory(parsed.selectedParentCategory);
         if (parsed.selectedCategory !== undefined) setSelectedCategory(parsed.selectedCategory);
@@ -77,6 +111,8 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
           clientName,
           clientPhone,
           clientEmail,
+          clientType,
+          customUnitPriceInput,
           cart,
           selectedParentCategory,
           selectedCategory,
@@ -90,7 +126,7 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     } catch (e) {
       console.error('Error al guardar borrador de venta:', e);
     }
-  }, [isDraftLoaded, hasDraftData, clientName, clientPhone, clientEmail, cart, selectedParentCategory, selectedCategory, selectedProductId, productSearchText]);
+  }, [isDraftLoaded, hasDraftData, clientName, clientPhone, clientEmail, clientType, customUnitPriceInput, cart, selectedParentCategory, selectedCategory, selectedProductId, productSearchText]);
 
   // Limpiar y resetear venta
   const handleClearSale = () => {
@@ -98,6 +134,8 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     setClientName('');
     setClientPhone('');
     setClientEmail('');
+    setClientType('normal');
+    setCustomUnitPriceInput('');
     setSelectedParentCategory('');
     setSelectedCategory('');
     setSelectedProductId('');
@@ -112,6 +150,15 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
   };
 
   const selectedProduct = products.find(p => p.id === selectedProductId);
+
+  // Sincronizar precio manual sugerido cuando cambia el producto seleccionado
+  useEffect(() => {
+    if (selectedProduct) {
+      setCustomUnitPriceInput(String(selectedProduct.salePrice));
+    } else {
+      setCustomUnitPriceInput('');
+    }
+  }, [selectedProductId, selectedProduct]);
   
   const availableVariants = selectedProduct 
     ? selectedProduct.variants.filter(v => v.stock > 0)
@@ -125,6 +172,21 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
   const availableSubcategories = currentCategoryGroup ? currentCategoryGroup.opciones : [];
 
   const total = cart.reduce((acc, item) => acc + (item.quantity * item.salePrice), 0);
+
+  // Autocompletar datos si el nombre seleccionado coincide con un cliente registrado
+  const handleClientNameChange = (val: string) => {
+    setClientName(val);
+    const matched = customers.find(c => 
+      c.name?.trim().toLowerCase() === val.trim().toLowerCase() ||
+      c.email?.trim().toLowerCase() === val.trim().toLowerCase()
+    );
+    if (matched) {
+      if (matched.phone) setClientPhone(matched.phone);
+      if (matched.email) setClientEmail(matched.email);
+      const cType = matched.customer_type || (matched.is_special_wholesale ? 'special_wholesale' : matched.is_wholesale ? 'wholesale' : 'normal');
+      setClientType(cType as any);
+    }
+  };
 
   const addToCart = () => {
     if (!selectedProduct) {
@@ -143,17 +205,25 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     
     const displayName = `${selectedProduct.name} - ${variantItem.color} - Talle ${variantItem.size}`;
 
+    // Si es mayorista especial, usar el precio unitario manual si está definido
+    const effectivePrice = (clientType === 'special_wholesale' && customUnitPriceInput.trim() !== '')
+      ? Math.max(0, parseFloat(customUnitPriceInput) || 0)
+      : selectedProduct.salePrice;
+
     setCart([...cart, {
         productId: selectedProduct.id,
         variantId: variantItem.id,
         name: displayName,
         quantity: quantityToAdd,
-        salePrice: selectedProduct.salePrice
+        salePrice: effectivePrice
     }]);
     
     // reset selection for next item
     setSelectedVariantId('');
     setQuantityToAdd(1);
+    if (selectedProduct) {
+      setCustomUnitPriceInput(String(selectedProduct.salePrice));
+    }
   };
 
   const handleOpenPaymentModal = () => {
@@ -201,7 +271,9 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
       pendingAmount: finalPending,
       installmentsCount: paymentType === 'cuotas' ? installmentsCount : 1,
       notes: saleNotes.trim(),
-      clientEmail: clientEmail.trim()
+      clientEmail: clientEmail.trim(),
+      isSpecialWholesale: clientType === 'special_wholesale',
+      clientType: clientType,
     });
 
     // Generar PDF y abrir para impresión
@@ -220,6 +292,8 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     setClientName('');
     setClientPhone('');
     setClientEmail('');
+    setClientType('normal');
+    setCustomUnitPriceInput('');
     setSelectedParentCategory('');
     setSelectedCategory('');
     setSelectedProductId('');
@@ -267,9 +341,17 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
                         <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">person</span>
                         <input 
                             type="text" placeholder="Ej. Ana Pérez"
+                            list="ventas-clientes-list"
                             className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none transition-all dark:text-white font-medium"
-                            value={clientName} onChange={e => setClientName(e.target.value)}
+                            value={clientName} onChange={e => handleClientNameChange(e.target.value)}
                         />
+                        <datalist id="ventas-clientes-list">
+                          {customers.map((c: any) => (
+                            <option key={c.id} value={c.name}>
+                              {c.customer_type === 'special_wholesale' || c.is_special_wholesale ? '👑 Mayorista Especial' : c.is_wholesale ? '📦 Mayorista' : '🛍️ Normal'} {c.phone ? `(${c.phone})` : ''}
+                            </option>
+                          ))}
+                        </datalist>
                     </div>
                 </div>
                 <div>
@@ -295,6 +377,65 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
                     </div>
                 </div>
             </div>
+
+            {/* Selector de Tipo de Cliente */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-base">badge</span>
+                Tipo de Cliente:
+              </span>
+              <div className="inline-flex p-1 bg-white dark:bg-slate-900 rounded-xl gap-1 border border-slate-200 dark:border-slate-700 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setClientType('normal')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    clientType === 'normal'
+                      ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-sm">person</span>
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClientType('wholesale')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    clientType === 'wholesale'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-sm">inventory_2</span>
+                  Mayorista
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClientType('special_wholesale')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                    clientType === 'special_wholesale'
+                      ? 'bg-amber-500 text-slate-950 shadow-sm ring-2 ring-amber-400/40'
+                      : 'text-slate-500 hover:text-amber-600 dark:hover:text-amber-400'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-sm">workspace_premium</span>
+                  Mayorista Especial (Precios Manuales)
+                </button>
+              </div>
+            </div>
+
+            {/* Banner informativo de Mayorista Especial */}
+            {clientType === 'special_wholesale' && (
+              <div className="flex items-center gap-3 p-3.5 bg-gradient-to-r from-amber-500/10 via-amber-400/10 to-transparent border border-amber-300 dark:border-amber-700/60 rounded-xl text-amber-900 dark:text-amber-200 text-xs animate-fadeIn">
+                <div className="size-8 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm">
+                  <span className="material-symbols-outlined text-lg">workspace_premium</span>
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-amber-950 dark:text-amber-100">Modo Mayorista Especial Activo</p>
+                  <p className="opacity-90">Podés fijar manualmente el precio de venta unitario de cada producto antes de agregarlo o editarlo directamente en la lista del carrito.</p>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-col gap-4 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
                 
@@ -392,7 +533,7 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
                     </div>
                 </div>
 
-                {/* 4. Seleccionar Variante y Cantidad */}
+                {/* 4. Seleccionar Variante, Cantidad y Precio Manual si aplica */}
                 <div className="flex flex-col md:flex-row gap-4 items-end pt-2 border-t border-slate-200 dark:border-slate-700/50 mt-2">
                     <div className="flex-1 w-full">
                         <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">4. Variante</label>
@@ -422,6 +563,28 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
                             value={quantityToAdd} onChange={e => setQuantityToAdd(Number(e.target.value))}
                         />
                     </div>
+
+                    {/* Precio de Venta Unitario Manual (Solo para Mayorista Especial) */}
+                    {clientType === 'special_wholesale' && (
+                      <div className="w-full md:w-36 shrink-0">
+                        <label className="block text-sm font-bold text-amber-800 dark:text-amber-300 mb-2 text-center md:text-left">
+                          Precio Unit. ($)
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-amber-600 dark:text-amber-400">$</span>
+                          <input 
+                            type="number"
+                            min={0}
+                            step="any"
+                            placeholder="0"
+                            className="w-full pl-7 pr-3 py-3 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-600 rounded-xl font-black text-amber-950 dark:text-amber-200 text-center shadow-sm outline-none focus:ring-2 focus:ring-amber-500"
+                            value={customUnitPriceInput}
+                            onChange={e => setCustomUnitPriceInput(e.target.value)}
+                            title="Precio unitario asignado manualmente"
+                          />
+                        </div>
+                      </div>
+                    )}
                     
                     <button onClick={addToCart} className="w-full md:w-auto bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold px-8 py-3 rounded-xl hover:opacity-80 transition shadow-lg shrink-0 flex justify-center items-center gap-2">
                         <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span> Añadir
@@ -453,9 +616,37 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
                                 <span className="material-symbols-outlined text-[18px]">close</span>
                             </button>
                         </div>
-                        <div className="flex justify-between items-center mt-auto">
-                            <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-900 px-2 py-1 rounded-md">{item.quantity} x ${item.salePrice}</span>
-                            <span className="font-black text-slate-900 dark:text-white">${item.quantity * item.salePrice}</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                            {clientType === 'special_wholesale' ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.5 rounded">
+                                  Precio Unit:
+                                </span>
+                                <div className="relative w-28">
+                                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-600 dark:text-amber-400">$</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="any"
+                                    value={item.salePrice}
+                                    onChange={(e) => {
+                                      const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                      setCart(cart.map((c, i) => i === idx ? { ...c, salePrice: val } : c));
+                                    }}
+                                    className="w-full pl-6 pr-2 py-1 text-xs font-black rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50/60 dark:bg-slate-900 text-amber-950 dark:text-amber-200 text-right outline-none focus:ring-2 focus:ring-amber-500"
+                                    title="Modificar precio unitario asignado manualmente"
+                                  />
+                                </div>
+                                <span className="text-xs text-slate-500 font-bold">x {item.quantity}</span>
+                              </div>
+                            ) : (
+                              <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-900 px-2 py-1 rounded-md">
+                                {item.quantity} x ${item.salePrice}
+                              </span>
+                            )}
+                            <span className="font-black text-slate-900 dark:text-white ml-auto">
+                              ${(item.quantity * item.salePrice).toLocaleString('es-AR')}
+                            </span>
                         </div>
                     </div>
                 ))
@@ -506,7 +697,19 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
             <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl mb-5 flex items-center justify-between border border-slate-100 dark:border-slate-700/50">
               <div>
                 <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Cliente</p>
-                <p className="text-sm font-bold text-slate-800 dark:text-white">{clientName} <span className="font-normal text-xs text-slate-500">({clientPhone})</span></p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-bold text-slate-800 dark:text-white">{clientName} <span className="font-normal text-xs text-slate-500">({clientPhone})</span></p>
+                  {clientType === 'special_wholesale' && (
+                    <span className="bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700">
+                      👑 Mayorista Especial
+                    </span>
+                  )}
+                  {clientType === 'wholesale' && (
+                    <span className="bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      📦 Mayorista
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 mt-0.5">{cart.length} artículo(s) en caja</p>
               </div>
               <div className="text-right">

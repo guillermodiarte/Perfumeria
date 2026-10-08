@@ -10,8 +10,22 @@ async function runMigrations() {
     await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "dni" TEXT;`);
     console.log('✅ [DB MIGRATION] Columna "dni" agregada exitosamente a la tabla "customers".');
   } catch (err) {
-    // Si la columna ya existe en SQLite, arroja error tipo "duplicate column name: dni"
     console.log('ℹ️ [DB MIGRATION] Columna "dni" ya presente en "customers".');
+  }
+
+  // 1.1 Agregar columnas para tipo de cliente y mayorista especial
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "is_special_wholesale" BOOLEAN DEFAULT 0;`);
+    console.log('✅ [DB MIGRATION] Columna "is_special_wholesale" agregada a "customers".');
+  } catch (err) {
+    console.log('ℹ️ [DB MIGRATION] Columna "is_special_wholesale" ya presente en "customers".');
+  }
+
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "customer_type" TEXT DEFAULT 'normal';`);
+    console.log('✅ [DB MIGRATION] Columna "customer_type" agregada a "customers".');
+  } catch (err) {
+    console.log('ℹ️ [DB MIGRATION] Columna "customer_type" ya presente en "customers".');
   }
 
   // 2. Crear tabla oauth_accounts si no existe

@@ -10,7 +10,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const body = await req.json();
     const customerId = parseInt(params.id);
-    const { is_wholesale, wholesale_until } = body;
+    const { is_wholesale, wholesale_until, is_special_wholesale, customer_type } = body;
 
     const customer = await prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) return NextResponse.json({ detail: 'Cliente no encontrado' }, { status: 404 });
@@ -19,6 +19,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       where: { id: customerId },
       data: {
         ...(is_wholesale !== undefined && { is_wholesale }),
+        ...(is_special_wholesale !== undefined && { is_special_wholesale }),
+        ...(customer_type !== undefined && { customer_type }),
         ...(wholesale_until !== undefined && { wholesale_until: wholesale_until ? new Date(wholesale_until) : null }),
       },
     });
@@ -28,6 +30,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       email: updated.email,
       name: updated.name,
       is_wholesale: updated.is_wholesale,
+      is_special_wholesale: updated.is_special_wholesale,
+      customer_type: updated.customer_type,
       wholesale_until: updated.wholesale_until,
     });
   } catch (error: any) {

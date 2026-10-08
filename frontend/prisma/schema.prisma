@@ -52,6 +52,8 @@ model Customer {
   is_approved        Boolean?    @default(false)
   created_at         DateTime?   @default(now())
   is_wholesale       Boolean?    @default(false)
+  is_special_wholesale Boolean?  @default(false)
+  customer_type      String?     @default("normal")
   wholesale_until    DateTime?
   cart_items         CartItem[]
   orders             Order[]

@@ -298,6 +298,8 @@ export interface StockFlowState {
       installmentsCount?: number;
       notes?: string;
       clientEmail?: string;
+      isSpecialWholesale?: boolean;
+      clientType?: string;
     }
   ) => string;
 
@@ -1031,9 +1033,9 @@ export const useStockFlowStore = create<StockFlowState>()(
               }
             }
 
-            // Apply Wholesale Discount if applicable
+            // Apply Wholesale Discount if applicable (only if not special wholesale with manual prices)
             let unitPrice = item.salePrice;
-            if (item.quantity >= state.wholesaleConfig.minQuantity) {
+            if (!paymentOptions?.isSpecialWholesale && paymentOptions?.clientType !== 'special_wholesale' && item.quantity >= state.wholesaleConfig.minQuantity) {
               unitPrice = unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100);
             }
 
