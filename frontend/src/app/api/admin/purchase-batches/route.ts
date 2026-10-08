@@ -49,9 +49,7 @@ export async function GET(req: NextRequest) {
         orderBy: [{ purchase_date: 'desc' }, { id: 'desc' }],
         include: {
           supplier: true,
-          items: {
-            select: { id: true },
-          },
+          items: true,
         },
       }),
     ]);
@@ -72,6 +70,19 @@ export async function GET(req: NextRequest) {
       notes: b.notes,
       created_at: b.created_at ? b.created_at.toISOString() : null,
       items_count: b.items.length,
+      items: b.items.map(it => ({
+        id: it.id,
+        batch_id: it.batch_id,
+        product_id: it.product_id,
+        variant_id: it.variant_id,
+        product_name: it.product_name,
+        variant_label: it.variant_label,
+        quantity: it.quantity,
+        unit_cost_original: it.unit_cost_original,
+        unit_cost_ars: it.unit_cost_ars,
+        shipping_per_unit_ars: it.shipping_per_unit_ars,
+        total_cost_per_unit_ars: it.total_cost_per_unit_ars,
+      })),
     }));
 
     return NextResponse.json({ total, batches: result });

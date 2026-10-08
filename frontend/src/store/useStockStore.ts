@@ -576,18 +576,7 @@ const MOCK_PRODUCTS: Product[] = [
   }
 ];
 
-const MOCK_PURCHASES: PurchaseRecord[] = MOCK_PRODUCTS.flatMap(p => p.variants.map(v => ({
-  id: `pch-${p.id}`,
-  date: '2026-09-14T10:00:00Z',
-  productId: p.id,
-  productName: p.name,
-  variantId: v.id,
-  size: v.size,
-  color: v.color,
-  quantity: v.stock,
-  unitPurchasePrice: p.purchasePrice,
-  totalCost: v.stock * p.purchasePrice
-})));
+const MOCK_PURCHASES: PurchaseRecord[] = [];
 
 const MOCK_SALES: SaleRecord[] = [];
 
@@ -1447,7 +1436,7 @@ export const useStockFlowStore = create<StockFlowState>()(
       }
     }),
     {
-      name: 'perfumeria-data-v8',
+      name: 'perfumeria-data-v9',
       onRehydrateStorage: () => (state) => {
         if (!state || !Array.isArray(state.purchases) || !Array.isArray(state.products)) return;
         const existingProducts = [...state.products];

@@ -1150,7 +1150,7 @@ export default function AdminDashboard() {
             ) : activeView === 'cobros_pendientes' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><CobrosPendientesView apiKey={apiKey} showAlert={showAlert} /></div>
             ) : activeView === 'finanzas' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><FinanzasView /></div>
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><FinanzasView apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : activeView === 'configuracion' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <ConfiguracionView
