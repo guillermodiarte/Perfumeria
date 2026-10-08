@@ -837,88 +837,92 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                 </button>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 dark:bg-slate-900/60">
-                    <tr className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                      {['Lote', 'Fecha', 'Proveedor', 'Moneda', 'Cotización', 'Envío', 'Total ARS', 'Items', 'Acciones'].map(h => (
-                        <th
-                          key={h}
-                          className={`px-4 py-3 ${['Cotización', 'Envío', 'Total ARS'].includes(h) ? 'text-right' : ['Moneda', 'Items', 'Acciones'].includes(h) ? 'text-center' : ''}`}
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredBatches.map(b => (
-                      <tr key={b.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors">
-                        <td className="px-4 py-3 font-mono text-xs font-bold text-primary">{b.batch_number}</td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 text-xs">
-                          {b.purchase_date ? new Date(b.purchase_date).toLocaleDateString('es-AR') : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 font-medium">
-                          {b.supplier_name || <span className="text-slate-400 italic">—</span>}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="inline-block bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded text-xs font-bold text-slate-700 dark:text-slate-300">
-                            {b.currency}
+              <div className="space-y-3">
+                {filteredBatches.map(b => (
+                  <div
+                    key={b.id}
+                    className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    {/* Fila superior: lote + fecha + acciones */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-black text-primary bg-primary/10 px-2.5 py-1 rounded-lg">
+                          {b.batch_number}
+                        </span>
+                        {b.purchase_date && (
+                          <span className="text-xs text-slate-400 font-medium">
+                            {new Date(b.purchase_date).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-400 text-xs">
-                          {b.currency === 'ARS' ? '—' : `$${fmt(b.exchange_rate)}`}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-green-700 dark:text-green-400 text-xs">
-                          ${fmt(b.shipping_cost_ars)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono font-black text-slate-900 dark:text-white">
-                          ${fmt(b.total_cost_ars)}
-                        </td>
-                        <td className="px-4 py-3 text-center font-bold text-slate-600 dark:text-slate-400 text-xs">
-                          {b.items_count}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => fetchBatchDetail(b.id)}
-                              title="Ver detalle del lote"
-                              className="text-primary hover:bg-primary/10 p-1.5 rounded-lg transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-lg">visibility</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openEditBatch(b.id)}
-                              title="Editar lote y cantidades"
-                              className="text-amber-600 hover:bg-amber-100/60 dark:hover:bg-amber-950/40 p-1.5 rounded-lg transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-lg">edit</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => syncBatchToStore(b.id)}
-                              disabled={syncingBatchId === b.id}
-                              title="Cargar productos de este lote al inventario"
-                              className="text-emerald-600 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/40 p-1.5 rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              <span className="material-symbols-outlined text-lg">{syncingBatchId === b.id ? 'sync' : 'inventory_2'}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openDeleteModal(b)}
-                              title="Eliminar lote y descontar del stock"
-                              className="text-red-600 hover:bg-red-100/60 dark:hover:bg-red-950/40 p-1.5 rounded-lg transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-lg">delete</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        )}
+                        {b.supplier_name && (
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                            · {b.supplier_name}
+                          </span>
+                        )}
+                      </div>
+                      {/* Botones de acción */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => fetchBatchDetail(b.id)}
+                          title="Ver detalle del lote"
+                          className="text-primary hover:bg-primary/10 p-1.5 rounded-lg transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">visibility</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditBatch(b.id)}
+                          title="Editar lote"
+                          className="text-amber-600 hover:bg-amber-100/60 dark:hover:bg-amber-950/40 p-1.5 rounded-lg transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => syncBatchToStore(b.id)}
+                          disabled={syncingBatchId === b.id}
+                          title="Cargar al inventario"
+                          className="text-emerald-600 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/40 p-1.5 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">{syncingBatchId === b.id ? 'sync' : 'inventory_2'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openDeleteModal(b)}
+                          title="Eliminar lote"
+                          className="text-red-600 hover:bg-red-100/60 dark:hover:bg-red-950/40 p-1.5 rounded-lg transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Fila inferior: datos financieros como chips */}
+                    <div className="flex flex-wrap gap-2">
+                      {/* Cotización destacada - solo si no es ARS */}
+                      {b.currency !== 'ARS' && (
+                        <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-600 rounded-xl px-3 py-1.5">
+                          <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider whitespace-nowrap">💵 1 {b.currency}</span>
+                          <span className="text-sm font-black text-amber-700 dark:text-amber-300">${fmt(b.exchange_rate)}</span>
+                          <span className="text-[10px] font-bold text-amber-400">ARS</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 bg-green-50 dark:bg-green-950/40 rounded-xl px-3 py-1.5">
+                        <span className="text-[10px] font-bold text-green-500 uppercase tracking-wider">Envío</span>
+                        <span className="text-xs font-mono font-bold text-green-700 dark:text-green-400">${fmt(b.shipping_cost_ars)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-primary/10 rounded-xl px-3 py-1.5">
+                        <span className="text-[10px] font-bold text-primary/70 uppercase tracking-wider">Total ARS</span>
+                        <span className="text-xs font-mono font-black text-primary">${fmt(b.total_cost_ars)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-700/60 rounded-xl px-3 py-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Items</span>
+                        <span className="text-xs font-black text-slate-700 dark:text-slate-200">{b.items_count}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -972,8 +976,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
               );
             })()}
 
-            <div className="overflow-auto flex-1">
-              <table className="w-full text-xs min-w-[800px]">
+            {/* Vista Desktop: Tabla completa */}
+            <div className="hidden md:block overflow-auto flex-1">
+              <table className="w-full text-xs min-w-[750px]">
                 <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
                   <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                     <th className="pb-2 pr-3">Producto / Variante</th>
@@ -1043,6 +1048,85 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                   </tr>
                 </tfoot>
               </table>
+            </div>
+
+            {/* Vista Mobile: Tarjetas compactas con Precio de Venta al frente sin scroll horizontal */}
+            <div className="md:hidden flex-1 overflow-y-auto space-y-3 pr-0.5">
+              {summaryRows.map((row, idx) => {
+                const hasConflict = !!row.existingProd && Math.abs((row.existingProd.purchasePrice || 0) - row.totalCostPerUnitARS) > 0.01;
+                const displaySalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePrice;
+                return (
+                  <div key={idx} className={`border rounded-2xl p-3.5 space-y-2.5 ${hasConflict ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700'}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-tight">{row.productName}</p>
+                        {row.variantLabel && (
+                          <p className="text-[11px] text-slate-400 mt-0.5">{row.variantLabel}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end flex-shrink-0">
+                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-0.5">P. Venta ✏️</span>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            className={`w-28 pl-5 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
+                            value={displaySalePrice || ''}
+                            onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }}
+                            disabled={row.salePriceConflict === 'keep'}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {hasConflict && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">
+                          ⚠ Costo ant: ${fmt(row.existingProd.purchasePrice || 0)}
+                        </span>
+                        {row.salePriceConflict === null ? (
+                          <button
+                            type="button"
+                            onClick={() => setConflictModal({ row, rowIdx: idx })}
+                            className="text-[11px] bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-0.5 rounded-lg shadow-sm flex items-center gap-1 transition"
+                          >
+                            <span className="material-symbols-outlined text-xs">tune</span> Resolver
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConflictModal({ row, rowIdx: idx })}
+                            className="text-[10px] bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-lg transition flex items-center gap-1"
+                          >
+                            ✓ {row.salePriceConflict === 'update' ? 'Actualizar' : row.salePriceConflict === 'keep' ? 'Mantener' : `$${fmt(row.customSalePrice)}`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-4 gap-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-center">
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Cant.</span>
+                        <span className="text-xs font-black text-slate-700 dark:text-slate-200">{row.quantity}</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Costo ARS</span>
+                        <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">${fmt(row.unitCostARS)}</span>
+                      </div>
+                      <div className="bg-green-50/80 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-1.5">
+                        <span className="text-[9px] font-bold text-green-600 uppercase block">Envío/u</span>
+                        <span className="text-[10px] font-mono font-bold text-green-700 dark:text-green-400">${fmt(row.shippingPerUnitARS)}</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Total/u</span>
+                        <span className="text-[10px] font-mono font-black text-slate-900 dark:text-white">${fmt(row.totalCostPerUnitARS)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
               <button type="button" onClick={() => setShowSummary(false)} className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-bold text-sm transition-colors flex items-center justify-center gap-2">
@@ -1169,8 +1253,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
 
       {/* MODAL: DETALLE DE LOTE */}
       {(detailBatch || loadingDetail) && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-4xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-5xl w-full p-4 sm:p-6 space-y-4 sm:space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
             {loadingDetail ? (
               <div className="flex items-center justify-center py-16 text-slate-400">
                 <span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>
@@ -1178,13 +1262,12 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
               </div>
             ) : detailBatch && (
               <>
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3 sm:pb-4">
                   <div>
                     <h3 className="text-xl font-black text-slate-900 dark:text-white">{detailBatch.batch_number}</h3>
                     <p className="text-xs text-slate-500">
                       {detailBatch.supplier_name ? `${detailBatch.supplier_name} • ` : ''}
-                      {detailBatch.purchase_date ? new Date(detailBatch.purchase_date).toLocaleDateString('es-AR') : ''} • {detailBatch.currency}
-                      {detailBatch.currency !== 'ARS' ? ` (cotiz. $${fmt(detailBatch.exchange_rate)})` : ''}
+                      {detailBatch.purchase_date ? new Date(detailBatch.purchase_date).toLocaleDateString('es-AR') : ''}
                     </p>
                   </div>
                   <button
@@ -1194,42 +1277,106 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                     <span className="material-symbols-outlined text-xl">close</span>
                   </button>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+
+                {/* Stat cards: 2 filas de 2 en mobile con el mismo tamaño exacto */}
+                <div className={`grid grid-cols-2 gap-2.5 sm:gap-3 ${detailBatch.currency !== 'ARS' ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                  {/* Cotización del dólar — mismo tamaño que los demás recuadros */}
+                  {detailBatch.currency !== 'ARS' && (
+                    <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-xl p-3 text-center flex flex-col justify-center min-h-[68px]">
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">💵 Cotiz. {detailBatch.currency}</span>
+                      <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300">${fmt(detailBatch.exchange_rate)}</span>
+                    </div>
+                  )}
                   {[['Total Productos', `$${fmt(detailBatch.total_products_ars)}`], ['Costo Envío', `$${fmt(detailBatch.shipping_cost_ars)}`], ['Total Lote', `$${fmt(detailBatch.total_cost_ars)}`]].map(([label, value]) => (
-                    <div key={String(label)} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase block">{label}</span>
-                      <span className="text-sm font-black text-slate-900 dark:text-white">{value}</span>
+                    <div key={String(label)} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center flex flex-col justify-center min-h-[68px]">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</span>
+                      <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white">{value}</span>
                     </div>
                   ))}
                 </div>
-                <div className="overflow-auto flex-1">
+
+                {/* Items: Vista Desktop (Tabla espaciosa donde todo cabe sin scroll horizontal) */}
+                <div className="hidden md:block flex-1 overflow-y-auto">
                   <table className="w-full text-xs">
-                    <thead>
+                    <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
                       <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                        {['Producto / Variante', 'Cant.', 'Costo orig.', 'Costo ARS', 'Envío/u', 'Total/u', 'Precio de Venta'].map((h, i) => (
-                          <th key={h} className={`pb-2 pr-3 ${i > 1 ? 'text-right' : ''}`}>{h}</th>
-                        ))}
+                        <th className="pb-2.5 pr-3">Producto / Variante</th>
+                        <th className="pb-2.5 pr-3 text-center">Cant.</th>
+                        <th className="pb-2.5 pr-3 text-right">Costo orig.</th>
+                        <th className="pb-2.5 pr-3 text-right">Costo ARS</th>
+                        <th className="pb-2.5 pr-3 text-right">Envío/u</th>
+                        <th className="pb-2.5 pr-3 text-right">Total/u</th>
+                        <th className="pb-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">Precio de Venta</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {(detailBatch.items || []).map((it: any) => (
-                        <tr key={it.id}>
-                          <td className="py-2 pr-3">
+                        <tr key={it.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/20">
+                          <td className="py-2.5 pr-3">
                             <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
-                            <p className="text-slate-400">{it.variant_label}</p>
+                            {it.variant_label && (
+                              <p className="text-slate-400 text-[11px]">{it.variant_label}</p>
+                            )}
                           </td>
-                          <td className="py-2 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{it.quantity}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-slate-500">
-                            {detailBatch.currency !== 'ARS' ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency]}${Number(it.unit_cost_original).toFixed(2)}` : `$${fmt(it.unit_cost_original)}`}
+                          <td className="py-2.5 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{it.quantity}</td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-slate-500">
+                            {detailBatch.currency !== 'ARS'
+                              ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency]}${Number(it.unit_cost_original).toFixed(2)}`
+                              : `$${fmt(it.unit_cost_original)}`}
                           </td>
-                          <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-green-600">${fmt(it.shipping_per_unit_ars)}</td>
-                          <td className="py-2 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(it.total_cost_per_unit_ars)}</td>
-                          <td className="py-2 text-right font-mono font-black text-primary">${fmt(it.sale_price)}</td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(it.shipping_per_unit_ars)}</td>
+                          <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(it.total_cost_per_unit_ars)}</td>
+                          <td className="py-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
+                            <span className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1 inline-block">
+                              ${fmt(it.sale_price)}
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Items: Vista Mobile (Tarjetas con Precio de Venta al frente y visible sin scroll) */}
+                <div className="md:hidden flex-1 overflow-y-auto space-y-2.5 pr-0.5">
+                  {(detailBatch.items || []).map((it: any) => (
+                    <div key={it.id} className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-2">
+                      {/* Cabecera de la tarjeta: Nombre a la izquierda y Precio de Venta destacado a la derecha */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-tight">{it.product_name}</p>
+                          {it.variant_label && (
+                            <p className="text-[11px] text-slate-400 mt-0.5">{it.variant_label}</p>
+                          )}
+                        </div>
+                        <div className="bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700/60 rounded-xl px-2.5 py-1 text-right flex-shrink-0">
+                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">P. Venta</span>
+                          <span className="text-xs font-black text-emerald-700 dark:text-emerald-300 font-mono">${fmt(it.sale_price)}</span>
+                        </div>
+                      </div>
+
+                      {/* Desglose de costos en 4 columnas compactas */}
+                      <div className="grid grid-cols-4 gap-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-center">
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Cant.</span>
+                          <span className="text-xs font-black text-slate-700 dark:text-slate-200">{it.quantity}</span>
+                        </div>
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Costo ARS</span>
+                          <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</span>
+                        </div>
+                        <div className="bg-green-50/80 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-green-600 uppercase block">Envío/u</span>
+                          <span className="text-[10px] font-mono font-bold text-green-700 dark:text-green-400">${fmt(it.shipping_per_unit_ars)}</span>
+                        </div>
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Total/u</span>
+                          <span className="text-[10px] font-mono font-black text-slate-900 dark:text-white">${fmt(it.total_cost_per_unit_ars)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
                 <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
                   <div className="flex items-center gap-2">

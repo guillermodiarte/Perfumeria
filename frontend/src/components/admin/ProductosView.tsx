@@ -739,7 +739,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                             {/* Pick from library */}
                             <button
                                 type="button"
-                                onClick={openMediaLib}
+                                onClick={() => openMediaLib()}
                                 className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border border-indigo-200 dark:border-indigo-700 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 text-indigo-600 dark:text-indigo-300 text-xs font-bold whitespace-nowrap transition-colors"
                             >
                                 <span className="material-symbols-outlined text-[16px]">photo_library</span>
