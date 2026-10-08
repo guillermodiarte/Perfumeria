@@ -45,8 +45,17 @@ fi
 export DATABASE_URL="file:/app/data/dev.db"
 
 # Sincronizar esquema de Prisma en la base de datos persistente
-echo "Aplicando esquema de Prisma en /app/data/dev.db..."
-node /app/node_modules/.bin/prisma db push --accept-data-loss --schema=/app/prisma/schema.prisma || node /app/node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma || echo "ADVERTENCIA: No se pudo ejecutar prisma db push/migrate deploy (continuando de todas formas)"
+echo "Aplicando esquema y migraciones de Prisma en /app/data/dev.db..."
+if [ -f "/app/prisma/migrate.js" ]; then
+  echo "Ejecutando script de migración /app/prisma/migrate.js..."
+  node /app/prisma/migrate.js || true
+elif [ -f "./prisma/migrate.js" ]; then
+  echo "Ejecutando script de migración ./prisma/migrate.js..."
+  node ./prisma/migrate.js || true
+fi
+if [ -f "/app/node_modules/prisma/build/index.js" ]; then
+  node /app/node_modules/prisma/build/index.js db push --accept-data-loss --schema=/app/prisma/schema.prisma || true
+fi
 
 # Ajustar permisos
 chmod -R 777 /app/data 2>/dev/null || true

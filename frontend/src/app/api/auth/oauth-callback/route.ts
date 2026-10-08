@@ -4,6 +4,39 @@ import { authOptions } from '@/lib/authOptions';
 import { prisma } from '@/lib/prisma';
 import { createToken } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
+/**
+ * Asegura que la tabla oauth_accounts exista en la base de datos.
+ * Necesario en producción cuando la DB fue creada con una versión anterior
+ * del schema que no incluía esta tabla.
+ */
+async function ensureOAuthTable() {
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "oauth_accounts" (
+        "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        "customer_id" INTEGER NOT NULL,
+        "provider" TEXT NOT NULL,
+        "provider_account_id" TEXT NOT NULL,
+        CONSTRAINT "oauth_accounts_customer_id_fkey"
+          FOREIGN KEY ("customer_id") REFERENCES "customers" ("id")
+          ON DELETE CASCADE ON UPDATE CASCADE
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "oauth_accounts_provider_provider_account_id_key"
+      ON "oauth_accounts"("provider", "provider_account_id");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "oauth_accounts_customer_id_idx"
+      ON "oauth_accounts"("customer_id");
+    `);
+  } catch {
+    // Si ya existe, los CREATE IF NOT EXISTS no fallan. Ignorar errores.
+  }
+}
+
 /**
  * POST /api/auth/oauth-callback
  * Called from client after NextAuth OAuth sign-in.
@@ -11,6 +44,9 @@ import { createToken } from '@/lib/auth';
  */
 export async function POST(req: NextRequest) {
   try {
+    // Garantizar que la tabla existe ANTES de usarla
+    await ensureOAuthTable();
+
     const session = await getServerSession(authOptions);
 
     if (!session?.user) {
@@ -118,7 +154,7 @@ export async function POST(req: NextRequest) {
         email: customer.email,
         name: customer.name,
         phone: customer.phone,
-        dni: customer.dni,
+        dni: (customer as any).dni,
         address: customer.address,
         province: customer.province,
         city: customer.city,
@@ -134,3 +170,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: 'Error interno del servidor' }, { status: 500 });
   }
 }
+

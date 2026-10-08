@@ -25,10 +25,17 @@ function AuthSync({ children }: { children: React.ReactNode }) {
       fetchApi('/api/auth/oauth-callback', { method: 'POST' })
         .then(async (data) => {
           setToken(data.access_token);
-          const userProfile = await fetchApi('/api/auth/me', {
-            headers: { 'X-API-KEY': data.access_token },
-          });
-          setUser(userProfile);
+          if (data.customer) {
+            setUser(data.customer);
+          }
+          try {
+            const userProfile = await fetchApi('/api/auth/me', {
+              headers: { 'X-API-KEY': data.access_token },
+            });
+            if (userProfile) setUser(userProfile);
+          } catch (e) {
+            console.warn('Perfil adicional no cargado:', e);
+          }
           closeModal();
           executePendingAction();
         })
