@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStockFlowStore } from '@/store/useStockStore';
 import { generateTicketPDF } from '@/utils/generateTicket';
 
@@ -28,6 +28,88 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
   const [installmentsCount, setInstallmentsCount] = useState<number>(3);
   const [initialDownPayment, setInitialDownPayment] = useState<string>('0');
   const [saleNotes, setSaleNotes] = useState('');
+
+  // Modal Eliminar Datos / Borrador
+  const [showClearSaleModal, setShowClearSaleModal] = useState(false);
+  const [isDraftLoaded, setIsDraftLoaded] = useState(false);
+  const DRAFT_VENTAS_KEY = 'lyg_draft_venta';
+
+  // Verifica si hay algún dato cargado
+  const hasDraftData = Boolean(
+    clientName.trim() !== '' ||
+    clientPhone.trim() !== '' ||
+    clientEmail.trim() !== '' ||
+    cart.length > 0 ||
+    selectedParentCategory !== '' ||
+    selectedCategory !== '' ||
+    selectedProductId !== '' ||
+    productSearchText.trim() !== ''
+  );
+
+  // Cargar borrador persistido al montar
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_VENTAS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.clientName !== undefined) setClientName(parsed.clientName);
+        if (parsed.clientPhone !== undefined) setClientPhone(parsed.clientPhone);
+        if (parsed.clientEmail !== undefined) setClientEmail(parsed.clientEmail);
+        if (Array.isArray(parsed.cart)) setCart(parsed.cart);
+        if (parsed.selectedParentCategory !== undefined) setSelectedParentCategory(parsed.selectedParentCategory);
+        if (parsed.selectedCategory !== undefined) setSelectedCategory(parsed.selectedCategory);
+        if (parsed.selectedProductId !== undefined) setSelectedProductId(parsed.selectedProductId);
+        if (parsed.productSearchText !== undefined) setProductSearchText(parsed.productSearchText);
+      }
+    } catch (e) {
+      console.error('Error al cargar borrador de venta:', e);
+    } finally {
+      setIsDraftLoaded(true);
+    }
+  }, []);
+
+  // Guardar borrador automáticamente al cambiar datos
+  useEffect(() => {
+    if (!isDraftLoaded) return;
+    try {
+      if (hasDraftData) {
+        const draft = {
+          clientName,
+          clientPhone,
+          clientEmail,
+          cart,
+          selectedParentCategory,
+          selectedCategory,
+          selectedProductId,
+          productSearchText,
+        };
+        localStorage.setItem(DRAFT_VENTAS_KEY, JSON.stringify(draft));
+      } else {
+        localStorage.removeItem(DRAFT_VENTAS_KEY);
+      }
+    } catch (e) {
+      console.error('Error al guardar borrador de venta:', e);
+    }
+  }, [isDraftLoaded, hasDraftData, clientName, clientPhone, clientEmail, cart, selectedParentCategory, selectedCategory, selectedProductId, productSearchText]);
+
+  // Limpiar y resetear venta
+  const handleClearSale = () => {
+    setCart([]);
+    setClientName('');
+    setClientPhone('');
+    setClientEmail('');
+    setSelectedParentCategory('');
+    setSelectedCategory('');
+    setSelectedProductId('');
+    setProductSearchText('');
+    setSelectedVariantId('');
+    setQuantityToAdd(1);
+    try {
+      localStorage.removeItem(DRAFT_VENTAS_KEY);
+    } catch {}
+    setShowClearSaleModal(false);
+    showAlert('🗑️ Datos de la venta eliminados.');
+  };
 
   const selectedProduct = products.find(p => p.id === selectedProductId);
   
@@ -131,6 +213,9 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
     
     showAlert(msgSuccess);
     setShowPaymentModal(false);
+    try {
+      localStorage.removeItem(DRAFT_VENTAS_KEY);
+    } catch {}
     setCart([]);
     setClientName('');
     setClientPhone('');
@@ -146,14 +231,32 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
       
       {/* Columna Izquierda: Punto de Venta */}
       <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-        <div className="mb-6 border-b border-slate-100 dark:border-slate-700 pb-6">
-          <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-            <span className="material-symbols-outlined text-primary text-3xl">point_of_sale</span>
-            Punto de Venta
-          </h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Vende seleccionando productos y luego sus variantes. El stock se descuenta exacto por talle y color.
-          </p>
+        <div className="mb-6 border-b border-slate-100 dark:border-slate-700 pb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+              <span className="material-symbols-outlined text-primary text-3xl">point_of_sale</span>
+              Punto de Venta
+            </h2>
+            <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
+              Vende seleccionando productos y luego sus variantes. El stock se descuenta exacto por talle y color.
+            </p>
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowClearSaleModal(true)}
+              disabled={!hasDraftData}
+              className={`px-4 py-2 rounded-xl font-bold text-sm transition-all flex items-center gap-2 border ${
+                hasDraftData
+                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/50 shadow-sm cursor-pointer'
+                  : 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60'
+              }`}
+              title={hasDraftData ? "Eliminar todos los datos cargados de la venta" : "No hay datos para eliminar"}
+            >
+              <span className="material-symbols-outlined text-lg">delete_sweep</span>
+              Eliminar datos
+            </button>
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -596,6 +699,64 @@ export default function VentasView({ showAlert }: { showAlert: (msg: string) => 
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRMAR ELIMINAR DATOS (VENTA) */}
+      {showClearSaleModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-red-200 dark:border-red-900/50 max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="size-11 rounded-2xl bg-red-100 dark:bg-red-950/50 text-red-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-2xl">delete_sweep</span>
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 dark:text-white text-base">
+                    ¿Eliminar datos de la venta?
+                  </h4>
+                  <p className="text-xs text-slate-500 font-bold">
+                    Punto de Venta / Caja
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowClearSaleModal(false)}
+                className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-2xl p-4 space-y-2 text-xs text-red-800 dark:text-red-300">
+              <p className="font-bold flex items-center gap-1.5 text-sm">
+                <span className="material-symbols-outlined text-base">warning</span>
+                ¿Estás seguro de que querés cancelar esta venta?
+              </p>
+              <p>
+                Se borrarán los datos del cliente ingresados y todos los productos agregados al carrito. Esta acción no se puede deshacer y la caja quedará limpia.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setShowClearSaleModal(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleClearSale}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg shadow-red-600/25 transition flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-base">delete_sweep</span>
+                Sí, eliminar todo
+              </button>
+            </div>
           </div>
         </div>
       )}

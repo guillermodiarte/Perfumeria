@@ -13,6 +13,7 @@ const CURRENCY_SYMBOLS: Record<Currency, string> = {
 };
 
 const fmt = (n: number) => Math.round(n).toLocaleString('es-AR');
+const fmtUSD = (n: number) => (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: (msg: string) => void; apiKey: string; apiUrl: string }) {
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
@@ -94,6 +95,100 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   const [editModalBatch, setEditModalBatch] = useState<any | null>(null);
   const [loadingEditBatch, setLoadingEditBatch] = useState(false);
   const [savingEditBatch, setSavingEditBatch] = useState(false);
+
+  // Modal Eliminar Datos / Borrador
+  const [showClearDraftModal, setShowClearDraftModal] = useState(false);
+  const [isDraftLoaded, setIsDraftLoaded] = useState(false);
+  const DRAFT_COMPRAS_KEY = 'lyg_draft_compra';
+
+  // Verifica si hay algún dato cargado
+  const hasDraftData = Boolean(
+    supplierInput.trim() !== '' ||
+    purchaseCurrency !== 'ARS' ||
+    shippingCurrency !== 'ARS' ||
+    (shippingCostOriginal !== '' && Number(shippingCostOriginal) > 0) ||
+    products.length > 1 ||
+    products.some(p =>
+      (p.newProductName && p.newProductName.trim() !== '') ||
+      (p.newProductSku && p.newProductSku.trim() !== '') ||
+      (p.newProductImageUrls && p.newProductImageUrls.length > 0) ||
+      (p.description && p.description.trim() !== '') ||
+      (p.olfactoryNotes && p.olfactoryNotes.trim() !== '') ||
+      (p.duration && p.duration.trim() !== '') ||
+      (p.intensity && p.intensity.trim() !== '') ||
+      (p.family && p.family.trim() !== '') ||
+      (p.variants && p.variants.length > 1) ||
+      (p.variants && p.variants.some(v =>
+        (v.description && v.description.trim() !== '') ||
+        (Number(v.unitPurchasePrice) > 0) ||
+        Number(v.quantity) > 1 ||
+        (v.size && v.size !== 'M')
+      ))
+    )
+  );
+
+  // Cargar borrador persistido al montar
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_COMPRAS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.supplierInput !== undefined) setSupplierInput(parsed.supplierInput);
+        if (parsed.purchaseDate) setPurchaseDate(parsed.purchaseDate);
+        if (parsed.purchaseCurrency) setPurchaseCurrency(parsed.purchaseCurrency);
+        if (parsed.exchangeRate !== undefined) setExchangeRate(parsed.exchangeRate);
+        if (parsed.shippingCurrency) setShippingCurrency(parsed.shippingCurrency);
+        if (parsed.shippingCostOriginal !== undefined) setShippingCostOriginal(parsed.shippingCostOriginal);
+        if (Array.isArray(parsed.products) && parsed.products.length > 0) {
+          setProducts(parsed.products);
+        }
+      }
+    } catch (e) {
+      console.error('Error al cargar borrador de compras:', e);
+    } finally {
+      setIsDraftLoaded(true);
+    }
+  }, []);
+
+  // Guardar borrador automáticamente al cambiar datos
+  useEffect(() => {
+    if (!isDraftLoaded) return;
+    try {
+      if (hasDraftData) {
+        const draft = {
+          supplierInput,
+          purchaseDate,
+          purchaseCurrency,
+          exchangeRate,
+          shippingCurrency,
+          shippingCostOriginal,
+          products,
+        };
+        localStorage.setItem(DRAFT_COMPRAS_KEY, JSON.stringify(draft));
+      } else {
+        localStorage.removeItem(DRAFT_COMPRAS_KEY);
+      }
+    } catch (e) {
+      console.error('Error al guardar borrador de compras:', e);
+    }
+  }, [isDraftLoaded, hasDraftData, supplierInput, purchaseDate, purchaseCurrency, exchangeRate, shippingCurrency, shippingCostOriginal, products]);
+
+  // Limpiar y resetear borrador
+  const handleClearDraft = () => {
+    setSupplierInput('');
+    setPurchaseDate(new Date().toISOString().split('T')[0]);
+    setPurchaseCurrency('ARS');
+    setExchangeRate(1);
+    setShippingCurrency('ARS');
+    setShippingCostOriginal('');
+    setProducts([createEmptyProduct()]);
+    setShowSummary(false);
+    try {
+      localStorage.removeItem(DRAFT_COMPRAS_KEY);
+    } catch {}
+    setShowClearDraftModal(false);
+    showAlert('🗑️ Datos eliminados y formulario reseteado.');
+  };
 
   // Autocomplete proveedores
   const fetchSuppliers = useCallback(async () => {
@@ -447,6 +542,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       });
 
       showAlert(`✅ Lote ${saved.batch_number} guardado con éxito.`);
+      try {
+        localStorage.removeItem(DRAFT_COMPRAS_KEY);
+      } catch {}
       setProducts([createEmptyProduct()]);
       setShippingCostOriginal('');
       setSupplierInput('');
@@ -469,7 +567,23 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">Registrá lotes con soporte multi-moneda y envío proporcional.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {activeTab === 'nueva' && (
+            <button
+              type="button"
+              onClick={() => setShowClearDraftModal(true)}
+              disabled={!hasDraftData}
+              className={`px-4 py-2 rounded-xl font-bold text-sm transition-all flex items-center gap-2 border ${
+                hasDraftData
+                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/50 shadow-sm cursor-pointer'
+                  : 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60'
+              }`}
+              title={hasDraftData ? "Eliminar todos los datos cargados del ingreso" : "No hay datos para eliminar"}
+            >
+              <span className="material-symbols-outlined text-lg">delete_sweep</span>
+              Eliminar datos
+            </button>
+          )}
           {(['nueva', 'historial'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 ${activeTab === tab ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
               <span className="material-symbols-outlined text-lg">{tab === 'nueva' ? 'add_circle' : 'history'}</span>
@@ -930,216 +1044,308 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       })()}
 
       {/* MODAL: RESUMEN */}
-      {showSummary && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-5xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="size-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center"><span className="material-symbols-outlined text-2xl">receipt_long</span></div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 dark:text-white">Resumen del Ingreso</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Revisá costos, envío proporcional y precios de venta.</p>
-                </div>
-              </div>
-              <button onClick={() => setShowSummary(false)} className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"><span className="material-symbols-outlined text-xl">close</span></button>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[['Proveedor', supplierInput || '—'], ['Moneda', purchaseCurrency === 'ARS' ? 'Pesos ARS' : `${purchaseCurrency} → $${fmt(Number(exchangeRate) || 0)}`], ['Total Compra', `$${fmt(totalCompraARS)}`], ['Total + Envío', `$${fmt(totalCompraARS + shippingCostARS)}`]].map(([label, value]) => (
-                <div key={String(label)} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</span>
-                  <span className="text-sm font-black text-slate-900 dark:text-white">{value}</span>
-                </div>
-              ))}
-            </div>
-            {/* Banner de alerta si hay conflictos pendientes */}
-            {(() => {
-              const pendingCount = summaryRows.filter(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null).length;
-              if (pendingCount === 0) return null;
-              return (
-                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
-                  <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 text-xs font-bold">
-                    <span className="material-symbols-outlined text-amber-600 text-lg">warning</span>
-                    <span>Hay <strong>{pendingCount} producto(s)</strong> con precio diferente al stock anterior. Seleccioná qué hacer con el precio de venta.</span>
+      {showSummary && (() => {
+        const totalUnitsSummary = summaryRows.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+        const isUSDSummary = purchaseCurrency === 'USD';
+        const totalCostOrigSummary = summaryRows.reduce((s, r) => s + (Number(r.quantity) || 0) * (Number(r.unitCostOriginal) || 0), 0);
+        const totalCostUSDSummary = isUSDSummary
+          ? totalCostOrigSummary
+          : (Number(exchangeRate) > 0 ? (totalCompraARS / Number(exchangeRate)) : null);
+        const totalCostARSSummary = totalCompraARS;
+        const totalCostFinalSummary = totalCompraARS + shippingCostARS;
+        const totalSaleValueSummary = summaryRows.reduce((s, r) => {
+          const displaySalePrice = r.salePriceConflict === 'keep' ? (r.existingProd?.salePrice || r.salePrice) : r.salePrice;
+          return s + (Number(r.quantity) || 0) * (Number(displaySalePrice) || 0);
+        }, 0);
+        const totalProfitSummary = totalSaleValueSummary - totalCostFinalSummary;
+        const marginPctSummary = totalCostFinalSummary > 0 ? (totalProfitSummary / totalCostFinalSummary) * 100 : 0;
+
+        return (
+          <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-5xl w-full p-4 sm:p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3 sm:pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="size-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center"><span className="material-symbols-outlined text-2xl">receipt_long</span></div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white">Resumen del Ingreso</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Revisá costos, envío proporcional y precios de venta.</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const firstIdx = summaryRows.findIndex(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null);
-                      if (firstIdx !== -1) setConflictModal({ row: summaryRows[firstIdx], rowIdx: firstIdx });
-                    }}
-                    className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow transition flex items-center justify-center gap-1.5 whitespace-nowrap"
-                  >
-                    <span className="material-symbols-outlined text-sm">tune</span>
-                    Resolver conflictos ({pendingCount})
-                  </button>
                 </div>
-              );
-            })()}
-
-            {/* Vista Desktop: Tabla completa */}
-            <div className="hidden md:block overflow-auto flex-1">
-              <table className="w-full text-xs min-w-[750px]">
-                <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
-                  <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                    <th className="pb-2 pr-3">Producto / Variante</th>
-                    <th className="pb-2 pr-3 text-center">Cant.</th>
-                    <th className="pb-2 pr-3 text-right">Costo orig.</th>
-                    <th className="pb-2 pr-3 text-right">Costo ARS</th>
-                    <th className="pb-2 pr-3 text-right">Envío/u</th>
-                    <th className="pb-2 pr-3 text-right">Total/u</th>
-                    <th className="pb-2 text-right min-w-[130px]">Precio de Venta ✏️</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {summaryRows.map((row, idx) => {
-                    const hasConflict = !!row.existingProd && Math.abs((row.existingProd.purchasePrice || 0) - row.totalCostPerUnitARS) > 0.01;
-                    const displaySalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePrice;
-                    return (
-                      <tr key={idx} className={hasConflict ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}>
-                        <td className="py-2 pr-3">
-                          <p className="font-bold text-slate-800 dark:text-slate-200">{row.productName}</p>
-                          <p className="text-slate-400">{row.variantLabel}</p>
-                          {hasConflict && (
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">
-                                ⚠ Costo ant: ${fmt(row.existingProd.purchasePrice || 0)}
-                              </span>
-                              {row.salePriceConflict === null ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setConflictModal({ row, rowIdx: idx })}
-                                  className="text-[11px] bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-0.5 rounded-lg shadow-sm flex items-center gap-1 transition"
-                                >
-                                  <span className="material-symbols-outlined text-xs">tune</span> Resolver
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setConflictModal({ row, rowIdx: idx })}
-                                  className="text-[10px] bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-lg transition flex items-center gap-1"
-                                >
-                                  ✓ {row.salePriceConflict === 'update' ? 'Actualizar Precio de Venta' : row.salePriceConflict === 'keep' ? 'Mantener Precio de Venta' : `Precio de Venta $${fmt(row.customSalePrice)}`} (Cambiar)
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{row.quantity}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-slate-600 dark:text-slate-400">{purchaseCurrency !== 'ARS' ? `${CURRENCY_SYMBOLS[purchaseCurrency]}${row.unitCostOriginal.toFixed(2)}` : `$${fmt(row.unitCostOriginal)}`}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(row.unitCostARS)}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-green-600 dark:text-green-400">${fmt(row.shippingPerUnitARS)}</td>
-                        <td className="py-2 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(row.totalCostPerUnitARS)}</td>
-                        <td className="py-2 text-right">
-                          <input type="number" step="1" min="0" className={`w-28 text-right bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-green-300 dark:border-green-700 text-green-700 dark:text-green-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`} value={displaySalePrice || ''} onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }} disabled={row.salePriceConflict === 'keep'} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot className="border-t-2 border-slate-200 dark:border-slate-600">
-                  <tr className="font-bold text-xs">
-                    <td className="pt-3 pr-3 text-slate-500">{summaryRows.length} variante(s)</td>
-                    <td className="pt-3 pr-3 text-center text-slate-900 dark:text-white">{summaryRows.reduce((s, r) => s + r.quantity, 0)}</td>
-                    <td></td>
-                    <td className="pt-3 pr-3 text-right font-mono text-slate-900 dark:text-white">${fmt(summaryRows.reduce((s, r) => s + r.unitCostARS * r.quantity, 0))}</td>
-                    <td className="pt-3 pr-3 text-right font-mono text-green-600">${fmt(shippingCostARS)}</td>
-                    <td className="pt-3 pr-3 text-right font-mono text-slate-900 dark:text-white">${fmt(summaryRows.reduce((s, r) => s + r.totalCostPerUnitARS * r.quantity, 0))}</td>
-                    <td></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* Vista Mobile: Tarjetas compactas con Precio de Venta al frente sin scroll horizontal */}
-            <div className="md:hidden flex-1 overflow-y-auto space-y-3 pr-0.5">
-              {summaryRows.map((row, idx) => {
-                const hasConflict = !!row.existingProd && Math.abs((row.existingProd.purchasePrice || 0) - row.totalCostPerUnitARS) > 0.01;
-                const displaySalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePrice;
+                <button onClick={() => setShowSummary(false)} className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"><span className="material-symbols-outlined text-xl">close</span></button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[['Proveedor', supplierInput || '—'], ['Moneda', purchaseCurrency === 'ARS' ? 'Pesos ARS' : `${purchaseCurrency} → $${fmt(Number(exchangeRate) || 0)}`], ['Total Compra', `$${fmt(totalCompraARS)}`], ['Total + Envío', `$${fmt(totalCompraARS + shippingCostARS)}`]].map(([label, value]) => (
+                  <div key={String(label)} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</span>
+                    <span className="text-sm font-black text-slate-900 dark:text-white">{value}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Banner de alerta si hay conflictos pendientes */}
+              {(() => {
+                const pendingCount = summaryRows.filter(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null).length;
+                if (pendingCount === 0) return null;
                 return (
-                  <div key={idx} className={`border rounded-2xl p-3.5 space-y-2.5 ${hasConflict ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700'}`}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-tight">{row.productName}</p>
-                        {row.variantLabel && (
-                          <p className="text-[11px] text-slate-400 mt-0.5">{row.variantLabel}</p>
-                        )}
+                  <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+                    <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 text-xs font-bold">
+                      <span className="material-symbols-outlined text-amber-600 text-lg">warning</span>
+                      <span>Hay <strong>{pendingCount} producto(s)</strong> con precio diferente al stock anterior. Seleccioná qué hacer con el precio de venta.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const firstIdx = summaryRows.findIndex(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null);
+                        if (firstIdx !== -1) setConflictModal({ row: summaryRows[firstIdx], rowIdx: firstIdx });
+                      }}
+                      className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow transition flex items-center justify-center gap-1.5 whitespace-nowrap"
+                    >
+                      <span className="material-symbols-outlined text-sm">tune</span>
+                      Resolver conflictos ({pendingCount})
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {/* Vista Desktop: Tabla completa */}
+              <div className="hidden md:block overflow-auto flex-1">
+                <table className="w-full text-xs min-w-[750px]">
+                  <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
+                    <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                      <th className="pb-2 pr-3">Producto / Variante</th>
+                      <th className="pb-2 pr-3 text-center">Cant.</th>
+                      <th className="pb-2 pr-3 text-right">Costo orig.</th>
+                      <th className="pb-2 pr-3 text-right">Costo ARS</th>
+                      <th className="pb-2 pr-3 text-right">Envío/u</th>
+                      <th className="pb-2 pr-3 text-right">Total/u</th>
+                      <th className="pb-2 pr-3 text-right font-black text-slate-900 dark:text-white">Total</th>
+                      <th className="pb-2 text-right min-w-[130px]">Precio de Venta ✏️</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {summaryRows.map((row, idx) => {
+                      const hasConflict = !!row.existingProd && Math.abs((row.existingProd.purchasePrice || 0) - row.totalCostPerUnitARS) > 0.01;
+                      const displaySalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePrice;
+                      return (
+                        <tr key={idx} className={hasConflict ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}>
+                          <td className="py-2 pr-3">
+                            <p className="font-bold text-slate-800 dark:text-slate-200">{row.productName}</p>
+                            <p className="text-slate-400">{row.variantLabel}</p>
+                            {hasConflict && (
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">
+                                  ⚠ Costo ant: ${fmt(row.existingProd.purchasePrice || 0)}
+                                </span>
+                                {row.salePriceConflict === null ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConflictModal({ row, rowIdx: idx })}
+                                    className="text-[11px] bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-0.5 rounded-lg shadow-sm flex items-center gap-1 transition"
+                                  >
+                                    <span className="material-symbols-outlined text-xs">tune</span> Resolver
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConflictModal({ row, rowIdx: idx })}
+                                    className="text-[10px] bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-lg transition flex items-center gap-1"
+                                  >
+                                    ✓ {row.salePriceConflict === 'update' ? 'Actualizar Precio de Venta' : row.salePriceConflict === 'keep' ? 'Mantener Precio de Venta' : `Precio de Venta $${fmt(row.customSalePrice)}`} (Cambiar)
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{row.quantity}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-slate-600 dark:text-slate-400">{purchaseCurrency !== 'ARS' ? `${CURRENCY_SYMBOLS[purchaseCurrency]}${row.unitCostOriginal.toFixed(2)}` : `$${fmt(row.unitCostOriginal)}`}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(row.unitCostARS)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-green-600 dark:text-green-400">${fmt(row.shippingPerUnitARS)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(row.totalCostPerUnitARS)}</td>
+                          <td className="py-2 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(row.totalCostPerUnitARS * row.quantity)}</td>
+                          <td className="py-2 text-right">
+                            <input type="number" step="1" min="0" className={`w-28 text-right bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-green-300 dark:border-green-700 text-green-700 dark:text-green-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`} value={displaySalePrice || ''} onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }} disabled={row.salePriceConflict === 'keep'} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="border-t-2 border-slate-200 dark:border-slate-600 bg-slate-50/70 dark:bg-slate-800/80 sticky bottom-0">
+                    <tr className="font-bold text-xs">
+                      <td className="py-2.5 pr-3 text-slate-500 font-bold">Totales ({summaryRows.length} variantes)</td>
+                      <td className="py-2.5 pr-3 text-center text-slate-900 dark:text-white font-black">{totalUnitsSummary}</td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-slate-600 dark:text-slate-300">
+                        {purchaseCurrency !== 'ARS' ? `${CURRENCY_SYMBOLS[purchaseCurrency]}${fmtUSD(totalCostOrigSummary)}` : `$${fmt(totalCostOrigSummary)}`}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-slate-900 dark:text-white">${fmt(totalCostARSSummary)}</td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(shippingCostARS)}</td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-slate-400">—</td>
+                      <td className="py-2.5 pr-3 text-right font-mono font-black text-slate-900 dark:text-white">${fmt(totalCostFinalSummary)}</td>
+                      <td className="py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400 font-black">${fmt(totalSaleValueSummary)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Vista Mobile: Tarjetas compactas con Precio de Venta al frente sin scroll horizontal */}
+              <div className="md:hidden flex-1 overflow-y-auto space-y-3 pr-0.5">
+                {summaryRows.map((row, idx) => {
+                  const hasConflict = !!row.existingProd && Math.abs((row.existingProd.purchasePrice || 0) - row.totalCostPerUnitARS) > 0.01;
+                  const displaySalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePrice;
+                  return (
+                    <div key={idx} className={`border rounded-2xl p-3.5 space-y-2.5 ${hasConflict ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700'}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-tight">{row.productName}</p>
+                          {row.variantLabel && (
+                            <p className="text-[11px] text-slate-400 mt-0.5">{row.variantLabel}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end flex-shrink-0">
+                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-0.5">P. Venta ✏️</span>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
+                            <input
+                              type="number"
+                              step="1"
+                              min="0"
+                              className={`w-28 pl-5 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
+                              value={displaySalePrice || ''}
+                              onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }}
+                              disabled={row.salePriceConflict === 'keep'}
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex flex-col items-end flex-shrink-0">
-                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-0.5">P. Venta ✏️</span>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
-                          <input
-                            type="number"
-                            step="1"
-                            min="0"
-                            className={`w-28 pl-5 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
-                            value={displaySalePrice || ''}
-                            onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }}
-                            disabled={row.salePriceConflict === 'keep'}
-                          />
+
+                      {hasConflict && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">
+                            ⚠ Costo ant: ${fmt(row.existingProd.purchasePrice || 0)}
+                          </span>
+                          {row.salePriceConflict === null ? (
+                            <button
+                              type="button"
+                              onClick={() => setConflictModal({ row, rowIdx: idx })}
+                              className="text-[11px] bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-0.5 rounded-lg shadow-sm flex items-center gap-1 transition"
+                            >
+                              <span className="material-symbols-outlined text-xs">tune</span> Resolver
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConflictModal({ row, rowIdx: idx })}
+                              className="text-[10px] bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-lg transition flex items-center gap-1"
+                            >
+                              ✓ {row.salePriceConflict === 'update' ? 'Actualizar' : row.salePriceConflict === 'keep' ? 'Mantener' : `$${fmt(row.customSalePrice)}`}
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-5 gap-1 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-center">
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Cant.</span>
+                          <span className="text-xs font-black text-slate-700 dark:text-slate-200">{row.quantity}</span>
+                        </div>
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Costo ARS</span>
+                          <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">${fmt(row.unitCostARS)}</span>
+                        </div>
+                        <div className="bg-green-50/80 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-green-600 uppercase block">Envío/u</span>
+                          <span className="text-[10px] font-mono font-bold text-green-700 dark:text-green-400">${fmt(row.shippingPerUnitARS)}</span>
+                        </div>
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Total/u</span>
+                          <span className="text-[10px] font-mono text-slate-700 dark:text-slate-300">${fmt(row.totalCostPerUnitARS)}</span>
+                        </div>
+                        <div className="bg-primary/5 dark:bg-primary/20 border border-primary/20 rounded-lg p-1.5">
+                          <span className="text-[9px] font-bold text-primary uppercase block">Total</span>
+                          <span className="text-[10px] font-mono font-black text-primary">${fmt(row.totalCostPerUnitARS * row.quantity)}</span>
                         </div>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
 
-                    {hasConflict && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                        <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">
-                          ⚠ Costo ant: ${fmt(row.existingProd.purchasePrice || 0)}
-                        </span>
-                        {row.salePriceConflict === null ? (
-                          <button
-                            type="button"
-                            onClick={() => setConflictModal({ row, rowIdx: idx })}
-                            className="text-[11px] bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-0.5 rounded-lg shadow-sm flex items-center gap-1 transition"
-                          >
-                            <span className="material-symbols-outlined text-xs">tune</span> Resolver
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConflictModal({ row, rowIdx: idx })}
-                            className="text-[10px] bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-lg transition flex items-center gap-1"
-                          >
-                            ✓ {row.salePriceConflict === 'update' ? 'Actualizar' : row.salePriceConflict === 'keep' ? 'Mantener' : `$${fmt(row.customSalePrice)}`}
-                          </button>
-                        )}
-                      </div>
-                    )}
+              {/* Panel de Rentabilidad y Proyección Financiera */}
+              <div className="bg-gradient-to-br from-slate-50 via-slate-50 to-emerald-50/40 dark:from-slate-900/60 dark:via-slate-900/60 dark:to-emerald-950/20 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-emerald-600 dark:text-emerald-400">query_stats</span>
+                    Proyección de Venta & Rentabilidad del Lote
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400 hidden sm:inline">
+                    Si vendés la totalidad de los artículos
+                  </span>
+                </div>
 
-                    <div className="grid grid-cols-4 gap-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-center">
-                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Cant.</span>
-                        <span className="text-xs font-black text-slate-700 dark:text-slate-200">{row.quantity}</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Costo ARS</span>
-                        <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">${fmt(row.unitCostARS)}</span>
-                      </div>
-                      <div className="bg-green-50/80 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-1.5">
-                        <span className="text-[9px] font-bold text-green-600 uppercase block">Envío/u</span>
-                        <span className="text-[10px] font-mono font-bold text-green-700 dark:text-green-400">${fmt(row.shippingPerUnitARS)}</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Total/u</span>
-                        <span className="text-[10px] font-mono font-black text-slate-900 dark:text-white">${fmt(row.totalCostPerUnitARS)}</span>
-                      </div>
-                    </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
+                  {/* 1. Cantidad Total de Artículos */}
+                  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Artículos</span>
+                    <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">{totalUnitsSummary}</span>
+                    <span className="text-[10px] text-slate-400 block font-medium">unidades</span>
                   </div>
-                );
-              })}
-            </div>
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
-              <button type="button" onClick={() => setShowSummary(false)} className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-bold text-sm transition-colors flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined text-lg">arrow_back</span> Volver a editar
-              </button>
-              <button type="button" onClick={handleConfirmSave} disabled={saving} className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-sm shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2 disabled:opacity-60">
-                {saving ? <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span> : <span className="material-symbols-outlined text-lg">check_circle</span>}
-                {saving ? 'Guardando...' : 'Confirmar Ingreso'}
-              </button>
+
+                  {/* 2. Costo Total en Dólares */}
+                  <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">Costo en USD</span>
+                    <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
+                      {totalCostUSDSummary !== null ? `USD $${fmtUSD(totalCostUSDSummary)}` : `${CURRENCY_SYMBOLS[purchaseCurrency]}${fmtUSD(totalCostOrigSummary)}`}
+                    </span>
+                    <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
+                      {purchaseCurrency === 'USD' ? 'costo mercadería' : 'en dólares'}
+                    </span>
+                  </div>
+
+                  {/* 3. Costo Total en Pesos */}
+                  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo en Pesos</span>
+                    <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(totalCostARSSummary)}</span>
+                    <span className="text-[10px] text-slate-400 block font-medium">sin flete</span>
+                  </div>
+
+                  {/* 4. Costo Total con Flete */}
+                  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Total c/Flete</span>
+                    <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(totalCostFinalSummary)}</span>
+                    <span className="text-[10px] text-slate-400 block font-medium">flete incluido</span>
+                  </div>
+
+                  {/* 5. Total Precio de Venta */}
+                  <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Total P. Venta</span>
+                    <span className="text-sm sm:text-base font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight">${fmt(totalSaleValueSummary)}</span>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block font-medium">facturación total</span>
+                  </div>
+
+                  {/* 6. Ganancia Neta Proyectada */}
+                  <div className="bg-emerald-600 text-white rounded-xl p-2.5 text-center shadow-md shadow-emerald-600/20 flex flex-col justify-center">
+                    <span className="text-[10px] font-black uppercase tracking-wider block text-emerald-100">Ganancia Neta</span>
+                    <span className="text-base sm:text-lg font-black font-mono leading-tight">
+                      {totalProfitSummary >= 0 ? `+$${fmt(totalProfitSummary)}` : `-$${fmt(Math.abs(totalProfitSummary))}`}
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-200 block">
+                      {marginPctSummary >= 0 ? `+${marginPctSummary.toFixed(1)}% margen` : `${marginPctSummary.toFixed(1)}%`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                <button type="button" onClick={() => setShowSummary(false)} className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-bold text-sm transition-colors flex items-center justify-center gap-2">
+                  <span className="material-symbols-outlined text-lg">arrow_back</span> Volver a editar
+                </button>
+                <button type="button" onClick={handleConfirmSave} disabled={saving} className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-sm shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2 disabled:opacity-60">
+                  {saving ? <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span> : <span className="material-symbols-outlined text-lg">check_circle</span>}
+                  {saving ? 'Guardando...' : 'Confirmar Ingreso'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL: CONFLICTO DE PRECIO */}
       {conflictModal && (() => {
@@ -1260,159 +1466,279 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                 <span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>
                 Cargando detalle...
               </div>
-            ) : detailBatch && (
-              <>
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3 sm:pb-4">
-                  <div>
-                    <h3 className="text-xl font-black text-slate-900 dark:text-white">{detailBatch.batch_number}</h3>
-                    <p className="text-xs text-slate-500">
-                      {detailBatch.supplier_name ? `${detailBatch.supplier_name} • ` : ''}
-                      {detailBatch.purchase_date ? new Date(detailBatch.purchase_date).toLocaleDateString('es-AR') : ''}
-                    </p>
+            ) : detailBatch && (() => {
+              const items = detailBatch.items || [];
+              const totalUnits = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0);
+              const isUSD = detailBatch.currency === 'USD';
+              const totalCostOrig = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_original) || 0), 0);
+              const totalCostUSD = isUSD 
+                ? totalCostOrig 
+                : (detailBatch.exchange_rate && Number(detailBatch.exchange_rate) > 0 
+                    ? (Number(detailBatch.total_products_ars) || 0) / Number(detailBatch.exchange_rate) 
+                    : null);
+              const totalCostARS = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_ars) || 0), 0);
+              const totalShippingARS = Number(detailBatch.shipping_cost_ars) || 0;
+              const totalCostFinal = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.total_cost_per_unit_ars) || 0), 0);
+              const totalSaleValue = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.sale_price) || 0), 0);
+              const totalProfit = totalSaleValue - totalCostFinal;
+              const marginPct = totalCostFinal > 0 ? (totalProfit / totalCostFinal) * 100 : 0;
+
+              return (
+                <>
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3 sm:pb-4">
+                    <div>
+                      <h3 className="text-xl font-black text-slate-900 dark:text-white">{detailBatch.batch_number}</h3>
+                      <p className="text-xs text-slate-500">
+                        {detailBatch.supplier_name ? `${detailBatch.supplier_name} • ` : ''}
+                        {detailBatch.purchase_date ? new Date(detailBatch.purchase_date).toLocaleDateString('es-AR') : ''}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setDetailBatch(null)}
+                      className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-xl">close</span>
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setDetailBatch(null)}
-                    className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-xl">close</span>
-                  </button>
-                </div>
 
-                {/* Stat cards: 2 filas de 2 en mobile con el mismo tamaño exacto */}
-                <div className={`grid grid-cols-2 gap-2.5 sm:gap-3 ${detailBatch.currency !== 'ARS' ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
-                  {/* Cotización del dólar — mismo tamaño que los demás recuadros */}
-                  {detailBatch.currency !== 'ARS' && (
-                    <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-xl p-3 text-center flex flex-col justify-center min-h-[68px]">
-                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">💵 Cotiz. {detailBatch.currency}</span>
-                      <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300">${fmt(detailBatch.exchange_rate)}</span>
-                    </div>
-                  )}
-                  {[['Total Productos', `$${fmt(detailBatch.total_products_ars)}`], ['Costo Envío', `$${fmt(detailBatch.shipping_cost_ars)}`], ['Total Lote', `$${fmt(detailBatch.total_cost_ars)}`]].map(([label, value]) => (
-                    <div key={String(label)} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center flex flex-col justify-center min-h-[68px]">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</span>
-                      <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white">{value}</span>
-                    </div>
-                  ))}
-                </div>
+                  {/* Stat cards: 2 filas de 2 en mobile con el mismo tamaño exacto */}
+                  <div className={`grid grid-cols-2 gap-2.5 sm:gap-3 ${detailBatch.currency !== 'ARS' ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                    {/* Cotización del dólar — mismo tamaño que los demás recuadros */}
+                    {detailBatch.currency !== 'ARS' && (
+                      <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-xl p-3 text-center flex flex-col justify-center min-h-[68px]">
+                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">💵 Cotiz. {detailBatch.currency}</span>
+                        <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300">${fmt(detailBatch.exchange_rate)}</span>
+                      </div>
+                    )}
+                    {[['Total Productos', `$${fmt(detailBatch.total_products_ars)}`], ['Costo Envío', `$${fmt(detailBatch.shipping_cost_ars)}`], ['Total Lote', `$${fmt(detailBatch.total_cost_ars)}`]].map(([label, value]) => (
+                      <div key={String(label)} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center flex flex-col justify-center min-h-[68px]">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</span>
+                        <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white">{value}</span>
+                      </div>
+                    ))}
+                  </div>
 
-                {/* Items: Vista Desktop (Tabla espaciosa donde todo cabe sin scroll horizontal) */}
-                <div className="hidden md:block flex-1 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
-                      <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                        <th className="pb-2.5 pr-3">Producto / Variante</th>
-                        <th className="pb-2.5 pr-3 text-center">Cant.</th>
-                        <th className="pb-2.5 pr-3 text-right">Costo orig.</th>
-                        <th className="pb-2.5 pr-3 text-right">Costo ARS</th>
-                        <th className="pb-2.5 pr-3 text-right">Envío/u</th>
-                        <th className="pb-2.5 pr-3 text-right">Total/u</th>
-                        <th className="pb-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">Precio de Venta</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {(detailBatch.items || []).map((it: any) => (
-                        <tr key={it.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/20">
-                          <td className="py-2.5 pr-3">
-                            <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
-                            {it.variant_label && (
-                              <p className="text-slate-400 text-[11px]">{it.variant_label}</p>
-                            )}
+                  {/* Items: Vista Desktop (Tabla espaciosa donde todo cabe sin scroll horizontal) */}
+                  <div className="hidden md:block flex-1 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
+                        <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                          <th className="pb-2.5 pr-3">Producto / Variante</th>
+                          <th className="pb-2.5 pr-3 text-center">Cant.</th>
+                          <th className="pb-2.5 pr-3 text-right">Costo orig.</th>
+                          <th className="pb-2.5 pr-3 text-right">Costo ARS</th>
+                          <th className="pb-2.5 pr-3 text-right">Envío/u</th>
+                          <th className="pb-2.5 pr-3 text-right">Total/u</th>
+                          <th className="pb-2.5 pr-3 text-right font-black text-slate-900 dark:text-white">Total</th>
+                          <th className="pb-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">Precio de Venta</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {items.map((it: any) => (
+                          <tr key={it.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/20">
+                            <td className="py-2.5 pr-3">
+                              <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
+                              {it.variant_label && (
+                                <p className="text-slate-400 text-[11px]">{it.variant_label}</p>
+                              )}
+                            </td>
+                            <td className="py-2.5 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{it.quantity}</td>
+                            <td className="py-2.5 pr-3 text-right font-mono text-slate-500">
+                              {detailBatch.currency !== 'ARS'
+                                ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency]}${Number(it.unit_cost_original).toFixed(2)}`
+                                : `$${fmt(it.unit_cost_original)}`}
+                            </td>
+                            <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</td>
+                            <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(it.shipping_per_unit_ars)}</td>
+                            <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.total_cost_per_unit_ars)}</td>
+                            <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(it.total_cost_per_unit_ars * it.quantity)}</td>
+                            <td className="py-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
+                              <span className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1 inline-block">
+                                ${fmt(it.sale_price)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/80 sticky bottom-0">
+                        <tr className="font-bold text-xs">
+                          <td className="py-2.5 pr-3 text-slate-500 font-bold">
+                            Totales ({items.length} variantes)
                           </td>
-                          <td className="py-2.5 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{it.quantity}</td>
-                          <td className="py-2.5 pr-3 text-right font-mono text-slate-500">
+                          <td className="py-2.5 pr-3 text-center text-slate-900 dark:text-white font-black">
+                            {totalUnits}
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-slate-600 dark:text-slate-300">
                             {detailBatch.currency !== 'ARS'
-                              ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency]}${Number(it.unit_cost_original).toFixed(2)}`
-                              : `$${fmt(it.unit_cost_original)}`}
+                              ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency] || ''}${fmtUSD(totalCostOrig)}`
+                              : `$${fmt(totalCostOrig)}`}
                           </td>
-                          <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</td>
-                          <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(it.shipping_per_unit_ars)}</td>
-                          <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(it.total_cost_per_unit_ars)}</td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-slate-900 dark:text-white">
+                            ${fmt(totalCostARS)}
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">
+                            ${fmt(totalShippingARS)}
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-slate-400">
+                            —
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-mono font-black text-slate-900 dark:text-white">
+                            ${fmt(totalCostFinal)}
+                          </td>
                           <td className="py-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
-                            <span className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1 inline-block">
-                              ${fmt(it.sale_price)}
-                            </span>
+                            ${fmt(totalSaleValue)}
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </tfoot>
+                    </table>
+                  </div>
 
-                {/* Items: Vista Mobile (Tarjetas con Precio de Venta al frente y visible sin scroll) */}
-                <div className="md:hidden flex-1 overflow-y-auto space-y-2.5 pr-0.5">
-                  {(detailBatch.items || []).map((it: any) => (
-                    <div key={it.id} className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-2">
-                      {/* Cabecera de la tarjeta: Nombre a la izquierda y Precio de Venta destacado a la derecha */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-tight">{it.product_name}</p>
-                          {it.variant_label && (
-                            <p className="text-[11px] text-slate-400 mt-0.5">{it.variant_label}</p>
-                          )}
+                  {/* Items: Vista Mobile (Tarjetas con Precio de Venta al frente y visible sin scroll) */}
+                  <div className="md:hidden flex-1 overflow-y-auto space-y-2.5 pr-0.5">
+                    {items.map((it: any) => (
+                      <div key={it.id} className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-2">
+                        {/* Cabecera de la tarjeta: Nombre a la izquierda y Precio de Venta destacado a la derecha */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-tight">{it.product_name}</p>
+                            {it.variant_label && (
+                              <p className="text-[11px] text-slate-400 mt-0.5">{it.variant_label}</p>
+                            )}
+                          </div>
+                          <div className="bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700/60 rounded-xl px-2.5 py-1 text-right flex-shrink-0">
+                            <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">P. Venta</span>
+                            <span className="text-xs font-black text-emerald-700 dark:text-emerald-300 font-mono">${fmt(it.sale_price)}</span>
+                          </div>
                         </div>
-                        <div className="bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700/60 rounded-xl px-2.5 py-1 text-right flex-shrink-0">
-                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">P. Venta</span>
-                          <span className="text-xs font-black text-emerald-700 dark:text-emerald-300 font-mono">${fmt(it.sale_price)}</span>
+
+                        {/* Desglose de costos en 5 columnas compactas */}
+                        <div className="grid grid-cols-5 gap-1 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-center">
+                          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase block">Cant.</span>
+                            <span className="text-xs font-black text-slate-700 dark:text-slate-200">{it.quantity}</span>
+                          </div>
+                          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase block">Costo ARS</span>
+                            <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</span>
+                          </div>
+                          <div className="bg-green-50/80 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-1.5">
+                            <span className="text-[9px] font-bold text-green-600 uppercase block">Envío/u</span>
+                            <span className="text-[10px] font-mono font-bold text-green-700 dark:text-green-400">${fmt(it.shipping_per_unit_ars)}</span>
+                          </div>
+                          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase block">Total/u</span>
+                            <span className="text-[10px] font-mono text-slate-700 dark:text-slate-300">${fmt(it.total_cost_per_unit_ars)}</span>
+                          </div>
+                          <div className="bg-primary/5 dark:bg-primary/20 border border-primary/20 rounded-lg p-1.5">
+                            <span className="text-[9px] font-bold text-primary uppercase block">Total</span>
+                            <span className="text-[10px] font-mono font-black text-primary">${fmt(it.total_cost_per_unit_ars * it.quantity)}</span>
+                          </div>
                         </div>
                       </div>
+                    ))}
+                  </div>
 
-                      {/* Desglose de costos en 4 columnas compactas */}
-                      <div className="grid grid-cols-4 gap-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-center">
-                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
-                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Cant.</span>
-                          <span className="text-xs font-black text-slate-700 dark:text-slate-200">{it.quantity}</span>
-                        </div>
-                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
-                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Costo ARS</span>
-                          <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</span>
-                        </div>
-                        <div className="bg-green-50/80 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-1.5">
-                          <span className="text-[9px] font-bold text-green-600 uppercase block">Envío/u</span>
-                          <span className="text-[10px] font-mono font-bold text-green-700 dark:text-green-400">${fmt(it.shipping_per_unit_ars)}</span>
-                        </div>
-                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5">
-                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Total/u</span>
-                          <span className="text-[10px] font-mono font-black text-slate-900 dark:text-white">${fmt(it.total_cost_per_unit_ars)}</span>
-                        </div>
+                  {/* Panel de Rentabilidad y Proyección Financiera */}
+                  <div className="bg-gradient-to-br from-slate-50 via-slate-50 to-emerald-50/40 dark:from-slate-900/60 dark:via-slate-900/60 dark:to-emerald-950/20 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px] text-emerald-600 dark:text-emerald-400">query_stats</span>
+                        Proyección de Venta & Rentabilidad del Lote
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-400 hidden sm:inline">
+                        Si vendés la totalidad de los artículos
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
+                      {/* 1. Cantidad Total de Artículos */}
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Artículos</span>
+                        <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">{totalUnits}</span>
+                        <span className="text-[10px] text-slate-400 block font-medium">unidades</span>
+                      </div>
+
+                      {/* 2. Costo Total en Dólares */}
+                      <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">Costo en USD</span>
+                        <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
+                          {totalCostUSD !== null ? `USD $${fmtUSD(totalCostUSD)}` : `${CURRENCY_SYMBOLS[detailBatch.currency as Currency] || ''}${fmtUSD(totalCostOrig)}`}
+                        </span>
+                        <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
+                          {detailBatch.currency === 'USD' ? 'costo mercadería' : 'en dólares'}
+                        </span>
+                      </div>
+
+                      {/* 3. Costo Total en Pesos */}
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo en Pesos</span>
+                        <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(totalCostARS)}</span>
+                        <span className="text-[10px] text-slate-400 block font-medium">sin flete</span>
+                      </div>
+
+                      {/* 4. Costo Total con Flete */}
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Total c/Flete</span>
+                        <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(totalCostFinal)}</span>
+                        <span className="text-[10px] text-slate-400 block font-medium">flete incluido</span>
+                      </div>
+
+                      {/* 5. Total Precio de Venta */}
+                      <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Total P. Venta</span>
+                        <span className="text-sm sm:text-base font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight">${fmt(totalSaleValue)}</span>
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block font-medium">facturación total</span>
+                      </div>
+
+                      {/* 6. Ganancia Neta Proyectada */}
+                      <div className="bg-emerald-600 text-white rounded-xl p-2.5 text-center shadow-md shadow-emerald-600/20 flex flex-col justify-center">
+                        <span className="text-[10px] font-black uppercase tracking-wider block text-emerald-100">Ganancia Neta</span>
+                        <span className="text-base sm:text-lg font-black font-mono leading-tight">
+                          {totalProfit >= 0 ? `+$${fmt(totalProfit)}` : `-$${fmt(Math.abs(totalProfit))}`}
+                        </span>
+                        <span className="text-[10px] font-bold text-emerald-200 block">
+                          {marginPct >= 0 ? `+${marginPct.toFixed(1)}% margen` : `${marginPct.toFixed(1)}%`}
+                        </span>
                       </div>
                     </div>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
-                  <div className="flex items-center gap-2">
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const b = detailBatch;
+                          setDetailBatch(null);
+                          openEditBatch(b.id);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 font-bold text-xs flex items-center gap-1.5 transition"
+                      >
+                        <span className="material-symbols-outlined text-sm">edit</span> Editar este lote
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const b = detailBatch;
+                          setDetailBatch(null);
+                          openDeleteModal(b);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-bold text-xs flex items-center gap-1.5 transition"
+                      >
+                        <span className="material-symbols-outlined text-sm">delete</span> Eliminar lote
+                      </button>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        const b = detailBatch;
-                        setDetailBatch(null);
-                        openEditBatch(b.id);
-                      }}
-                      className="px-3.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 font-bold text-xs flex items-center gap-1.5 transition"
+                      onClick={() => setDetailBatch(null)}
+                      className="px-5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs transition"
                     >
-                      <span className="material-symbols-outlined text-sm">edit</span> Editar este lote
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const b = detailBatch;
-                        setDetailBatch(null);
-                        openDeleteModal(b);
-                      }}
-                      className="px-3.5 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-bold text-xs flex items-center gap-1.5 transition"
-                    >
-                      <span className="material-symbols-outlined text-sm">delete</span> Eliminar lote
+                      Cerrar
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setDetailBatch(null)}
-                    className="px-5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs transition"
-                  >
-                    Cerrar
-                  </button>
-                </div>
-              </>
-            )}
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1519,163 +1845,321 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                 <span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>
                 Cargando datos del lote...
               </div>
-            ) : editModalBatch && (
-              <>
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="size-11 rounded-2xl bg-amber-100 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center">
-                      <span className="material-symbols-outlined text-2xl">edit_note</span>
+            ) : editModalBatch && (() => {
+              const editItems = editModalBatch.items || [];
+              const editTotalUnits = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0);
+              const isUSDEdit = editModalBatch.currency === 'USD';
+              const editTotalCostOrig = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_original) || 0), 0);
+              const editTotalCostARS = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_ars) || 0), 0);
+              const editTotalCostUSD = isUSDEdit 
+                ? editTotalCostOrig 
+                : (editModalBatch.exchange_rate && Number(editModalBatch.exchange_rate) > 0 
+                    ? (editTotalCostARS / Number(editModalBatch.exchange_rate)) 
+                    : null);
+              const editTotalShippingARS = Number(editModalBatch.shipping_cost_ars) || 0;
+              const editTotalCostFinal = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.total_cost_per_unit_ars) || 0), 0);
+              const editTotalSaleValue = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.sale_price) || 0), 0);
+              const editTotalProfit = editTotalSaleValue - editTotalCostFinal;
+              const editMarginPct = editTotalCostFinal > 0 ? (editTotalProfit / editTotalCostFinal) * 100 : 0;
+
+              return (
+                <>
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="size-11 rounded-2xl bg-amber-100 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center">
+                        <span className="material-symbols-outlined text-2xl">edit_note</span>
+                      </div>
+                      <div>
+                        <h4 className="font-black text-slate-900 dark:text-white text-base">
+                          Editar Lote {editModalBatch.batch_number}
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Modificá proveedor, fecha, notas, cantidades de stock y Precio de Venta.
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-black text-slate-900 dark:text-white text-base">
-                        Editar Lote {editModalBatch.batch_number}
-                      </h4>
-                      <p className="text-xs text-slate-500">
-                        Modificá proveedor, fecha, notas, cantidades de stock y Precio de Venta.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setEditModalBatch(null)}
-                    disabled={savingEditBatch}
-                    className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-lg">close</span>
-                  </button>
-                </div>
-
-                {/* Cabecera de edición */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-2xl">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">Proveedor / Tienda</label>
-                    <input
-                      type="text"
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white font-medium"
-                      value={editModalBatch.supplier_name}
-                      onChange={e => setEditModalBatch({ ...editModalBatch, supplier_name: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">Fecha de Compra</label>
-                    <input
-                      type="date"
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
-                      value={editModalBatch.purchase_date}
-                      onChange={e => setEditModalBatch({ ...editModalBatch, purchase_date: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">Notas / Observaciones</label>
-                    <input
-                      type="text"
-                      placeholder="Opcional..."
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
-                      value={editModalBatch.notes}
-                      onChange={e => setEditModalBatch({ ...editModalBatch, notes: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                {/* Tabla de ítems a editar */}
-                <div className="overflow-auto flex-1">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
-                      <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                        <th className="pb-2 pr-3">Producto / Variante</th>
-                        <th className="pb-2 pr-3 text-center w-28">Cantidad</th>
-                        <th className="pb-2 pr-3 text-right">Costo ARS</th>
-                        <th className="pb-2 pr-3 text-right">Envío/u</th>
-                        <th className="pb-2 pr-3 text-right">Total/u</th>
-                        <th className="pb-2 text-right w-36">Precio de Venta</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {editModalBatch.items.map((it: any, idx: number) => {
-                        const delta = (Number(it.quantity) || 0) - it.original_quantity;
-                        return (
-                          <tr key={it.id || idx}>
-                            <td className="py-2.5 pr-3">
-                              <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
-                              <p className="text-slate-400">{it.variant_label}</p>
-                            </td>
-                            <td className="py-2.5 pr-3 text-center">
-                              <div className="flex flex-col items-center">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  className="w-20 text-center bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs font-bold text-slate-900 dark:text-white"
-                                  value={it.quantity ?? ''}
-                                  onChange={e => updateEditItem(idx, 'quantity', e.target.value === '' ? 0 : Number(e.target.value))}
-                                />
-                                {delta !== 0 && (
-                                  <span className={`text-[10px] font-bold mt-0.5 ${delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                    {delta > 0 ? `+${delta}` : delta} stock
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                              ${fmt(it.unit_cost_ars)}
-                            </td>
-                            <td className="py-2.5 pr-3 text-right font-mono text-green-600">
-                              ${fmt(it.shipping_per_unit_ars)}
-                            </td>
-                            <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                              ${fmt(it.total_cost_per_unit_ars)}
-                            </td>
-                            <td className="py-2.5 text-right">
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                className="w-28 text-right bg-white dark:bg-slate-700 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 rounded-lg px-2 py-1 text-xs font-black"
-                                value={it.sale_price ?? ''}
-                                onChange={e => updateEditItem(idx, 'sale_price', e.target.value === '' ? 0 : Number(e.target.value))}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
-                  <span className="text-xs text-slate-500">
-                    Los cambios de cantidad ajustarán el stock inmediatamente.
-                  </span>
-                  <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={() => setEditModalBatch(null)}
                       disabled={savingEditBatch}
-                      className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                      className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
                     >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSaveEditBatch}
-                      disabled={savingEditBatch}
-                      className="px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-lg shadow-primary/25 transition flex items-center gap-1.5 disabled:opacity-60"
-                    >
-                      {savingEditBatch ? (
-                        <>
-                          <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                          Guardando...
-                        </>
-                      ) : (
-                        <>
-                          <span className="material-symbols-outlined text-sm">save</span>
-                          Guardar Cambios
-                        </>
-                      )}
+                      <span className="material-symbols-outlined text-lg">close</span>
                     </button>
                   </div>
+
+                  {/* Cabecera de edición */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-2xl">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Proveedor / Tienda</label>
+                      <input
+                        type="text"
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white font-medium"
+                        value={editModalBatch.supplier_name}
+                        onChange={e => setEditModalBatch({ ...editModalBatch, supplier_name: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Fecha de Compra</label>
+                      <input
+                        type="date"
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
+                        value={editModalBatch.purchase_date}
+                        onChange={e => setEditModalBatch({ ...editModalBatch, purchase_date: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Notas / Observaciones</label>
+                      <input
+                        type="text"
+                        placeholder="Opcional..."
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
+                        value={editModalBatch.notes}
+                        onChange={e => setEditModalBatch({ ...editModalBatch, notes: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Tabla de ítems a editar */}
+                  <div className="overflow-auto flex-1">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
+                        <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                          <th className="pb-2 pr-3">Producto / Variante</th>
+                          <th className="pb-2 pr-3 text-center w-28">Cantidad</th>
+                          <th className="pb-2 pr-3 text-right">Costo ARS</th>
+                          <th className="pb-2 pr-3 text-right">Envío/u</th>
+                          <th className="pb-2 pr-3 text-right">Total/u</th>
+                          <th className="pb-2 pr-3 text-right font-black text-slate-900 dark:text-white">Total</th>
+                          <th className="pb-2 text-right w-36">Precio de Venta</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {editItems.map((it: any, idx: number) => {
+                          const delta = (Number(it.quantity) || 0) - it.original_quantity;
+                          return (
+                            <tr key={it.id || idx}>
+                              <td className="py-2.5 pr-3">
+                                <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
+                                <p className="text-slate-400">{it.variant_label}</p>
+                              </td>
+                              <td className="py-2.5 pr-3 text-center">
+                                <div className="flex flex-col items-center">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    className="w-20 text-center bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs font-bold text-slate-900 dark:text-white"
+                                    value={it.quantity ?? ''}
+                                    onChange={e => updateEditItem(idx, 'quantity', e.target.value === '' ? 0 : Number(e.target.value))}
+                                  />
+                                  {delta !== 0 && (
+                                    <span className={`text-[10px] font-bold mt-0.5 ${delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                      {delta > 0 ? `+${delta}` : delta} stock
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                                ${fmt(it.unit_cost_ars)}
+                              </td>
+                              <td className="py-2.5 pr-3 text-right font-mono text-green-600">
+                                ${fmt(it.shipping_per_unit_ars)}
+                              </td>
+                              <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                                ${fmt(it.total_cost_per_unit_ars)}
+                              </td>
+                              <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                                ${fmt(it.total_cost_per_unit_ars * (Number(it.quantity) || 0))}
+                              </td>
+                              <td className="py-2.5 text-right">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  className="w-28 text-right bg-white dark:bg-slate-700 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 rounded-lg px-2 py-1 text-xs font-black"
+                                  value={it.sale_price ?? ''}
+                                  onChange={e => updateEditItem(idx, 'sale_price', e.target.value === '' ? 0 : Number(e.target.value))}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/80 sticky bottom-0">
+                        <tr className="font-bold text-xs">
+                          <td className="py-2.5 pr-3 text-slate-500 font-bold">
+                            Totales ({editItems.length} variantes)
+                          </td>
+                          <td className="py-2.5 pr-3 text-center text-slate-900 dark:text-white font-black">
+                            {editTotalUnits}
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-slate-900 dark:text-white">
+                            ${fmt(editTotalCostARS)}
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">
+                            ${fmt(editTotalShippingARS)}
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-mono text-slate-400">
+                            —
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-mono font-black text-slate-900 dark:text-white">
+                            ${fmt(editTotalCostFinal)}
+                          </td>
+                          <td className="py-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
+                            ${fmt(editTotalSaleValue)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* Panel de Rentabilidad y Proyección Financiera */}
+                  <div className="bg-gradient-to-br from-slate-50 via-slate-50 to-emerald-50/40 dark:from-slate-900/60 dark:via-slate-900/60 dark:to-emerald-950/20 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px] text-emerald-600 dark:text-emerald-400">query_stats</span>
+                        Proyección de Venta & Rentabilidad del Lote
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-400 hidden sm:inline">
+                        Valores calculados con cambios actuales
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Artículos</span>
+                        <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">{editTotalUnits}</span>
+                        <span className="text-[10px] text-slate-400 block font-medium">unidades</span>
+                      </div>
+                      <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">Costo en USD</span>
+                        <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
+                          {editTotalCostUSD !== null ? `USD $${fmtUSD(editTotalCostUSD)}` : '—'}
+                        </span>
+                        <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
+                          {editModalBatch.currency === 'USD' ? 'costo mercadería' : 'en dólares'}
+                        </span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo en Pesos</span>
+                        <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(editTotalCostARS)}</span>
+                        <span className="text-[10px] text-slate-400 block font-medium">sin flete</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Total c/Flete</span>
+                        <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(editTotalCostFinal)}</span>
+                        <span className="text-[10px] text-slate-400 block font-medium">flete incluido</span>
+                      </div>
+                      <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Total P. Venta</span>
+                        <span className="text-sm sm:text-base font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight">${fmt(editTotalSaleValue)}</span>
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block font-medium">facturación total</span>
+                      </div>
+                      <div className="bg-emerald-600 text-white rounded-xl p-2.5 text-center shadow-md shadow-emerald-600/20 flex flex-col justify-center">
+                        <span className="text-[10px] font-black uppercase tracking-wider block text-emerald-100">Ganancia Neta</span>
+                        <span className="text-base sm:text-lg font-black font-mono leading-tight">
+                          {editTotalProfit >= 0 ? `+$${fmt(editTotalProfit)}` : `-$${fmt(Math.abs(editTotalProfit))}`}
+                        </span>
+                        <span className="text-[10px] font-bold text-emerald-200 block">
+                          {editMarginPct >= 0 ? `+${editMarginPct.toFixed(1)}% margen` : `${editMarginPct.toFixed(1)}%`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
+                    <span className="text-xs text-slate-500">
+                      Los cambios de cantidad ajustarán el stock inmediatamente.
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setEditModalBatch(null)}
+                        disabled={savingEditBatch}
+                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveEditBatch}
+                        disabled={savingEditBatch}
+                        className="px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-lg shadow-primary/25 transition flex items-center gap-1.5 disabled:opacity-60"
+                      >
+                        {savingEditBatch ? (
+                          <>
+                            <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                            Guardando...
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-sm">save</span>
+                            Guardar Cambios
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+      {/* MODAL: CONFIRMAR ELIMINAR DATOS (BORRADOR) */}
+      {showClearDraftModal && (
+        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-red-200 dark:border-red-900/50 max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="size-11 rounded-2xl bg-red-100 dark:bg-red-950/50 text-red-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-2xl">delete_sweep</span>
                 </div>
-              </>
-            )}
+                <div>
+                  <h4 className="font-black text-slate-900 dark:text-white text-base">
+                    ¿Eliminar todos los datos?
+                  </h4>
+                  <p className="text-xs text-slate-500 font-bold">
+                    Ingreso de mercadería en curso
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowClearDraftModal(false)}
+                className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-2xl p-4 space-y-2 text-xs text-red-800 dark:text-red-300">
+              <p className="font-bold flex items-center gap-1.5 text-sm">
+                <span className="material-symbols-outlined text-base">warning</span>
+                ¿Estás seguro de que querés resetear este formulario?
+              </p>
+              <p>
+                Se borrarán todos los productos, variantes, costos, proveedor y datos ingresados en este borrador. Esta acción no se puede deshacer y el formulario quedará completamente limpio.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setShowClearDraftModal(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleClearDraft}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg shadow-red-600/25 transition flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-base">delete_sweep</span>
+                Sí, eliminar todo
+              </button>
+            </div>
           </div>
         </div>
       )}
