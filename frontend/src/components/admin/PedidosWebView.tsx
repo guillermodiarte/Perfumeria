@@ -439,10 +439,10 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
         <div className="flex flex-col sm:flex-row gap-4 justify-between items-stretch sm:items-center pt-2 border-t border-slate-100 dark:border-slate-700/60">
           
           {/* Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 sm:pb-0 scrollbar-none">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5">
             <button
               onClick={() => setActiveTab('pending')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'pending'
                   ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
@@ -461,7 +461,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
 
             <button
               onClick={() => setActiveTab('to_ship')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'to_ship'
                   ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
@@ -480,7 +480,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
 
             <button
               onClick={() => setActiveTab('pickup_pending')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'pickup_pending'
                   ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/20'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
@@ -499,7 +499,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
 
             <button
               onClick={() => setActiveTab('shipped')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'shipped'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
@@ -518,7 +518,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
 
             <button
               onClick={() => setActiveTab('delivered')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'delivered'
                   ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
@@ -530,7 +530,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
 
             <button
               onClick={() => setActiveTab('rejected')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'rejected'
                   ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
@@ -542,7 +542,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
 
             <button
               onClick={() => setActiveTab('all')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center ${
                 activeTab === 'all'
                   ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'

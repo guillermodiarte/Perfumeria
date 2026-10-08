@@ -445,17 +445,17 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
           </div>
 
           {/* Filter Tabs */}
-          <div className="flex gap-2 mt-4 overflow-x-auto pb-1">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mt-4">
             {([
               { key: 'pending', label: 'Pendientes de Aprobación', count: pending.length, color: 'amber' },
               { key: 'approved', label: 'Aprobados (Web)', count: approved.length, color: 'green' },
-              { key: 'mostrador', label: 'Clientes Mostrador (POS)', count: posClients.length, color: 'cyan' },
-              { key: 'all', label: 'Todos Web', count: customers.length, color: 'slate' },
+              { key: 'mostrador', label: 'Clientes Mostrador', count: posClients.length, color: 'cyan' },
+              { key: 'all', label: 'Todos (Web)', count: customers.length, color: 'slate' },
             ] as const).map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setFilter(tab.key)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
                   filter === tab.key
                     ? tab.color === 'amber' ? 'bg-amber-100 text-amber-700 border border-amber-200'
                     : tab.color === 'green' ? 'bg-green-100 text-green-700 border border-green-200'
@@ -463,8 +463,8 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
                     : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
                 }`}
               >
-                {tab.label}
-                <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black ${
+                <span className="truncate">{tab.label}</span>
+                <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black shrink-0 ${
                   filter === tab.key
                     ? 'bg-white/70 text-current'
                     : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'

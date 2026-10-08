@@ -382,90 +382,122 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
   };
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 md:p-8">
+    <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 sm:p-6 md:p-8">
       {/* Header */}
-      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-700/80 pb-6">
+      <div className="mb-5 sm:mb-6 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 border-b border-slate-100 dark:border-slate-700/80 pb-4 sm:pb-6">
         <div>
-          <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-            <span className="material-symbols-outlined text-primary text-3xl">settings</span>
+          <h2 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2.5 sm:gap-3">
+            <span className="material-symbols-outlined text-primary text-2xl sm:text-3xl">settings</span>
             Configuración del Sistema
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-xs sm:text-sm">
             Gestiona precios, promociones mayoristas, catálogo y copias de seguridad de forma organizada.
           </p>
         </div>
 
         {saveSuccessMessage && (
-          <div className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
+          <div className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in self-start md:self-auto">
             <span className="material-symbols-outlined text-base">check_circle</span>
             {saveSuccessMessage}
           </div>
         )}
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-100/80 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 w-fit mb-8">
+      {/* Tabs Navigation: Grid simétrico 2x2 en mobile + 5ta opción a lo ancho, flex en desktop */}
+      <div className="grid grid-cols-2 md:flex md:flex-wrap items-center gap-1.5 sm:gap-2 p-1.5 bg-slate-100/90 dark:bg-slate-900/80 rounded-2xl border border-slate-200/80 dark:border-slate-800 w-full md:w-fit mb-6 sm:mb-8">
         <button
           onClick={() => setActiveTab('precios')}
-          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
             activeTab === 'precios'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
-          <span className="material-symbols-outlined text-lg">payments</span>
-          Precios y Mayoristas
+          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+            activeTab === 'precios'
+              ? 'bg-primary/10 text-primary'
+              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+          }`}>
+            <span className="material-symbols-outlined text-base sm:text-lg">payments</span>
+          </div>
+          <span className="leading-tight truncate">Precios y Mayoristas</span>
         </button>
 
         <button
           onClick={() => setActiveTab('catalogo')}
-          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
             activeTab === 'catalogo'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
-          <span className="material-symbols-outlined text-lg">category</span>
-          Categorías y Catálogo
+          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+            activeTab === 'catalogo'
+              ? 'bg-primary/10 text-primary'
+              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+          }`}>
+            <span className="material-symbols-outlined text-base sm:text-lg">category</span>
+          </div>
+          <span className="leading-tight truncate">Categorías y Catálogo</span>
         </button>
 
         <button
           onClick={() => setActiveTab('envios')}
-          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
+            !isSuperAdmin ? 'col-span-2 md:col-span-1' : ''
+          } ${
             activeTab === 'envios'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
-          <span className="material-symbols-outlined text-lg">local_shipping</span>
-          Envíos y Entregas
+          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+            activeTab === 'envios'
+              ? 'bg-primary/10 text-primary'
+              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+          }`}>
+            <span className="material-symbols-outlined text-base sm:text-lg">local_shipping</span>
+          </div>
+          <span className="leading-tight truncate">Envíos y Entregas</span>
         </button>
 
         {isSuperAdmin && (
           <button
             onClick={() => setActiveTab('empresa')}
-            className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+            className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
               activeTab === 'empresa'
-                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
             }`}
           >
-            <span className="material-symbols-outlined text-lg">storefront</span>
-            Empresa
+            <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+              activeTab === 'empresa'
+                ? 'bg-primary/10 text-primary'
+                : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+            }`}>
+              <span className="material-symbols-outlined text-base sm:text-lg">storefront</span>
+            </div>
+            <span className="leading-tight truncate">Empresa</span>
           </button>
         )}
 
         {isSuperAdmin && (
           <button
             onClick={() => setActiveTab('respaldos')}
-            className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+            className={`col-span-2 md:col-span-1 flex items-center justify-center md:justify-start gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
               activeTab === 'respaldos'
-                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
             }`}
           >
-            <span className="material-symbols-outlined text-lg">cloud_sync</span>
-            Copias de Seguridad (Backups)
+            <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+              activeTab === 'respaldos'
+                ? 'bg-primary/10 text-primary'
+                : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+            }`}>
+              <span className="material-symbols-outlined text-base sm:text-lg">cloud_sync</span>
+            </div>
+            <span className="leading-tight truncate">Copias de Seguridad (Backups)</span>
           </button>
         )}
       </div>

@@ -282,10 +282,10 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
 
         {/* Filtros */}
         <div className="flex flex-col sm:flex-row gap-4 justify-between items-stretch sm:items-center pt-2 border-t border-slate-100 dark:border-slate-700/60">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 sm:pb-0">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5">
             <button
               onClick={() => setFilterSource('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 ${
                 filterSource === 'all'
                   ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
@@ -296,19 +296,19 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
 
             <button
               onClick={() => setFilterSource('month_due')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 ${
                 filterSource === 'month_due'
                   ? 'bg-amber-500 text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
               }`}
             >
-              <span className="material-symbols-outlined text-sm">notifications_active</span>
-              A Cobrar Este Mes ({cuotasPendientesEsteMes})
+              <span className="material-symbols-outlined text-sm hidden sm:inline">notifications_active</span>
+              <span className="truncate">A Cobrar Este Mes ({cuotasPendientesEsteMes})</span>
             </button>
 
             <button
               onClick={() => setFilterSource('web')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 ${
                 filterSource === 'web'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
@@ -319,7 +319,7 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
 
             <button
               onClick={() => setFilterSource('mostrador')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 ${
                 filterSource === 'mostrador'
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
