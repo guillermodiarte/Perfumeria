@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
       products: body.products || [],
       categoriesConfig: body.categoriesConfig || [],
       variantGroupsConfig: body.variantGroupsConfig || [],
+      perfumeTypesConfig: body.perfumeTypesConfig || [],
       purchases: body.purchases || [],
       sales: body.sales || [],
       globalMarkupPrc: body.globalMarkupPrc ?? 50,

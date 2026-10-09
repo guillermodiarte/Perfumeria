@@ -320,9 +320,13 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                         {product.targetGender}
                       </span>
                     )}
+                    {product.perfumeType && (
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded border text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800">
+                        {product.perfumeType}
+                      </span>
+                    )}
                   </div>
                   <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white leading-tight">{product.name}</h1>
-                  {product.sku && <p className="text-slate-400 font-mono text-sm">SKU: {product.sku}</p>}
                   
                   {/* Price */}
                   <div className="flex flex-col mt-1 gap-1">

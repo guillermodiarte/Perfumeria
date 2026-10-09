@@ -437,6 +437,11 @@ function CatalogContent() {
                             {product.targetGender}
                           </span>
                         )}
+                        {product.perfumeType && (
+                          <span className="bg-emerald-600/90 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full backdrop-blur-md shadow-sm">
+                            {product.perfumeType}
+                          </span>
+                        )}
                       </div>
                     </div>
 

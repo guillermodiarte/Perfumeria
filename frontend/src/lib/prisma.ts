@@ -24,13 +24,18 @@ if (!globalForPrisma.hasCheckedSchema) {
   (async () => {
     // ── Columnas nuevas en customers ──────────────────────────────────────
     try {
-      await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "dni" TEXT;`);
-    } catch {}
-    try {
-      await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "is_special_wholesale" BOOLEAN DEFAULT 0;`);
-    } catch {}
-    try {
-      await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "customer_type" TEXT DEFAULT 'normal';`);
+      const tableInfo: any[] = await prisma.$queryRawUnsafe(`PRAGMA table_info(customers);`);
+      const existingCols = new Set(Array.isArray(tableInfo) ? tableInfo.map((c: any) => c.name) : []);
+
+      if (!existingCols.has('dni')) {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "dni" TEXT;`);
+      }
+      if (!existingCols.has('is_special_wholesale')) {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "is_special_wholesale" BOOLEAN DEFAULT 0;`);
+      }
+      if (!existingCols.has('customer_type')) {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "customers" ADD COLUMN "customer_type" TEXT DEFAULT 'normal';`);
+      }
     } catch {}
 
     // ── Tabla oauth_accounts ──────────────────────────────────────────────
@@ -48,19 +53,19 @@ if (!globalForPrisma.hasCheckedSchema) {
             ON DELETE CASCADE ON UPDATE CASCADE
         );
       `);
-    } catch {}
+    } catch { }
     try {
       await prisma.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "oauth_accounts_provider_provider_account_id_key"
         ON "oauth_accounts"("provider", "provider_account_id");
       `);
-    } catch {}
+    } catch { }
     try {
       await prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "oauth_accounts_customer_id_idx"
         ON "oauth_accounts"("customer_id");
       `);
-    } catch {}
+    } catch { }
 
     // ── Tabla cart_items (si no existe) ──────────────────────────────────
     try {
@@ -76,7 +81,7 @@ if (!globalForPrisma.hasCheckedSchema) {
             ON DELETE CASCADE ON UPDATE CASCADE
         );
       `);
-    } catch {}
+    } catch { }
 
     // ── Tabla orders (si no existe) ───────────────────────────────────────
     try {
@@ -99,12 +104,12 @@ if (!globalForPrisma.hasCheckedSchema) {
           "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
       `);
-    } catch {}
+    } catch { }
     try {
       await prisma.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "orders_order_number_key" ON "orders"("order_number");
       `);
-    } catch {}
+    } catch { }
 
   })().catch((e) => {
     console.error('[prisma.ts] Error en auto-migración:', e?.message ?? e);

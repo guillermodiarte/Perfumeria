@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { useStockFlowStore } from '@/store/useStockStore';
+import { useStockFlowStore, DEFAULT_PERFUME_TYPES } from '@/store/useStockStore';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
 type Currency = 'ARS' | 'USD' | 'BRL' | 'PYG';
@@ -21,7 +21,17 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   const deletePurchaseBatch = useStockFlowStore(s => s.deletePurchaseBatch);
   const updatePurchaseBatch = useStockFlowStore(s => s.updatePurchaseBatch);
   const productsStore = useStockFlowStore(s => s.products);
-  const { categoriesConfig, variantGroupsConfig } = useStockFlowStore();
+  const { categoriesConfig, variantGroupsConfig, perfumeTypesConfig } = useStockFlowStore();
+
+  const isPerfumeCategory = (catId?: string) => {
+    if (!catId) return true;
+    const group = categoriesConfig.find(g => g.opciones.includes(catId));
+    if (group) {
+      if (group.variantGroupId === 'perfumes') return true;
+      if (group.grupo.toLowerCase().includes('perfum')) return true;
+    }
+    return catId.toLowerCase().includes('perfum');
+  };
 
   // TABS
   const [activeTab, setActiveTab] = useState<'nueva' | 'historial'>('nueva');
@@ -46,7 +56,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   const createEmptyVariant = () => ({ size: 'M', description: '', quantity: 1 as number | string, unitPurchasePrice: '' as unknown as number, sizeIndex: 0 });
   const createEmptyProduct = () => ({
     productId: `NEW-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-    newProductName: '', newProductSku: '',
+    newProductName: '', newProductSku: '', perfumeType: '',
     categoryId: categoriesConfig[0]?.opciones[0] || 'Perfumes de Mujer',
     targetGender: 'Unisex' as const,
     newProductImageUrls: [] as string[], _uploading: false,
@@ -537,7 +547,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
         items: summaryRows.map(row => {
           const prod = products[row.pIdx];
           const finalSalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice;
-          return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, newProductName: prod.newProductName, newProductSku: prod.newProductSku, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
+          return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
         }),
       });
 
@@ -660,19 +670,36 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                       </select>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <input list={`pnames-${pIdx}`} placeholder="Nombre de Producto" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white" value={prod.newProductName}
-                        onChange={e => {
-                          const val = e.target.value; updateProduct(pIdx, 'newProductName', val);
-                          const ex = productsStore.find(p => p.name.trim().toLowerCase() === val.trim().toLowerCase());
-                          if (ex) {
-                            updateProduct(pIdx, 'productId', ex.id); updateProduct(pIdx, 'categoryId', ex.categoryId); updateProduct(pIdx, 'newProductSku', ex.sku); updateProduct(pIdx, 'newProductImageUrls', ex.imageUrls || []);
-                            if (ex.targetGender) updateProduct(pIdx, 'targetGender', ex.targetGender);
-                            ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((ex as any)[f] !== undefined) updateProduct(pIdx, f, (ex as any)[f]); });
-                          } else if (!prod.productId || !prod.productId.startsWith('NEW-')) { updateProduct(pIdx, 'productId', `NEW-${Date.now()}-${pIdx}`); }
-                        }}
-                      />
-                      <datalist id={`pnames-${pIdx}`}>{productsStore.map(p => <option key={p.id} value={p.name} />)}</datalist>
-                      <input placeholder="SKU (Opcional)" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white" value={prod.newProductSku} onChange={e => updateProduct(pIdx, 'newProductSku', e.target.value)} />
+                      <div className={isPerfumeCategory(prod.categoryId) ? '' : 'col-span-1 md:col-span-2'}>
+                        <input list={`pnames-${pIdx}`} placeholder="Nombre de Producto" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white" value={prod.newProductName}
+                          onChange={e => {
+                            const val = e.target.value; updateProduct(pIdx, 'newProductName', val);
+                            const ex = productsStore.find(p => p.name.trim().toLowerCase() === val.trim().toLowerCase());
+                            if (ex) {
+                              updateProduct(pIdx, 'productId', ex.id); updateProduct(pIdx, 'categoryId', ex.categoryId); updateProduct(pIdx, 'newProductSku', ex.sku); updateProduct(pIdx, 'perfumeType', (ex as any).perfumeType || ''); updateProduct(pIdx, 'newProductImageUrls', ex.imageUrls || []);
+                              if (ex.targetGender) updateProduct(pIdx, 'targetGender', ex.targetGender);
+                              ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((ex as any)[f] !== undefined) updateProduct(pIdx, f, (ex as any)[f]); });
+                            } else if (!prod.productId || !prod.productId.startsWith('NEW-')) { updateProduct(pIdx, 'productId', `NEW-${Date.now()}-${pIdx}`); }
+                          }}
+                        />
+                        <datalist id={`pnames-${pIdx}`}>{productsStore.map(p => <option key={p.id} value={p.name} />)}</datalist>
+                      </div>
+                      {isPerfumeCategory(prod.categoryId) && (
+                        <select
+                          className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-medium h-10"
+                          value={prod.perfumeType || ''}
+                          onChange={e => updateProduct(pIdx, 'perfumeType', e.target.value)}
+                        >
+                          <option value="">Tipo de perfume (Opcional / Ninguno)</option>
+                          {(perfumeTypesConfig && perfumeTypesConfig.length > 0 ? perfumeTypesConfig : DEFAULT_PERFUME_TYPES).map(pt => (
+                            <option key={pt.value} value={pt.value}>
+                              {pt.value}{pt.description ? ` (${pt.description})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {/* SKU oculto según solicitud */}
+                      <input type="hidden" value={prod.newProductSku || ''} />
                     </div>
                   </div>
                   <div className="col-span-1 md:col-span-7 flex flex-col gap-2">

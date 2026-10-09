@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import { useStockFlowStore, Product } from '@/store/useStockStore';
+import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES } from '@/store/useStockStore';
 import { API_URL } from '@/utils/api';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
@@ -206,6 +206,17 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
   const variantGroupsConfig = useStockFlowStore(s => s.variantGroupsConfig);
+  const perfumeTypesConfig = useStockFlowStore(s => s.perfumeTypesConfig);
+
+  const isPerfumeCategory = (catId?: string) => {
+    if (!catId) return true;
+    const group = categoriesConfig.find(g => g.opciones.includes(catId));
+    if (group) {
+      if (group.variantGroupId === 'perfumes') return true;
+      if (group.grupo.toLowerCase().includes('perfum')) return true;
+    }
+    return catId.toLowerCase().includes('perfum');
+  };
 
   useEffect(() => {
     // Reset subcategory when main category changes
@@ -336,6 +347,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
           updateProduct(editingProduct.id, {
               name: editForm.name,
               sku: editForm.sku,
+              perfumeType: editForm.perfumeType || '',
               categoryId: editForm.categoryId,
               targetGender: editForm.targetGender,
               purchasePrice: computedPurchasePrice,
@@ -382,7 +394,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                 <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
                 <input 
                   type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar Nombre, SKU o Subcategoría"
+                  placeholder="Buscar Nombre o Subcategoría"
                   className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all"
                 />
             </div>
@@ -494,9 +506,13 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                              {p.targetGender}
                                          </span>
                                      )}
+                                     {p.perfumeType && (
+                                         <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800">
+                                             {p.perfumeType}
+                                         </span>
+                                     )}
                                  </div>
-                                 <h4 className="text-lg font-black text-slate-900 dark:text-white leading-tight pr-14 mt-1">{p.name}</h4>
-                                 <div className="text-xs text-slate-400 font-mono mt-1 mb-4">{p.sku}</div>
+                                 <h4 className="text-lg font-black text-slate-900 dark:text-white leading-tight pr-14 mt-1 mb-3">{p.name}</h4>
                                  
                                  {(() => {
                                      const variantSalePrices = p.variants?.map(v => v.manualSalePrice).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
@@ -664,14 +680,29 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
+                        <div className={isPerfumeCategory(editForm.categoryId) ? '' : 'col-span-1 md:col-span-2'}>
                             <label className="block text-xs font-bold text-slate-500 mb-1">Nombre del Producto</label>
                             <input type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.name} onChange={e => setEditForm((prev:any) => ({...prev, name: e.target.value}))} />
                         </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">SKU</label>
-                            <input type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium font-mono focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" value={editForm.sku} onChange={e => setEditForm((prev:any) => ({...prev, sku: e.target.value}))} />
-                        </div>
+                        {isPerfumeCategory(editForm.categoryId) && (
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Tipo de Perfume (Opcional)</label>
+                                <select 
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" 
+                                    value={editForm.perfumeType || ''} 
+                                    onChange={e => setEditForm((prev: any) => ({ ...prev, perfumeType: e.target.value }))}
+                                >
+                                    <option value="">Sin tipo (Ninguno / Opcional)</option>
+                                    {(perfumeTypesConfig && perfumeTypesConfig.length > 0 ? perfumeTypesConfig : DEFAULT_PERFUME_TYPES).map(pt => (
+                                        <option key={pt.value} value={pt.value}>
+                                            {pt.value}{pt.description ? ` (${pt.description})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                        {/* SKU oculto según solicitud */}
+                        <input type="hidden" value={editForm.sku || ''} />
                     </div>
 
                     {/* Images */}

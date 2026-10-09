@@ -32,8 +32,56 @@ async function ensureOAuthTable() {
       CREATE INDEX IF NOT EXISTS "oauth_accounts_customer_id_idx"
       ON "oauth_accounts"("customer_id");
     `);
+
+    // Verificar si phone es NOT NULL en customers
+    const tableInfo: any[] = await prisma.$queryRawUnsafe(`PRAGMA table_info(customers);`);
+    const phoneCol = Array.isArray(tableInfo) ? tableInfo.find((c: any) => c.name === 'phone') : null;
+    if (phoneCol && phoneCol.notnull === 1) {
+      await prisma.$executeRawUnsafe(`PRAGMA foreign_keys=off;`);
+      await prisma.$executeRawUnsafe(`BEGIN TRANSACTION;`);
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "customers_new" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "email" TEXT NOT NULL,
+          "password_hash" TEXT,
+          "name" TEXT NOT NULL,
+          "phone" TEXT,
+          "address" TEXT,
+          "province" TEXT,
+          "city" TEXT,
+          "postal_code" TEXT,
+          "email_verified" BOOLEAN DEFAULT false,
+          "verification_token" TEXT,
+          "is_approved" BOOLEAN DEFAULT false,
+          "created_at" DATETIME DEFAULT CURRENT_TIMESTAMP,
+          "is_wholesale" BOOLEAN DEFAULT false,
+          "wholesale_until" DATETIME,
+          "dni" TEXT,
+          "is_special_wholesale" BOOLEAN DEFAULT 0,
+          "customer_type" TEXT DEFAULT 'normal'
+        );
+      `);
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "customers_new" (
+          id, email, password_hash, name, phone, address, province, city, postal_code,
+          email_verified, verification_token, is_approved, created_at, is_wholesale, wholesale_until,
+          dni, is_special_wholesale, customer_type
+        )
+        SELECT 
+          id, email, password_hash, name, phone, address, province, city, postal_code,
+          email_verified, verification_token, is_approved, created_at, is_wholesale, wholesale_until,
+          dni, is_special_wholesale, customer_type
+        FROM "customers";
+      `);
+      await prisma.$executeRawUnsafe(`DROP TABLE "customers";`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "customers_new" RENAME TO "customers";`);
+      await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "customers_email_key" ON "customers"("email");`);
+      await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "customers_phone_key" ON "customers"("phone");`);
+      await prisma.$executeRawUnsafe(`COMMIT;`);
+      await prisma.$executeRawUnsafe(`PRAGMA foreign_keys=on;`);
+    }
   } catch {
-    // Si ya existe, los CREATE IF NOT EXISTS no fallan. Ignorar errores.
+    // Si ya existe o ya fue migrado, ignorar errores.
   }
 }
 

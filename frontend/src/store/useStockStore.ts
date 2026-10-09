@@ -43,6 +43,11 @@ export const DEFAULT_VARIANT_GROUPS: VariantGroupConfig[] = [
   }
 ];
 
+export const DEFAULT_PERFUME_TYPES: VariantOption[] = [
+  { value: 'Original', description: '' },
+  { value: 'Primera línea', description: '' }
+];
+
 export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   {
     grupo: 'Perfumería',
@@ -129,6 +134,7 @@ export interface Product {
   intensity?: string;          // Ej: 'Moderada - Fuerte'
   family?: string;             // Ej: 'Amaderada Especiada'
   showFeatures?: boolean;      // Mostrar u ocultar el bloque de especificaciones en la tienda
+  perfumeType?: string;        // Tipo de perfume: 'Original', 'Primera línea', o personalizado
 }
 
 export interface PurchaseRecord {
@@ -191,16 +197,19 @@ export interface StockFlowState {
   
   categoriesConfig: CategoryConfig[];
   variantGroupsConfig: VariantGroupConfig[];
+  perfumeTypesConfig: VariantOption[];
 
   setGlobalMarkup: (percentage: number) => void;
   setWholesaleConfig: (config: { minQuantity: number; discountPercentage: number }) => void;
   setCategoriesConfig: (categories: CategoryConfig[]) => void;
   setVariantGroupsConfig: (groups: VariantGroupConfig[]) => void;
+  setPerfumeTypesConfig: (types: VariantOption[]) => void;
   
   registerPurchases: (newPurchases: {
     productId: string | 'NEW';
     newProductName?: string;
     newProductSku?: string;
+    perfumeType?: string;
     newProductImageUrls?: string[];
     categoryId: string;
     targetGender?: 'Hombre' | 'Mujer' | 'Unisex';
@@ -241,6 +250,7 @@ export interface StockFlowState {
       // Datos del producto para crear/actualizar en el store
       newProductName?: string;
       newProductSku?: string;
+      perfumeType?: string;
       categoryId?: string;
       targetGender?: 'Hombre' | 'Mujer' | 'Unisex';
       newProductImageUrls?: string[];
@@ -592,11 +602,13 @@ export const useStockFlowStore = create<StockFlowState>()(
       sales: MOCK_SALES,
       categoriesConfig: CATEGORIAS_PERFUMERIA,
       variantGroupsConfig: DEFAULT_VARIANT_GROUPS,
+      perfumeTypesConfig: DEFAULT_PERFUME_TYPES,
 
       setGlobalMarkup: (prc) => set({ globalMarkupPrc: prc }),
       setWholesaleConfig: (cfg) => set({ wholesaleConfig: cfg }),
       setCategoriesConfig: (cfg) => set({ categoriesConfig: cfg }),
       setVariantGroupsConfig: (cfg) => set({ variantGroupsConfig: cfg }),
+      setPerfumeTypesConfig: (cfg) => set({ perfumeTypesConfig: cfg }),
 
       registerPurchases: (newPurchases) => {
         set((state) => {
@@ -643,6 +655,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               // Update category, sku, gender if provided
               if (purchase.categoryId) existingProd.categoryId = purchase.categoryId;
               if (purchase.newProductSku) existingProd.sku = purchase.newProductSku;
+              if (purchase.perfumeType !== undefined) existingProd.perfumeType = purchase.perfumeType;
               if (purchase.targetGender) existingProd.targetGender = purchase.targetGender;
 
               // Update descriptive/feature fields if provided
@@ -702,6 +715,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                 id: createdProductId,
                 name: targetProductName,
                 sku: purchase.newProductSku || '',
+                perfumeType: purchase.perfumeType || '',
                 categoryId: purchase.categoryId || 'Perfumes de Mujer',
                 targetGender: purchase.targetGender || 'Unisex',
                 purchasePrice: Number(purchase.unitPurchasePrice) || 0,
@@ -812,6 +826,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               // Actualizar metadata si se proveyó
               if (item.categoryId) existingProd.categoryId = item.categoryId;
               if (item.newProductSku) existingProd.sku = item.newProductSku;
+              if (item.perfumeType !== undefined) existingProd.perfumeType = item.perfumeType;
               if (item.targetGender) existingProd.targetGender = item.targetGender;
               if (item.description !== undefined) existingProd.description = item.description;
               if (item.tag !== undefined) existingProd.tag = item.tag;
@@ -862,6 +877,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                 id: createdId,
                 name: targetProductName,
                 sku: item.newProductSku || '',
+                perfumeType: item.perfumeType || '',
                 categoryId: item.categoryId || 'Perfumes de Mujer',
                 targetGender: item.targetGender || 'Unisex',
                 purchasePrice: item.totalCostPerUnitARS,
@@ -1433,6 +1449,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               wholesaleConfig: data.wholesaleConfig ?? state.wholesaleConfig,
               categoriesConfig: data.categoriesConfig ?? state.categoriesConfig,
               variantGroupsConfig: data.variantGroupsConfig ?? state.variantGroupsConfig,
+              perfumeTypesConfig: data.perfumeTypesConfig ?? state.perfumeTypesConfig ?? DEFAULT_PERFUME_TYPES,
               products: data.products ?? state.products,
               purchases: data.purchases ?? state.purchases,
               sales: data.sales ?? state.sales
@@ -1442,7 +1459,11 @@ export const useStockFlowStore = create<StockFlowState>()(
     {
       name: 'perfumeria-data-v9',
       onRehydrateStorage: () => (state) => {
-        if (!state || !Array.isArray(state.purchases) || !Array.isArray(state.products)) return;
+        if (!state) return;
+        if (!state.perfumeTypesConfig || !state.perfumeTypesConfig.length) {
+          state.perfumeTypesConfig = DEFAULT_PERFUME_TYPES;
+        }
+        if (!Array.isArray(state.purchases) || !Array.isArray(state.products)) return;
         const existingProducts = [...state.products];
         let hasChanges = false;
 

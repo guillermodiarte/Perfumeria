@@ -1,11 +1,12 @@
-import { useStockFlowStore, CategoryConfig, VariantGroupConfig } from '@/store/useStockStore';
+import { useStockFlowStore, CategoryConfig, VariantGroupConfig, VariantOption, DEFAULT_PERFUME_TYPES } from '@/store/useStockStore';
 import { useState, useEffect } from 'react';
 
 export default function CatalogConfig() {
-  const { categoriesConfig, variantGroupsConfig, setCategoriesConfig, setVariantGroupsConfig } = useStockFlowStore();
+  const { categoriesConfig, variantGroupsConfig, perfumeTypesConfig, setCategoriesConfig, setVariantGroupsConfig, setPerfumeTypesConfig } = useStockFlowStore();
 
   const [cats, setCats] = useState<CategoryConfig[]>(categoriesConfig || []);
   const [vGroups, setVGroups] = useState<VariantGroupConfig[]>(variantGroupsConfig || []);
+  const [pTypes, setPTypes] = useState<VariantOption[]>(perfumeTypesConfig || DEFAULT_PERFUME_TYPES);
 
   useEffect(() => {
     if (categoriesConfig) setCats(categoriesConfig);
@@ -15,10 +16,15 @@ export default function CatalogConfig() {
     if (variantGroupsConfig) setVGroups(variantGroupsConfig);
   }, [variantGroupsConfig]);
 
+  useEffect(() => {
+    if (perfumeTypesConfig && perfumeTypesConfig.length > 0) {
+      setPTypes(perfumeTypesConfig);
+    }
+  }, [perfumeTypesConfig]);
+
   const saveCats = (c: CategoryConfig[]) => {
     setCats(c);
     setCategoriesConfig(c);
-    // Persistir directamente a la base de datos backend
     const currentState = useStockFlowStore.getState();
     fetch('/api/store/sync', {
       method: 'POST',
@@ -33,7 +39,6 @@ export default function CatalogConfig() {
   const saveVGroups = (v: VariantGroupConfig[]) => {
     setVGroups(v);
     setVariantGroupsConfig(v);
-    // Persistir directamente a la base de datos backend
     const currentState = useStockFlowStore.getState();
     fetch('/api/store/sync', {
       method: 'POST',
@@ -43,6 +48,20 @@ export default function CatalogConfig() {
         variantGroupsConfig: v,
       }),
     }).catch(e => console.error('Error sincronizando variantes a DB:', e));
+  };
+
+  const savePTypes = (types: VariantOption[]) => {
+    setPTypes(types);
+    setPerfumeTypesConfig(types);
+    const currentState = useStockFlowStore.getState();
+    fetch('/api/store/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...currentState,
+        perfumeTypesConfig: types,
+      }),
+    }).catch(e => console.error('Error sincronizando tipos de perfume a DB:', e));
   };
 
   return (
@@ -105,8 +124,69 @@ export default function CatalogConfig() {
         </div>
       </div>
 
-      {/* VARIANT GROUPS */}
+      {/* VARIANT GROUPS & TIPOS DE PERFUME */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* CARD TIPOS DE PERFUME */}
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 relative">
+          <div className="flex justify-between items-center mb-4 border-b border-slate-200 dark:border-slate-700 pb-2">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary text-xl">auto_awesome</span>
+              <span className="font-bold text-slate-800 dark:text-white">Tipos de Perfume</span>
+            </div>
+            <span className="text-xs bg-primary/10 text-primary font-bold px-2.5 py-0.5 rounded-full">Perfumería</span>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex gap-2 text-xs font-bold text-slate-500 px-1 mb-1">
+              <span className="w-28 text-center">Valor principal</span>
+              <span className="flex-1">Descripción corta</span>
+            </div>
+            {pTypes.map((opt, optIdx) => (
+              <div key={optIdx} className="flex gap-2 items-center bg-white dark:bg-slate-800 p-2 border border-slate-200 dark:border-slate-700 rounded-lg">
+                <input
+                  value={opt.value}
+                  onChange={(e) => {
+                    const n = [...pTypes];
+                    n[optIdx].value = e.target.value;
+                    savePTypes(n);
+                  }}
+                  className="w-28 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm dark:text-white outline-none font-bold text-center"
+                  placeholder="Ej: Original"
+                />
+                <input
+                  value={opt.description}
+                  onChange={(e) => {
+                    const n = [...pTypes];
+                    n[optIdx].description = e.target.value;
+                    savePTypes(n);
+                  }}
+                  className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm dark:text-white outline-none"
+                  placeholder="Ej: Fragancia original"
+                />
+                <button
+                  onClick={() => {
+                    const n = [...pTypes];
+                    n.splice(optIdx, 1);
+                    savePTypes(n);
+                  }}
+                  className="text-red-500 material-symbols-outlined text-sm p-1 hover:bg-red-50 rounded"
+                >
+                  delete
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => {
+              const n = [...pTypes, { value: 'Nuevo', description: '' }];
+              savePTypes(n);
+            }}
+            className="mt-4 w-full text-sm border border-dashed border-primary/30 text-primary py-2 rounded-lg hover:bg-primary/5 font-bold"
+          >
+            + Agregar opción
+          </button>
+        </div>
+
         {vGroups.map((vg, vgIdx) => (
           <div key={vg.id} className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 relative">
             <div className="flex justify-between items-center mb-4 border-b border-slate-200 dark:border-slate-700 pb-2">
