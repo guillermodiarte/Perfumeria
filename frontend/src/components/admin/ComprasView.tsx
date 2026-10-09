@@ -111,6 +111,57 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   const [isDraftLoaded, setIsDraftLoaded] = useState(false);
   const DRAFT_COMPRAS_KEY = 'lyg_draft_compra';
 
+  // Modal Biblioteca de Medios (Imágenes)
+  const [mediaLibTargetPIdx, setMediaLibTargetPIdx] = useState<number | null>(null);
+  const [mediaLibImages, setMediaLibImages] = useState<Array<{ url: string; filename: string; category?: string }>>([]);
+  const [mediaLibCategories, setMediaLibCategories] = useState<string[]>([]);
+  const [selectedMediaCategory, setSelectedMediaCategory] = useState<string>('all');
+  const [mediaLibLoading, setMediaLibLoading] = useState(false);
+  const [mediaLibSearch, setMediaLibSearch] = useState('');
+
+  const openMediaLib = async (pIdx: number, force = false) => {
+    setMediaLibTargetPIdx(pIdx);
+    if (!force && mediaLibImages.length > 0) return;
+    setMediaLibLoading(true);
+    try {
+      const token = apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') || '' : '');
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/media` : '/api/admin/media';
+      const res = await fetch(endpoint, {
+        headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const files: any[] = data.files || [];
+        const validImgs = files
+          .map((f: any) => {
+            const url = typeof f === 'string' ? f : f.url || '';
+            const filename = typeof f === 'string' ? f.split('/').pop() || '' : f.filename || url.split('/').pop() || '';
+            const category = typeof f === 'object' ? f.category : '';
+            return { url, filename, category };
+          })
+          .filter(f => Boolean(f.url) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(f.url));
+        setMediaLibImages(validImgs);
+        if (Array.isArray(data.categories)) {
+          setMediaLibCategories(data.categories);
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching media library:', e);
+    } finally {
+      setMediaLibLoading(false);
+    }
+  };
+
+  const toggleProductImage = (pIdx: number, imgUrl: string) => {
+    const cur = products[pIdx]?.newProductImageUrls || [];
+    const exists = cur.includes(imgUrl);
+    if (exists) {
+      updateProduct(pIdx, 'newProductImageUrls', cur.filter(u => u !== imgUrl));
+    } else {
+      updateProduct(pIdx, 'newProductImageUrls', [...cur, imgUrl]);
+    }
+  };
+
   // Verifica si hay algún dato cargado
   const hasDraftData = Boolean(
     supplierInput.trim() !== '' ||
@@ -704,8 +755,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                   </div>
                   <div className="col-span-1 md:col-span-7 flex flex-col gap-2">
                     <label className="block text-xs font-bold text-slate-500">Imágenes del Producto</label>
-                    <div className="flex items-center gap-3 w-full border border-slate-200 dark:border-slate-700/60 p-2 rounded-lg bg-white dark:bg-slate-800">
-                      <label className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border rounded-lg transition-colors text-xs font-bold whitespace-nowrap cursor-pointer ${prod._uploading ? 'bg-blue-50 border-blue-200 text-blue-600 cursor-wait' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                    <div className="flex items-center gap-2.5 w-full border border-slate-200 dark:border-slate-700/60 p-2 rounded-lg bg-white dark:bg-slate-800">
+                      {/* Botón Subir Archivo Local */}
+                      <label className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg transition-colors text-xs font-bold whitespace-nowrap cursor-pointer ${prod._uploading ? 'bg-blue-50 border-blue-200 text-blue-600 cursor-wait' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>
                         <span className="material-symbols-outlined text-[16px]">{prod._uploading ? 'sync' : 'add_photo_alternate'}</span>
                         {prod._uploading ? 'Subiendo...' : 'Subir'}
                         <input type="file" accept="image/*" multiple disabled={prod._uploading} className="hidden"
@@ -721,18 +773,73 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                               const fd = new FormData(); fd.append('file', file);
                               try { const r = await fetch(uploadEndpoint, { method: 'POST', headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }, body: fd }); if (r.ok) { const d = await r.json(); uploadedUrls.push(d.url); } else showAlert(`Error subiendo ${file.name}`); } catch { showAlert(`Error de red`); }
                             }
-                            updateProduct(pIdx, 'newProductImageUrls', [...(prod.newProductImageUrls || []), ...uploadedUrls]); updateProduct(pIdx, '_uploading', false); e.target.value = '';
+                            updateProduct(pIdx, 'newProductImageUrls', [...(prod.newProductImageUrls || []), ...uploadedUrls]);
+                            setMediaLibImages(prev => [
+                              ...uploadedUrls.map(u => ({ url: u, filename: u.split('/').pop() || '', category: prod.categoryId || 'General' })),
+                              ...prev
+                            ]);
+                            updateProduct(pIdx, '_uploading', false); e.target.value = '';
                           }}
                         />
                       </label>
-                      <div className="flex gap-2 overflow-x-auto flex-1 min-w-0">
-                        {(prod.newProductImageUrls || []).map((imgUrl, imgIdx) => (
-                          <div key={imgIdx} className="size-8 rounded-md flex-shrink-0 border border-slate-200 dark:border-slate-700 overflow-hidden relative group/img cursor-pointer" onClick={() => { const arr = [...prod.newProductImageUrls]; arr.splice(imgIdx, 1); updateProduct(pIdx, 'newProductImageUrls', arr); }}>
-                            <img src={imgUrl} className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 bg-red-500/80 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center"><span className="material-symbols-outlined text-white text-[12px]">close</span></div>
-                          </div>
-                        ))}
-                        {!(prod.newProductImageUrls || []).length && <p className="text-xs text-slate-400 italic self-center">Sin fotos aún</p>}
+
+                      {/* Botón Buscar en Biblioteca */}
+                      <button
+                        type="button"
+                        onClick={() => openMediaLib(pIdx)}
+                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 border border-indigo-200 dark:border-indigo-700/80 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/40 text-indigo-600 dark:text-indigo-300 text-xs font-bold whitespace-nowrap transition-colors"
+                        title="Buscar o elegir imagen en la biblioteca"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">photo_library</span>
+                        Biblioteca
+                      </button>
+
+                      {/* Miniaturas de Fotos */}
+                      <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0 py-0.5">
+                        {(prod.newProductImageUrls || []).map((imgUrl, imgIdx) => {
+                          const fullImgSrc = imgUrl.startsWith('http') ? imgUrl : (apiUrl ? `${apiUrl}${imgUrl}` : imgUrl);
+                          return (
+                            <div
+                              key={imgIdx}
+                              title="Clic sobre la imagen para abrir biblioteca"
+                              className="size-9 rounded-lg flex-shrink-0 border border-slate-200 dark:border-slate-700 overflow-hidden relative group/img cursor-pointer hover:ring-2 hover:ring-indigo-400 hover:scale-105 transition-all shadow-sm"
+                              onClick={() => openMediaLib(pIdx)}
+                            >
+                              <img src={fullImgSrc} alt="" className="w-full h-full object-cover" />
+                              
+                              {/* Overlay al hacer hover que muestra el icono de biblioteca */}
+                              <div className="absolute inset-0 bg-indigo-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                <span className="material-symbols-outlined text-white text-[14px]">photo_library</span>
+                              </div>
+
+                              {/* Botón flotante para eliminar foto */}
+                              <button
+                                type="button"
+                                title="Eliminar imagen"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const arr = [...(prod.newProductImageUrls || [])];
+                                  arr.splice(imgIdx, 1);
+                                  updateProduct(pIdx, 'newProductImageUrls', arr);
+                                }}
+                                className="absolute top-0 right-0 size-4 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity rounded-bl z-10"
+                              >
+                                <span className="material-symbols-outlined text-[11px] font-bold">close</span>
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {!(prod.newProductImageUrls || []).length && (
+                          <button
+                            type="button"
+                            onClick={() => openMediaLib(pIdx)}
+                            className="text-xs text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 italic self-center cursor-pointer transition-colors flex items-center gap-1 px-2 py-1 rounded hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20"
+                            title="Hacer clic para buscar y elegir de la biblioteca"
+                          >
+                            <span className="material-symbols-outlined text-[14px]">photo_library</span>
+                            Sin fotos aún (clic para buscar en biblioteca)
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2187,6 +2294,210 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                 Sí, eliminar todo
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: BIBLIOTECA DE MEDIOS / IMÁGENES */}
+      {mediaLibTargetPIdx !== null && products[mediaLibTargetPIdx] && (
+        <div className="fixed inset-0 z-[130] bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            
+            {/* Header Modal */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50">
+              <div className="flex items-center gap-3">
+                <div className="size-10 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-2xl">photo_library</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-black text-slate-900 dark:text-white text-base">
+                      Biblioteca de Imágenes
+                    </h3>
+                    {mediaLibImages.length > 0 && (
+                      <span className="text-xs bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold px-2 py-0.5 rounded-full">
+                        {mediaLibImages.length} fotos
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Asignando a: <strong className="text-slate-700 dark:text-slate-300">{products[mediaLibTargetPIdx].newProductName || `Producto #${mediaLibTargetPIdx + 1}`}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openMediaLib(mediaLibTargetPIdx, true)}
+                  title="Recargar biblioteca"
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-800 transition"
+                >
+                  <span className="material-symbols-outlined text-[18px]">refresh</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMediaLibTargetPIdx(null)}
+                  className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 flex items-center justify-center transition"
+                >
+                  <span className="material-symbols-outlined text-lg">close</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Barra de Filtros y Búsqueda */}
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <div className="relative flex-1">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                <input
+                  type="text"
+                  value={mediaLibSearch}
+                  onChange={e => setMediaLibSearch(e.target.value)}
+                  placeholder="Buscar imagen por nombre..."
+                  className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 text-slate-800 dark:text-slate-100"
+                />
+                {mediaLibSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setMediaLibSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">close</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Categorías si existen */}
+              {mediaLibCategories.length > 0 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-1 sm:pb-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMediaCategory('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+                      selectedMediaCategory === 'all'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    Todas
+                  </button>
+                  {mediaLibCategories.map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setSelectedMediaCategory(cat)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+                        selectedMediaCategory === cat
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Grid de Imágenes */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50/50 dark:bg-slate-950/40 min-h-[280px]">
+              {mediaLibLoading ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
+                  <span className="material-symbols-outlined animate-spin text-3xl text-indigo-500">progress_activity</span>
+                  <p className="text-sm font-medium">Cargando biblioteca de imágenes...</p>
+                </div>
+              ) : mediaLibImages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-2">
+                  <span className="material-symbols-outlined text-5xl text-slate-300 dark:text-slate-600">photo_library</span>
+                  <p className="text-sm font-bold text-slate-600 dark:text-slate-300">No hay imágenes en la biblioteca</p>
+                  <p className="text-xs text-slate-400">Podés subir imágenes con el botón Subir o en el módulo de Biblioteca.</p>
+                </div>
+              ) : (() => {
+                const targetProd = products[mediaLibTargetPIdx];
+                const selectedUrls = targetProd?.newProductImageUrls || [];
+
+                const filtered = mediaLibImages.filter(item => {
+                  const matchesSearch = !mediaLibSearch.trim() || item.filename.toLowerCase().includes(mediaLibSearch.toLowerCase()) || item.url.toLowerCase().includes(mediaLibSearch.toLowerCase());
+                  const matchesCat = selectedMediaCategory === 'all' || item.category === selectedMediaCategory;
+                  return matchesSearch && matchesCat;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                      <span className="material-symbols-outlined text-4xl">search_off</span>
+                      <p className="text-sm font-bold">No se encontraron imágenes</p>
+                      <p className="text-xs">Probá con otro término de búsqueda.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 gap-3">
+                    {filtered.map((item, idx) => {
+                      const fullUrl = item.url.startsWith('http') ? item.url : (apiUrl ? `${apiUrl}${item.url}` : item.url);
+                      const isSelected = selectedUrls.includes(item.url);
+
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => toggleProductImage(mediaLibTargetPIdx, item.url)}
+                          className={`group relative aspect-square rounded-xl overflow-hidden border-2 cursor-pointer transition-all ${
+                            isSelected
+                              ? 'border-indigo-600 ring-2 ring-indigo-500 shadow-md scale-[0.98]'
+                              : 'border-transparent bg-white dark:bg-slate-800 hover:border-indigo-400 hover:shadow-lg hover:scale-[1.03]'
+                          }`}
+                        >
+                          <img
+                            src={fullUrl}
+                            alt={item.filename}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+
+                          {/* Gradient & Filename */}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <p className="text-[10px] text-white font-medium truncate text-center">
+                              {item.filename}
+                            </p>
+                          </div>
+
+                          {/* Estado de Selección */}
+                          {isSelected ? (
+                            <div className="absolute inset-0 bg-indigo-600/30 backdrop-blur-[1px] flex flex-col items-center justify-center gap-1">
+                              <span className="material-symbols-outlined text-white text-2xl drop-shadow">check_circle</span>
+                              <span className="text-[10px] font-black uppercase tracking-wider text-white bg-indigo-600 px-1.5 py-0.5 rounded shadow">
+                                Elegida
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="absolute inset-0 bg-indigo-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-2xl drop-shadow opacity-90">add_circle</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer Modal */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+              <div className="text-xs text-slate-500 font-medium">
+                {products[mediaLibTargetPIdx]?.newProductImageUrls?.length || 0} imagen(es) seleccionada(s) para este producto.
+              </div>
+              <button
+                type="button"
+                onClick={() => setMediaLibTargetPIdx(null)}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-600/25 transition flex items-center gap-2"
+              >
+                <span className="material-symbols-outlined text-base">check</span>
+                Listo
+              </button>
+            </div>
+
           </div>
         </div>
       )}
