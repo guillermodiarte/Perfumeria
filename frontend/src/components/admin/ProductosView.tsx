@@ -186,6 +186,31 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
     }
   };
 
+  // Repara todos los nombres en purchase_batch_items usando los nombres actuales del store
+  const [loadingRepair, setLoadingRepair] = useState(false);
+  const handleRepairNames = async () => {
+    setLoadingRepair(true);
+    try {
+      let updated = 0;
+      for (const prod of products) {
+        const res = await fetch(`/api/admin/products/${encodeURIComponent(prod.id)}/rename`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newName: prod.name }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          updated += data.batchItemsUpdated || 0;
+        }
+      }
+      showAlert(`✅ Nombres reparados en historial de compras. ${updated} registros actualizados.`);
+    } catch (e: any) {
+      showAlert(`Error al reparar nombres: ${e.message}`);
+    } finally {
+      setLoadingRepair(false);
+    }
+  };
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMainCategory, setSelectedMainCategory] = useState<string>('Todo');
   const [selectedSubCategory, setSelectedSubCategory] = useState<string>('Todo');
@@ -435,6 +460,11 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
 
   /** Ejecuta el guardado final (sin fusión) */
   const persistProductUpdate = (id: string, form: any, formattedVariants: any[]) => {
+    const oldProduct = products.find(p => p.id === id);
+    const oldName = oldProduct?.name || '';
+    const newName = (form.name || '').trim();
+    const nameChanged = newName && newName.toLowerCase() !== oldName.toLowerCase();
+
     const validSalePrices = formattedVariants.map((v: any) => v.manualSalePrice).filter((pr: number) => pr > 0);
     const computedSalePrice = validSalePrices.length > 0 ? Math.min(...validSalePrices) : (Number(form.salePrice) || 0);
     const validPurchasePrices = formattedVariants.map((v: any) => v.unitPurchasePrice).filter((pr: number) => pr > 0);
@@ -458,6 +488,15 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
       family: form.family || '',
       showFeatures: Boolean(form.showFeatures),
     }, formattedVariants);
+
+    // Si el nombre cambió, actualizar en la BD (purchase_batch_items, order_items, catalog)
+    if (nameChanged) {
+      fetch(`/api/admin/products/${encodeURIComponent(id)}/rename`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newName }),
+      }).catch(e => console.error('[ProductosView] Error actualizando nombre en BD:', e));
+    }
 
     try {
       const currentState = useStockFlowStore.getState();
@@ -592,6 +631,14 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
     // Eliminar el producto que estábamos editando (quedó fusionado en el target)
     deleteProduct(editingProduct.id);
 
+    // Actualizar nombre en la BD para los items del producto eliminado (apuntarlos al target)
+    // Los items del producto eliminado quedan con el id del target tras la fusión
+    fetch(`/api/admin/products/${encodeURIComponent(editingProduct.id)}/rename`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newName: targetProduct.name }),
+    }).catch(e => console.error('[Merge] Error actualizando nombre en BD:', e));
+
     // Sincronizar tras el delete
     setTimeout(() => {
       try {
@@ -666,7 +713,19 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                   className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all"
                 />
             </div>
+            <button
+              onClick={handleRepairNames}
+              disabled={loadingRepair}
+              title="Actualiza los nombres de todos los productos en el historial de compras"
+              className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all disabled:opacity-50"
+            >
+              <span className={`material-symbols-outlined text-[16px] ${loadingRepair ? 'animate-spin' : ''}`}>
+                {loadingRepair ? 'progress_activity' : 'sync'}
+              </span>
+              {loadingRepair ? 'Reparando...' : 'Reparar nombres'}
+            </button>
         </div>
+
 
         {/* Dynamic Selectors */}
         <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-slate-100 dark:border-slate-700/50">
