@@ -103,7 +103,80 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   }
 ];
 
-// Legacy constants (removed in favor of VariantGroupConfig)
+export function getVariantGroupForCategory(
+  catId: string | undefined,
+  categoriesConfig: CategoryConfig[],
+  variantGroupsConfig: VariantGroupConfig[]
+): VariantGroupConfig | null {
+  if (!variantGroupsConfig || variantGroupsConfig.length === 0) return null;
+
+  if (!catId) {
+    return variantGroupsConfig.find(v => v.id === 'perfumes') || variantGroupsConfig[0] || null;
+  }
+
+  const lowerCat = catId.toLowerCase().trim();
+
+  // 1. Direct match in configured options
+  let group = categoriesConfig.find(g => g.opciones && g.opciones.includes(catId));
+
+  // 2. Case-insensitive or substring match in options
+  if (!group) {
+    group = categoriesConfig.find(g =>
+      g.opciones && g.opciones.some(opt => {
+        const oLower = opt.toLowerCase().trim();
+        return oLower === lowerCat || lowerCat.includes(oLower) || oLower.includes(lowerCat);
+      })
+    );
+  }
+
+  // 3. Match group title (e.g. "Perfumería")
+  if (!group) {
+    group = categoriesConfig.find(g => {
+      const gLower = g.grupo.toLowerCase().trim();
+      return gLower === lowerCat || lowerCat.includes(gLower) || gLower.includes(lowerCat);
+    });
+  }
+
+  if (group) {
+    if (group.variantGroupId === 'none') return null;
+    const found = variantGroupsConfig.find(v => v.id === group.variantGroupId);
+    if (found) return found;
+  }
+
+  // 4. Intelligent fallback for Perfumería (perfumes, colonias, body splash, decants, etc.)
+  if (
+    lowerCat.includes('perfum') ||
+    lowerCat.includes('splash') ||
+    lowerCat.includes('mist') ||
+    lowerCat.includes('decant') ||
+    lowerCat.includes('fraganc') ||
+    lowerCat === 'unisex' ||
+    lowerCat.includes('mujer') ||
+    lowerCat.includes('hombre')
+  ) {
+    const perfVg = variantGroupsConfig.find(
+      v => v.id === 'perfumes' || v.name.toLowerCase().includes('perfum') || v.name.toLowerCase().includes('tamaño')
+    );
+    if (perfVg) return perfVg;
+  }
+
+  // 5. Intelligent fallback for Accesorios
+  if (
+    lowerCat.includes('accesorio') ||
+    lowerCat.includes('anillo') ||
+    lowerCat.includes('collar') ||
+    lowerCat.includes('reloj') ||
+    lowerCat.includes('arito') ||
+    lowerCat.includes('pulsera')
+  ) {
+    const accVg = variantGroupsConfig.find(
+      v => v.id === 'accesorios' || v.name.toLowerCase().includes('accesorio') || v.name.toLowerCase().includes('talle')
+    );
+    if (accVg) return accVg;
+  }
+
+  return null;
+}
 
 export interface ProductVariant {
   id: string; // Unique ID for the variant

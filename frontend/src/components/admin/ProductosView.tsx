@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES } from '@/store/useStockStore';
+import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory } from '@/store/useStockStore';
 import { API_URL } from '@/utils/api';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
@@ -210,12 +210,15 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
 
   const isPerfumeCategory = (catId?: string) => {
     if (!catId) return true;
-    const group = categoriesConfig.find(g => g.opciones.includes(catId));
+    const vg = getVariantGroupForCategory(catId, categoriesConfig, variantGroupsConfig);
+    if (vg && vg.id === 'perfumes') return true;
+    const group = categoriesConfig.find(g => g.opciones && g.opciones.includes(catId));
     if (group) {
       if (group.variantGroupId === 'perfumes') return true;
       if (group.grupo.toLowerCase().includes('perfum')) return true;
     }
-    return catId.toLowerCase().includes('perfum');
+    const lower = catId.toLowerCase();
+    return lower.includes('perfum') || lower.includes('splash') || lower.includes('mist') || lower.includes('decant') || lower === 'unisex';
   };
 
   useEffect(() => {
@@ -270,13 +273,12 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
       setEditingProduct(p);
       const formCopy = JSON.parse(JSON.stringify(p));
 
-      const group = categoriesConfig.find(g => g.opciones.includes(p.categoryId));
-      const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+      const vg = getVariantGroupForCategory(p.categoryId, categoriesConfig, variantGroupsConfig);
 
       if (formCopy.variants && Array.isArray(formCopy.variants)) {
         formCopy.variants = formCopy.variants.map((v: any) => {
           let sIdx = v.sizeIndex;
-          if ((sIdx === undefined || sIdx === -1) && vg) {
+          if ((sIdx === undefined || sIdx === -1 || (vg && !vg.options[sIdx])) && vg) {
             const foundIdx = vg.options.findIndex(o => 
               v.size && (v.size === o.value || v.size.startsWith(o.value) || (o.description && v.size.includes(o.description)))
             );
@@ -285,6 +287,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
           return {
             ...v,
             sizeIndex: sIdx !== undefined && sIdx >= 0 ? sIdx : 0,
+            size: v.size || (vg?.options[sIdx || 0]?.value ?? '100ml'),
             description: v.description !== undefined ? v.description : (v.color || ''),
             color: v.color !== undefined ? v.color : (v.description || ''),
             stock: v.stock !== undefined ? v.stock : 0,
@@ -322,8 +325,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
           variant[field] = value;
           
           if (field === 'sizeIndex') {
-              const group = categoriesConfig.find(g => g.opciones.includes(newForm.categoryId));
-              const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+              const vg = getVariantGroupForCategory(newForm.categoryId, categoriesConfig, variantGroupsConfig);
               if (vg && vg.options[value]) {
                   const opt = vg.options[value];
                   variant.size = opt.description ? `${opt.value} - ${opt.description}` : opt.value;
@@ -359,8 +361,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   const addVariant = () => {
       setEditForm((prev: any) => {
           const newForm = { ...prev };
-          const group = categoriesConfig.find(g => g.opciones.includes(newForm.categoryId));
-          const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+          const vg = getVariantGroupForCategory(newForm.categoryId, categoriesConfig, variantGroupsConfig);
           const defaultOpt = vg && vg.options[0];
           const defaultSize = defaultOpt ? (defaultOpt.description ? `${defaultOpt.value} - ${defaultOpt.description}` : defaultOpt.value) : '100ml';
 
@@ -384,8 +385,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   
   const handleSaveEdit = () => {
       if(editingProduct && editForm) {
-          const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
-          const variantGroup = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(vg => vg.id === group.variantGroupId) : null;
+          const variantGroup = getVariantGroupForCategory(editForm.categoryId, categoriesConfig, variantGroupsConfig);
 
           // Flatten variant sizes if they use indices and ensure prices are numbers
           const formattedVariants = editForm.variants.map((item: any) => {
@@ -739,13 +739,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                 value={editForm.categoryId} 
                                 onChange={e => {
                                     const cat = e.target.value;
-                                    setEditForm((prev: any) => {
-                                        const next = { ...prev, categoryId: cat };
-                                        if (cat === 'Perfumes de Hombre') next.targetGender = 'Hombre';
-                                        else if (cat === 'Perfumes de Mujer') next.targetGender = 'Mujer';
-                                        else if (cat === 'Unisex') next.targetGender = 'Unisex';
-                                        return next;
-                                    });
+                                    setEditForm((prev: any) => ({ ...prev, categoryId: cat }));
                                 }}
                             >
                                 {categoriesConfig.map(g => (
@@ -753,37 +747,24 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                         {g.opciones.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                     </optgroup>
                                 ))}
+                                {!categoriesConfig.some(g => g.opciones && g.opciones.includes(editForm.categoryId)) && (
+                                    <option value={editForm.categoryId}>{editForm.categoryId}</option>
+                                )}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">Público</label>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Público / Género</label>
                             <select 
                                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all" 
                                 value={editForm.targetGender || 'Unisex'} 
                                 onChange={e => {
                                     const val = e.target.value;
-                                    setEditForm((prev: any) => {
-                                        const next = { ...prev, targetGender: val };
-                                        if (val === 'Hombre') {
-                                            if (prev.categoryId === 'Perfumes de Mujer' || prev.categoryId === 'Unisex') {
-                                                next.categoryId = 'Perfumes de Hombre';
-                                            }
-                                        } else if (val === 'Mujer') {
-                                            if (prev.categoryId === 'Perfumes de Hombre' || prev.categoryId === 'Unisex') {
-                                                next.categoryId = 'Perfumes de Mujer';
-                                            }
-                                        } else if (val === 'Unisex') {
-                                            if (prev.categoryId === 'Perfumes de Mujer' || prev.categoryId === 'Perfumes de Hombre') {
-                                                next.categoryId = 'Unisex';
-                                            }
-                                        }
-                                        return next;
-                                    });
+                                    setEditForm((prev: any) => ({ ...prev, targetGender: val }));
                                 }}
                             >
+                                <option value="Unisex">Unisex</option>
                                 <option value="Mujer">Mujer</option>
                                 <option value="Hombre">Hombre</option>
-                                <option value="Unisex">Unisex</option>
                             </select>
                         </div>
                     </div>
@@ -1048,15 +1029,22 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">2. Variantes (Ítem Físico)</label>
                         <div className="space-y-2">
                             {editForm.variants.map((variant: any, vIdx: number) => {
-                                const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
-                                const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+                                const vg = getVariantGroupForCategory(editForm.categoryId, categoriesConfig, variantGroupsConfig);
                                 return (
                                     <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm">
                                         {vg && (
                                             <div className="flex-1 min-w-[180px]">
                                                 <select 
                                                     className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10 outline-none focus:ring-2 focus:ring-purple-400" 
-                                                    value={variant.sizeIndex !== undefined ? variant.sizeIndex : 0} 
+                                                    value={(() => {
+                                                        if (variant.sizeIndex !== undefined && variant.sizeIndex >= 0 && variant.sizeIndex < vg.options.length) {
+                                                            return variant.sizeIndex;
+                                                        }
+                                                        const foundIdx = vg.options.findIndex(o => 
+                                                            variant.size && (variant.size === o.value || variant.size.startsWith(o.value) || (o.description && variant.size.includes(o.description)))
+                                                        );
+                                                        return foundIdx >= 0 ? foundIdx : 0;
+                                                    })()} 
                                                     onChange={e => handleVariantChange(vIdx, 'sizeIndex', Number(e.target.value))}
                                                 >
                                                     {vg.options.map((row, rIdx) => (

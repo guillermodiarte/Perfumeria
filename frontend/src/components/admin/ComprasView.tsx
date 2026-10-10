@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { useStockFlowStore, DEFAULT_PERFUME_TYPES } from '@/store/useStockStore';
+import { useStockFlowStore, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory } from '@/store/useStockStore';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
 type Currency = 'ARS' | 'USD' | 'BRL' | 'PYG';
@@ -25,12 +25,15 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
 
   const isPerfumeCategory = (catId?: string) => {
     if (!catId) return true;
-    const group = categoriesConfig.find(g => g.opciones.includes(catId));
+    const vg = getVariantGroupForCategory(catId, categoriesConfig, variantGroupsConfig);
+    if (vg && vg.id === 'perfumes') return true;
+    const group = categoriesConfig.find(g => g.opciones && g.opciones.includes(catId));
     if (group) {
       if (group.variantGroupId === 'perfumes') return true;
       if (group.grupo.toLowerCase().includes('perfum')) return true;
     }
-    return catId.toLowerCase().includes('perfum');
+    const lower = catId.toLowerCase();
+    return lower.includes('perfum') || lower.includes('splash') || lower.includes('mist') || lower.includes('decant') || lower === 'unisex';
   };
 
   // TABS
@@ -499,8 +502,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
 
     const rows: SummaryRow[] = [];
     products.forEach((prod, pIdx) => {
-      const group = categoriesConfig.find(g => g.opciones.includes(prod.categoryId));
-      const variantGroup = (group && group.variantGroupId !== 'none') ? variantGroupsConfig.find(vg => vg.id === group.variantGroupId) : null;
+      const variantGroup = getVariantGroupForCategory(prod.categoryId, categoriesConfig, variantGroupsConfig);
       prod.variants.forEach((variant, vIdx) => {
         const unitCostOriginal = Number(variant.unitPurchasePrice) || 0;
         const unitCostARS = unitCostOriginal * effectiveExchangeRate;
@@ -760,6 +762,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                             {g.opciones.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                           </optgroup>
                         ))}
+                        {!categoriesConfig.some(g => g.opciones && g.opciones.includes(prod.categoryId)) && (
+                          <option value={prod.categoryId}>{prod.categoryId}</option>
+                        )}
                       </select>
                       <select className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-bold h-10" value={prod.targetGender || 'Unisex'} onChange={e => updateProduct(pIdx, 'targetGender', e.target.value)}>
                         <option value="Unisex">Unisex</option><option value="Mujer">Mujer</option><option value="Hombre">Hombre</option>
@@ -955,13 +960,31 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                   <div className="space-y-2">
                     {prod.variants.map((variant, vIdx) => {
                       const unitCostARS = (Number(variant.unitPurchasePrice) || 0) * effectiveExchangeRate;
-                      const group = categoriesConfig.find(g => g.opciones.includes(prod.categoryId));
-                      const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+                      const vg = getVariantGroupForCategory(prod.categoryId, categoriesConfig, variantGroupsConfig);
                       return (
                         <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm">
                           {vg && (
                             <div className="flex-1 min-w-[180px]">
-                              <select className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10" value={(variant as any).sizeIndex || 0} onChange={e => updateVariant(pIdx, vIdx, 'sizeIndex', Number(e.target.value))}>
+                              <select 
+                                className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10 outline-none focus:ring-2 focus:ring-purple-400" 
+                                value={(() => {
+                                  if ((variant as any).sizeIndex !== undefined && (variant as any).sizeIndex >= 0 && vg && (variant as any).sizeIndex < vg.options.length) {
+                                    return (variant as any).sizeIndex;
+                                  }
+                                  const foundIdx = vg ? vg.options.findIndex(o => 
+                                    variant.size && (variant.size === o.value || variant.size.startsWith(o.value) || (o.description && variant.size.includes(o.description)))
+                                  ) : -1;
+                                  return foundIdx >= 0 ? foundIdx : 0;
+                                })()} 
+                                onChange={e => {
+                                  const idx = Number(e.target.value);
+                                  updateVariant(pIdx, vIdx, 'sizeIndex', idx);
+                                  if (vg && vg.options[idx]) {
+                                    const opt = vg.options[idx];
+                                    updateVariant(pIdx, vIdx, 'size', opt.description ? `${opt.value} - ${opt.description}` : opt.value);
+                                  }
+                                }}
+                              >
                                 {vg.options.map((row, rIdx) => <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>)}
                               </select>
                             </div>
