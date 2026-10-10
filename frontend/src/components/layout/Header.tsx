@@ -27,6 +27,32 @@ export default function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const isMobileMenuOpenRef = useRef(false);
+  isMobileMenuOpenRef.current = isMobileMenuOpen;
+
+  const closeMobileMenu = () => {
+    if (typeof window !== 'undefined' && window.history.state?.mobileMenu) {
+      window.history.back();
+    } else {
+      setIsMobileMenuOpen(false);
+    }
+  };
+
+  const openMobileMenu = () => {
+    setIsMobileMenuOpen(true);
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ mobileMenu: true }, '');
+    }
+  };
+
+  const toggleMobileMenu = () => {
+    if (isMobileMenuOpen) {
+      closeMobileMenu();
+    } else {
+      openMobileMenu();
+    }
+  };
+
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,6 +62,17 @@ export default function Header() {
     };
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Popstate listener to close drawer when phone back button is pressed
+  useEffect(() => {
+    const handlePopState = () => {
+      if (isMobileMenuOpenRef.current) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   // Lock body scroll when mobile menu is open
@@ -231,7 +268,7 @@ export default function Header() {
 
             {/* Mobile Menu Toggle Button */}
             <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              onClick={toggleMobileMenu}
               className="lg:hidden p-2 text-slate-900 dark:text-slate-100 hover:text-primary transition-colors rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center"
               aria-label={isMobileMenuOpen ? "Cerrar menú" : "Abrir menú"}
             >
@@ -245,7 +282,7 @@ export default function Header() {
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] lg:hidden animate-in fade-in duration-200"
-          onClick={() => setIsMobileMenuOpen(false)}
+          onClick={closeMobileMenu}
         />
       )}
 
@@ -260,7 +297,7 @@ export default function Header() {
             <Logo />
           </Link>
           <button
-            onClick={() => setIsMobileMenuOpen(false)}
+            onClick={closeMobileMenu}
             className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             aria-label="Cerrar menú"
           >

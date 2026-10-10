@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import ProductosView from '@/components/admin/ProductosView';
 import DashboardView from '@/components/admin/DashboardView';
@@ -29,15 +29,42 @@ export default function AdminDashboard() {
   const VALID_VIEWS: ViewId[] = ['dashboard', 'products', 'sections', 'compras', 'ventas', 'pedidos_web', 'ventas_mostrador', 'cobros_pendientes', 'ventas_realizadas', 'users', 'admins', 'finanzas', 'media', 'configuracion'];
   const getSavedView = (): ViewId => {
     if (typeof window === 'undefined') return 'dashboard';
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('view') as ViewId | null;
+    if (fromUrl && VALID_VIEWS.includes(fromUrl)) return fromUrl;
     const v = localStorage.getItem('lyg_active_view') as ViewId | null;
     return v && VALID_VIEWS.includes(v) ? v : 'dashboard';
   };
   const [activeView, setActiveViewState] = useState<ViewId>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const setActiveView = (v: ViewId) => {
+  const isMobileSidebarOpenRef = useRef(false);
+  isMobileSidebarOpenRef.current = isMobileSidebarOpen;
+
+  const setActiveView = (v: ViewId, pushHistory = true) => {
     localStorage.setItem('lyg_active_view', v);
     setActiveViewState(v);
     setIsMobileSidebarOpen(false);
+
+    if (pushHistory && typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', v);
+      window.history.pushState({ view: v, sidebarOpen: false }, '', url.toString());
+    }
+  };
+
+  const closeMobileSidebar = () => {
+    if (typeof window !== 'undefined' && window.history.state?.sidebarOpen) {
+      window.history.back();
+    } else {
+      setIsMobileSidebarOpen(false);
+    }
+  };
+
+  const openMobileSidebar = () => {
+    setIsMobileSidebarOpen(true);
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ view: activeView, sidebarOpen: true }, '');
+    }
   };
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -85,7 +112,36 @@ export default function AdminDashboard() {
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    setActiveViewState(getSavedView());
+    const initialView = getSavedView();
+    setActiveViewState(initialView);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', initialView);
+      window.history.replaceState({ view: initialView, sidebarOpen: false }, '', url.toString());
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      // Si la barra lateral móvil estaba abierta, cerrarla
+      if (isMobileSidebarOpenRef.current) {
+        setIsMobileSidebarOpen(false);
+        return;
+      }
+      const params = new URLSearchParams(window.location.search);
+      const urlView = params.get('view') as ViewId | null;
+      const stateView = e.state?.view as ViewId | undefined;
+      const targetView = (stateView && VALID_VIEWS.includes(stateView))
+        ? stateView
+        : (urlView && VALID_VIEWS.includes(urlView))
+        ? urlView
+        : 'dashboard';
+
+      setActiveViewState(targetView);
+      localStorage.setItem('lyg_active_view', targetView);
+      setIsMobileSidebarOpen(false);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
     const saved = localStorage.getItem('lyg_api_key');
     if (saved) {
       verifyToken(saved).finally(() => {
@@ -94,6 +150,10 @@ export default function AdminDashboard() {
     } else {
       setCheckingAuth(false);
     }
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
   }, []);
 
   const fetchCategories = async () => {
@@ -675,7 +735,7 @@ export default function AdminDashboard() {
       {isMobileSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
-          onClick={() => setIsMobileSidebarOpen(false)}
+          onClick={closeMobileSidebar}
         />
       )}
 
@@ -704,7 +764,7 @@ export default function AdminDashboard() {
 
           {/* Close button on mobile */}
           <button
-            onClick={() => setIsMobileSidebarOpen(false)}
+            onClick={closeMobileSidebar}
             className="md:hidden p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl"
             aria-label="Cerrar menú"
           >
@@ -865,7 +925,7 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2 sm:gap-3 text-sm font-bold text-slate-800 dark:text-white min-w-0">
             {/* Hamburger button on mobile */}
             <button
-              onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+              onClick={openMobileSidebar}
               className="md:hidden p-2 -ml-1 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors shrink-0"
               aria-label="Abrir menú"
             >

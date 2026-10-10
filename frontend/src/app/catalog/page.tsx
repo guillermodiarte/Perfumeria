@@ -7,7 +7,7 @@ import { useStockFlowStore } from '@/store/useStockStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAuthModalStore } from '@/store/useAuthModalStore';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useState, useEffect, Suspense, useMemo } from 'react';
+import { useState, useEffect, Suspense, useMemo, useRef } from 'react';
 import { Filter, X, ArrowUpDown, Check, ChevronDown, Sparkles } from 'lucide-react';
 
 function CatalogContent() {
@@ -27,6 +27,24 @@ function CatalogContent() {
 
   const [mounted, setMounted] = useState(false);
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
+  const isMobileFiltersOpenRef = useRef(false);
+  isMobileFiltersOpenRef.current = isMobileFiltersOpen;
+
+  const closeMobileFilters = () => {
+    if (typeof window !== 'undefined' && window.history.state?.mobileFilters) {
+      window.history.back();
+    } else {
+      setIsMobileFiltersOpen(false);
+    }
+  };
+
+  const openMobileFilters = () => {
+    setIsMobileFiltersOpen(true);
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ mobileFilters: true }, '');
+    }
+  };
+
   const [sortBy, setSortBy] = useState<'default' | 'price_asc' | 'price_desc' | 'name_asc'>('default');
 
   // Extract unique filter options from storeProducts
@@ -54,6 +72,17 @@ function CatalogContent() {
     setMounted(true);
     setPriceRange(highestPrice);
   }, [highestPrice]);
+
+  // Popstate listener for mobile filters
+  useEffect(() => {
+    const handlePopState = () => {
+      if (isMobileFiltersOpenRef.current) {
+        setIsMobileFiltersOpen(false);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Lock scroll when mobile filters are open
   useEffect(() => {
@@ -362,7 +391,7 @@ function CatalogContent() {
               <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end">
                 {/* Mobile Filter Button */}
                 <button
-                  onClick={() => setIsMobileFiltersOpen(true)}
+                  onClick={openMobileFilters}
                   className="lg:hidden flex items-center gap-2 px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 shadow-sm"
                 >
                   <Filter className="w-4 h-4 text-primary" />
@@ -504,7 +533,7 @@ function CatalogContent() {
         {isMobileFiltersOpen && (
           <div
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[130] lg:hidden animate-in fade-in duration-200"
-            onClick={() => setIsMobileFiltersOpen(false)}
+            onClick={closeMobileFilters}
           />
         )}
 
@@ -525,7 +554,7 @@ function CatalogContent() {
               )}
             </div>
             <button
-              onClick={() => setIsMobileFiltersOpen(false)}
+              onClick={closeMobileFilters}
               className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl"
             >
               <X className="w-5 h-5" />
@@ -626,7 +655,7 @@ function CatalogContent() {
               Limpiar
             </button>
             <button
-              onClick={() => setIsMobileFiltersOpen(false)}
+              onClick={closeMobileFilters}
               className="flex-1 py-3 px-4 bg-primary text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-primary/20 hover:bg-primary/90 transition-all text-center"
             >
               Ver {filteredProducts.length} productos

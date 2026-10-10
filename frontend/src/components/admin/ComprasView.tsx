@@ -37,7 +37,36 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   };
 
   // TABS
-  const [activeTab, setActiveTab] = useState<'nueva' | 'historial'>('nueva');
+  const [activeTab, setActiveTabState] = useState<'nueva' | 'historial'>('nueva');
+  const setActiveTab = (tab: 'nueva' | 'historial', pushHistory = true) => {
+    setActiveTabState(tab);
+    if (pushHistory && typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.pushState({ tab }, '', url.toString());
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const initialTab = params.get('tab');
+    if (initialTab === 'historial' || initialTab === 'nueva') {
+      setActiveTabState(initialTab);
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      const p = new URLSearchParams(window.location.search);
+      const t = (e.state?.tab || p.get('tab')) as 'nueva' | 'historial' | null;
+      if (t === 'historial' || t === 'nueva') {
+        setActiveTabState(t);
+      } else {
+        setActiveTabState('nueva');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // PASO 1
   const [purchaseCurrency, setPurchaseCurrency] = useState<Currency>('ARS');
