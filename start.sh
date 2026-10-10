@@ -21,7 +21,11 @@ if [ -d "/app/prisma/dev.db" ]; then
 fi
 
 # Inicializar base de datos si no existe en el volumen persistente /app/data/dev.db
-if [ ! -f "/app/data/dev.db" ]; then
+if [ "$FORCE_DB_RESET" = "true" ] && [ -f "/app/prisma/dev.db" ]; then
+  echo "⚠️  FORCE_DB_RESET=true detectado. Reemplazando base de datos persistente con la incluida en la imagen..."
+  cp -f "/app/prisma/dev.db" "/app/data/dev.db"
+  echo "✅ Base de datos reemplazada exitosamente."
+elif [ ! -f "/app/data/dev.db" ]; then
   echo "No se encontró base de datos en /app/data/dev.db. Inicializando..."
   if [ -f "/app/prisma/dev.db" ]; then
     echo "Copiando base de datos inicial con datos a /app/data/dev.db..."
