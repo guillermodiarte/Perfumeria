@@ -123,6 +123,28 @@ function ProductGallery({ urls, name }: { urls: string[]; name: string }) {
   );
 }
 
+// ── Tipos para el modal de fusión ──────────────────────────────────────────
+type MergeVariantDecision = {
+  size: string;
+  // 'source' = precio del producto que estamos editando, 'target' = precio del existente
+  priceChoice: 'source' | 'target';
+  sourceSalePrice: number;
+  targetSalePrice: number;
+  sourcePurchasePrice: number;
+  targetPurchasePrice: number;
+  sourceStock: number;
+  targetStock: number;
+  mergedStock: number; // siempre suma de ambos
+};
+
+type MergeState = {
+  targetProduct: any;          // producto existente con ese nombre
+  sourceVariants: any[];       // variantes del producto que estamos editando (formateadas)
+  conflicts: MergeVariantDecision[];  // variantes con mismo tamaño en ambos
+  onlyInSource: any[];         // variantes solo en el producto editado
+  onlyInTarget: any[];         // variantes solo en el producto existente
+};
+
 export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert: (msg: string) => void; apiKey?: string; apiUrl?: string }) {
   const products = useStockFlowStore(s => s.products);
   const deleteProduct = useStockFlowStore(s => s.deleteProduct);
@@ -132,6 +154,9 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
 
   const [loadingSync, setLoadingSync] = useState(false);
   const effectiveApiUrl = apiUrl || API_URL;
+
+  // Merge modal state
+  const [mergeState, setMergeState] = useState<MergeState | null>(null);
 
   const handleSyncFromBatch = async () => {
     setLoadingSync(true);
@@ -384,79 +409,214 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
       });
   };
   
-  const handleSaveEdit = () => {
-      if(editingProduct && editForm) {
-          const variantGroup = getVariantGroupForCategory(editForm.categoryId, categoriesConfig, variantGroupsConfig);
-
-          // Flatten variant sizes if they use indices and ensure prices are numbers
-          const formattedVariants = editForm.variants.map((item: any) => {
-              let finalSize = item.size;
-              if (variantGroup && item.sizeIndex !== undefined && variantGroup.options[item.sizeIndex]) {
-                  const row = variantGroup.options[item.sizeIndex];
-                  finalSize = row.description ? `${row.value} - ${row.description}` : row.value;
-              }
-              const desc = item.description || item.color || '';
-              const unitCost = (item.unitPurchasePrice !== undefined && item.unitPurchasePrice !== '') ? Number(item.unitPurchasePrice) : (Number(editForm.purchasePrice) || 0);
-              const salePr = (item.manualSalePrice !== undefined && item.manualSalePrice !== '') ? Number(item.manualSalePrice) : (Number(editForm.salePrice) || 0);
-              return { 
-                id: item.id || ('v-' + Math.random().toString(36).substr(2, 9)),
-                size: finalSize || 'Único',
-                color: desc,
-                description: desc,
-                unitPurchasePrice: unitCost,
-                manualSalePrice: salePr,
-                stock: Math.max(0, Number(item.stock) || 0)
-              };
-          });
-
-          const validSalePrices = formattedVariants.map((v: any) => v.manualSalePrice).filter((pr: number) => pr > 0);
-          const computedSalePrice = validSalePrices.length > 0 ? Math.min(...validSalePrices) : (Number(editForm.salePrice) || 0);
-
-          const validPurchasePrices = formattedVariants.map((v: any) => v.unitPurchasePrice).filter((pr: number) => pr > 0);
-          const computedPurchasePrice = validPurchasePrices.length > 0 ? Math.min(...validPurchasePrices) : (Number(editForm.purchasePrice) || 0);
-
-          updateProduct(editingProduct.id, {
-              name: editForm.name,
-              sku: editForm.sku,
-              perfumeType: editForm.perfumeType || '',
-              categoryId: editForm.categoryId,
-              targetGender: editForm.targetGender,
-              purchasePrice: computedPurchasePrice,
-              salePrice: computedSalePrice,
-              imageUrls: editForm.imageUrls || [],
-              description: editForm.description || '',
-              tag: editForm.tag || 'Alta Demanda',
-              showTag: Boolean(editForm.showTag),
-              olfactoryNotes: editForm.olfactoryNotes || '',
-              duration: editForm.duration || '',
-              intensity: editForm.intensity || '',
-              family: editForm.family || '',
-              showFeatures: Boolean(editForm.showFeatures),
-          }, formattedVariants);
-
-          // Sincronización inmediata con la base de datos
-          try {
-            const currentState = useStockFlowStore.getState();
-            fetch('/api/store/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                products: currentState.products,
-                categoriesConfig: currentState.categoriesConfig,
-                variantGroupsConfig: currentState.variantGroupsConfig,
-                perfumeTypesConfig: currentState.perfumeTypesConfig,
-                purchases: currentState.purchases,
-                sales: currentState.sales,
-                globalMarkupPrc: currentState.globalMarkupPrc,
-                wholesaleConfig: currentState.wholesaleConfig,
-              }),
-            }).catch(e => console.error('Error sincronizando DB al editar producto:', e));
-          } catch {}
-
-          showAlert('Producto y finanzas actualizados con éxito.');
-          setEditingProduct(null);
-          setEditForm(null);
+  /** Formatea las variantes del formulario de edición a formato guardable */
+  const buildFormattedVariants = (form: any) => {
+    const variantGroup = getVariantGroupForCategory(form.categoryId, categoriesConfig, variantGroupsConfig);
+    return form.variants.map((item: any) => {
+      let finalSize = item.size;
+      if (variantGroup && item.sizeIndex !== undefined && variantGroup.options[item.sizeIndex]) {
+        const row = variantGroup.options[item.sizeIndex];
+        finalSize = row.description ? `${row.value} - ${row.description}` : row.value;
       }
+      const desc = item.description || item.color || '';
+      const unitCost = (item.unitPurchasePrice !== undefined && item.unitPurchasePrice !== '') ? Number(item.unitPurchasePrice) : (Number(form.purchasePrice) || 0);
+      const salePr = (item.manualSalePrice !== undefined && item.manualSalePrice !== '') ? Number(item.manualSalePrice) : (Number(form.salePrice) || 0);
+      return {
+        id: item.id || ('v-' + Math.random().toString(36).substr(2, 9)),
+        size: finalSize || 'Único',
+        color: desc,
+        description: desc,
+        unitPurchasePrice: unitCost,
+        manualSalePrice: salePr,
+        stock: Math.max(0, Number(item.stock) || 0)
+      };
+    });
+  };
+
+  /** Ejecuta el guardado final (sin fusión) */
+  const persistProductUpdate = (id: string, form: any, formattedVariants: any[]) => {
+    const validSalePrices = formattedVariants.map((v: any) => v.manualSalePrice).filter((pr: number) => pr > 0);
+    const computedSalePrice = validSalePrices.length > 0 ? Math.min(...validSalePrices) : (Number(form.salePrice) || 0);
+    const validPurchasePrices = formattedVariants.map((v: any) => v.unitPurchasePrice).filter((pr: number) => pr > 0);
+    const computedPurchasePrice = validPurchasePrices.length > 0 ? Math.min(...validPurchasePrices) : (Number(form.purchasePrice) || 0);
+
+    updateProduct(id, {
+      name: form.name,
+      sku: form.sku,
+      perfumeType: form.perfumeType || '',
+      categoryId: form.categoryId,
+      targetGender: form.targetGender,
+      purchasePrice: computedPurchasePrice,
+      salePrice: computedSalePrice,
+      imageUrls: form.imageUrls || [],
+      description: form.description || '',
+      tag: form.tag || 'Alta Demanda',
+      showTag: Boolean(form.showTag),
+      olfactoryNotes: form.olfactoryNotes || '',
+      duration: form.duration || '',
+      intensity: form.intensity || '',
+      family: form.family || '',
+      showFeatures: Boolean(form.showFeatures),
+    }, formattedVariants);
+
+    try {
+      const currentState = useStockFlowStore.getState();
+      fetch('/api/store/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          products: currentState.products,
+          categoriesConfig: currentState.categoriesConfig,
+          variantGroupsConfig: currentState.variantGroupsConfig,
+          perfumeTypesConfig: currentState.perfumeTypesConfig,
+          purchases: currentState.purchases,
+          sales: currentState.sales,
+          globalMarkupPrc: currentState.globalMarkupPrc,
+          wholesaleConfig: currentState.wholesaleConfig,
+        }),
+      }).catch(e => console.error('Error sincronizando DB al editar producto:', e));
+    } catch {}
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingProduct || !editForm) return;
+
+    const newName = (editForm.name || '').trim();
+    const formattedVariants = buildFormattedVariants(editForm);
+
+    // Detectar si el nuevo nombre coincide con OTRO producto existente (no el mismo)
+    const conflictProduct = products.find(
+      p => p.id !== editingProduct.id &&
+           p.name.trim().toLowerCase() === newName.toLowerCase()
+    );
+
+    if (conflictProduct) {
+      // Clasificar variantes por tamaño para encontrar conflictos
+      const normSize = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ');
+
+      const conflicts: MergeVariantDecision[] = [];
+      const onlyInSource: any[] = [];
+      const onlyInTarget: any[] = [];
+
+      // Variantes del producto existente (target)
+      const targetVariants = conflictProduct.variants || [];
+
+      formattedVariants.forEach(sv => {
+        const match = targetVariants.find(
+          (tv: any) => normSize(tv.size) === normSize(sv.size)
+        );
+        if (match) {
+          conflicts.push({
+            size: sv.size,
+            priceChoice: 'target', // por defecto mantener el precio existente
+            sourceSalePrice: sv.manualSalePrice,
+            targetSalePrice: match.manualSalePrice || conflictProduct.salePrice || 0,
+            sourcePurchasePrice: sv.unitPurchasePrice,
+            targetPurchasePrice: match.unitPurchasePrice || conflictProduct.purchasePrice || 0,
+            sourceStock: sv.stock,
+            targetStock: match.stock || 0,
+            mergedStock: sv.stock + (match.stock || 0),
+          });
+        } else {
+          onlyInSource.push(sv);
+        }
+      });
+
+      targetVariants.forEach((tv: any) => {
+        const match = formattedVariants.find(
+          sv => normSize(sv.size) === normSize(tv.size)
+        );
+        if (!match) {
+          onlyInTarget.push(tv);
+        }
+      });
+
+      setMergeState({
+        targetProduct: conflictProduct,
+        sourceVariants: formattedVariants,
+        conflicts,
+        onlyInSource,
+        onlyInTarget,
+      });
+      return; // Pausar guardado — esperar decisión del usuario
+    }
+
+    // Sin conflicto: guardar normalmente
+    persistProductUpdate(editingProduct.id, editForm, formattedVariants);
+    showAlert('Producto y finanzas actualizados con éxito.');
+    setEditingProduct(null);
+    setEditForm(null);
+  };
+
+  /** Ejecuta la fusión final con las decisiones del usuario */
+  const executeMerge = () => {
+    if (!mergeState || !editingProduct || !editForm) return;
+    const { targetProduct, conflicts, onlyInSource, onlyInTarget } = mergeState;
+
+    // Construir variantes fusionadas para el producto TARGET (que sobrevive)
+    const mergedVariants: any[] = [
+      // Variantes en conflicto: usar precio elegido + stock sumado
+      ...conflicts.map(c => {
+        const useSource = c.priceChoice === 'source';
+        // Encontrar la variante original del target para preservar su id
+        const origTarget = (targetProduct.variants || []).find(
+          (tv: any) => tv.size.toLowerCase().trim() === c.size.toLowerCase().trim()
+        );
+        return {
+          id: origTarget?.id || ('v-' + Math.random().toString(36).substr(2, 9)),
+          size: c.size,
+          color: origTarget?.color || '',
+          description: origTarget?.description || '',
+          unitPurchasePrice: useSource ? c.sourcePurchasePrice : c.targetPurchasePrice,
+          manualSalePrice: useSource ? c.sourceSalePrice : c.targetSalePrice,
+          stock: c.mergedStock,
+        };
+      }),
+      // Variantes solo en el producto que editamos → se agregan al target
+      ...onlyInSource.map(sv => ({ ...sv, id: 'v-' + Math.random().toString(36).substr(2, 9) })),
+      // Variantes solo en el target → se mantienen
+      ...onlyInTarget,
+    ];
+
+    // Actualizar el producto TARGET con las variantes fusionadas y el nuevo nombre (ya lo tiene)
+    persistProductUpdate(targetProduct.id, {
+      ...targetProduct,
+      // Tomar imágenes de ambos (sin duplicados)
+      imageUrls: [...new Set([
+        ...(targetProduct.imageUrls || []),
+        ...(editForm.imageUrls || []),
+      ])],
+      description: editForm.description || targetProduct.description || '',
+    }, mergedVariants);
+
+    // Eliminar el producto que estábamos editando (quedó fusionado en el target)
+    deleteProduct(editingProduct.id);
+
+    // Sincronizar tras el delete
+    setTimeout(() => {
+      try {
+        const currentState = useStockFlowStore.getState();
+        fetch('/api/store/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            products: currentState.products,
+            categoriesConfig: currentState.categoriesConfig,
+            variantGroupsConfig: currentState.variantGroupsConfig,
+            perfumeTypesConfig: currentState.perfumeTypesConfig,
+            purchases: currentState.purchases,
+            sales: currentState.sales,
+            globalMarkupPrc: currentState.globalMarkupPrc,
+            wholesaleConfig: currentState.wholesaleConfig,
+          }),
+        }).catch(e => console.error('Error sincronizando DB tras fusión:', e));
+      } catch {}
+    }, 300);
+
+    showAlert(`✅ Productos fusionados correctamente en "${targetProduct.name}".`);
+    setMergeState(null);
+    setEditingProduct(null);
+    setEditForm(null);
   };
 
   const executeDelete = () => {
@@ -695,6 +855,166 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                 })}
              </div>
           </div>
+      )}
+
+      {/* ── Modal de Fusión de Productos ─────────────────────────────────────── */}
+      {mergeState && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl p-6 md:p-8 max-w-2xl w-full my-8 animate-in zoom-in-95 fade-in duration-200">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-5">
+              <div className="size-12 rounded-2xl bg-violet-500/10 text-violet-500 flex items-center justify-center border border-violet-500/20 flex-shrink-0">
+                <span className="material-symbols-outlined text-2xl">merge</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white leading-tight">Fusionar Productos</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Ya existe un producto con el nombre <strong className="text-violet-600 dark:text-violet-400">"{mergeState.targetProduct.name}"</strong>. Definí cómo fusionarlos.
+                </p>
+              </div>
+            </div>
+
+            {/* Info de ambos productos */}
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-3">
+                <p className="text-[10px] font-black uppercase text-blue-600 dark:text-blue-400 mb-1 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[13px]">edit</span> Producto Editado (nuevo)
+                </p>
+                <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{editForm?.name}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{(mergeState.sourceVariants || []).length} variante(s) · {(mergeState.sourceVariants || []).reduce((a: number, v: any) => a + (v.stock || 0), 0)} uds</p>
+              </div>
+              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl p-3">
+                <p className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 mb-1 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[13px]">inventory_2</span> Producto Existente
+                </p>
+                <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{mergeState.targetProduct.name}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{(mergeState.targetProduct.variants || []).length} variante(s) · {(mergeState.targetProduct.variants || []).reduce((a: number, v: any) => a + (v.stock || 0), 0)} uds</p>
+              </div>
+            </div>
+
+            {/* Variantes sin conflicto */}
+            {(mergeState.onlyInSource.length > 0 || mergeState.onlyInTarget.length > 0) && (
+              <div className="mb-5 space-y-2">
+                <p className="text-xs font-black text-slate-500 uppercase tracking-wider">Variantes sin conflicto (se agregan automáticamente)</p>
+                <div className="flex flex-wrap gap-2">
+                  {mergeState.onlyInSource.map((v, i) => (
+                    <span key={'s' + i} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[11px]">add</span> {v.size} · {v.stock} uds · ${v.manualSalePrice?.toLocaleString('es-AR')}
+                    </span>
+                  ))}
+                  {mergeState.onlyInTarget.map((v, i) => (
+                    <span key={'t' + i} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[11px]">keep</span> {v.size} · {v.stock} uds · ${(v.manualSalePrice || 0)?.toLocaleString('es-AR')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Variantes en conflicto (mismo tamaño) */}
+            {mergeState.conflicts.length > 0 && (
+              <div className="mb-5">
+                <p className="text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Variantes con el mismo tamaño — elegí qué precio conservar</p>
+                <div className="space-y-3">
+                  {mergeState.conflicts.map((conflict, cIdx) => (
+                    <div key={cIdx} className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-amber-500 text-[16px]">warning</span>
+                          Tamaño: <span className="text-amber-700 dark:text-amber-400">{conflict.size}</span>
+                        </p>
+                        <span className="text-[11px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                          Stock: {conflict.sourceStock} + {conflict.targetStock} = <strong className="text-primary">{conflict.mergedStock} uds</strong>
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mb-2">¿Cuál precio de venta querés mantener?</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMergeState(prev => {
+                            if (!prev) return prev;
+                            const newConflicts = [...prev.conflicts];
+                            newConflicts[cIdx] = { ...newConflicts[cIdx], priceChoice: 'source' };
+                            return { ...prev, conflicts: newConflicts };
+                          })}
+                          className={`flex flex-col items-center p-3 rounded-lg border-2 transition-all ${
+                            conflict.priceChoice === 'source'
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/60'
+                              : 'border-slate-200 dark:border-slate-700 hover:border-blue-300'
+                          }`}
+                        >
+                          <span className="text-[10px] font-black uppercase text-blue-600 dark:text-blue-400 mb-1">Precio Nuevo</span>
+                          <span className="text-base font-black text-slate-900 dark:text-white">${conflict.sourceSalePrice.toLocaleString('es-AR')}</span>
+                          <span className="text-[10px] text-slate-500">Costo: ${conflict.sourcePurchasePrice.toLocaleString('es-AR')}</span>
+                          {conflict.priceChoice === 'source' && (
+                            <span className="material-symbols-outlined text-blue-500 text-sm mt-1">check_circle</span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMergeState(prev => {
+                            if (!prev) return prev;
+                            const newConflicts = [...prev.conflicts];
+                            newConflicts[cIdx] = { ...newConflicts[cIdx], priceChoice: 'target' };
+                            return { ...prev, conflicts: newConflicts };
+                          })}
+                          className={`flex flex-col items-center p-3 rounded-lg border-2 transition-all ${
+                            conflict.priceChoice === 'target'
+                              ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60'
+                              : 'border-slate-200 dark:border-slate-700 hover:border-emerald-300'
+                          }`}
+                        >
+                          <span className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 mb-1">Precio Existente</span>
+                          <span className="text-base font-black text-slate-900 dark:text-white">${conflict.targetSalePrice.toLocaleString('es-AR')}</span>
+                          <span className="text-[10px] text-slate-500">Costo: ${conflict.targetPurchasePrice.toLocaleString('es-AR')}</span>
+                          {conflict.priceChoice === 'target' && (
+                            <span className="material-symbols-outlined text-emerald-500 text-sm mt-1">check_circle</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Resultado resumen */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 mb-5">
+              <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider mb-1.5">Resultado de la fusión</p>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                El producto <strong className="text-slate-900 dark:text-white">"{mergeState.targetProduct.name}"</strong> quedará con
+                {' '}<strong className="text-primary">
+                  {mergeState.conflicts.length + mergeState.onlyInSource.length + mergeState.onlyInTarget.length} variante(s)
+                </strong>
+                {' '}y un stock total de
+                {' '}<strong className="text-primary">
+                  {[
+                    ...mergeState.conflicts.map(c => c.mergedStock),
+                    ...mergeState.onlyInSource.map((v: any) => v.stock || 0),
+                    ...mergeState.onlyInTarget.map((v: any) => v.stock || 0),
+                  ].reduce((a, b) => a + b, 0)} unidades
+                </strong>. El producto editado será eliminado.
+              </p>
+            </div>
+
+            {/* Botones */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setMergeState(null)}
+                className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-sm rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={executeMerge}
+                className="flex-1 py-3 bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-sm">merge</span>
+                Confirmar Fusión
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Modal (2 Pasos: Aviso de Pérdida + Confirmación Definitiva) */}
