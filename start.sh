@@ -53,7 +53,7 @@ elif [ -f "./prisma/migrate.js" ]; then
   echo "Ejecutando script de migración ./prisma/migrate.js..."
   node ./prisma/migrate.js || true
 fi
-if [ -f "/app/node_modules/prisma/build/index.js" ]; then
+if [ -f "/app/node_modules/prisma/build/index.js" ] && [ -d "/app/node_modules/effect" ]; then
   node /app/node_modules/prisma/build/index.js db push --accept-data-loss --schema=/app/prisma/schema.prisma || true
 fi
 

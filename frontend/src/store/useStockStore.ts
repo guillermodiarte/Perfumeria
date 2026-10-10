@@ -1083,7 +1083,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               const newCost = diff?.newTotalCostPerUnit !== undefined ? diff.newTotalCostPerUnit : p.unitPurchasePrice;
               return {
                 ...p,
-                supplierName: payload.supplierName || p.supplierName,
+                supplierName: payload.supplierName !== undefined ? payload.supplierName : p.supplierName,
                 quantity: newQty,
                 unitPurchasePrice: newCost,
                 totalCost: newQty * newCost,
@@ -1422,9 +1422,8 @@ export const useStockFlowStore = create<StockFlowState>()(
 
       deleteProduct: (productId) => {
         set((state) => ({
-             products: state.products.filter(p => p.id !== productId),
-             purchases: state.purchases.filter(p => p.productId !== productId),
-             sales: state.sales.filter(s => s.productId !== productId)
+          products: state.products.filter(p => p.id !== productId),
+          // Conservar compras y ventas en el historial: el costo de compra permanece como gasto/pérdida contable
         }));
       },
 
@@ -1440,8 +1439,6 @@ export const useStockFlowStore = create<StockFlowState>()(
                }
                return {
                    products: newProducts,
-                   purchases: state.purchases.filter(p => p.variantId !== variantId),
-                   sales: state.sales.filter(s => s.variantId !== variantId)
                };
            });
       },
@@ -1450,10 +1447,27 @@ export const useStockFlowStore = create<StockFlowState>()(
          set((state) => {
             const newProducts = [...state.products];
             let newPurchases = [...state.purchases];
+            let newSales = [...state.sales];
             const pIdx = newProducts.findIndex(p => p.id === productId);
             
             if(pIdx !== -1) {
               const oldProduct = newProducts[pIdx];
+              const oldName = oldProduct.name;
+              const newName = (data.name && data.name.trim()) ? data.name.trim() : oldProduct.name;
+
+              // Si se cambió el nombre del producto, actualizarlo en cascada en purchases y sales
+              if (data.name && data.name.trim() !== '' && newName.toLowerCase() !== oldName.toLowerCase()) {
+                newPurchases = newPurchases.map(p =>
+                  (p.productId === productId || (p.productName && p.productName.trim().toLowerCase() === oldName.trim().toLowerCase()))
+                    ? { ...p, productName: newName }
+                    : p
+                );
+                newSales = newSales.map(s =>
+                  (s.productId === productId || (s.productName && s.productName.trim().toLowerCase() === oldName.trim().toLowerCase()))
+                    ? { ...s, productName: newName }
+                    : s
+                );
+              }
               
               if (variants) {
                   variants.forEach(newVar => {
@@ -1466,7 +1480,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                                   id: 'adj-' + Math.random().toString(36).substr(2, 9),
                                   date: new Date().toISOString(),
                                   productId: oldProduct.id,
-                                  productName: data.name || oldProduct.name,
+                                  productName: newName,
                                   variantId: newVar.id,
                                   size: newVar.size,
                                   color: newVar.color,
@@ -1481,7 +1495,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                               id: 'pch-' + Math.random().toString(36).substr(2, 9),
                               date: new Date().toISOString(),
                               productId: oldProduct.id,
-                              productName: data.name || oldProduct.name,
+                              productName: newName,
                               variantId: newVar.id,
                               size: newVar.size,
                               color: newVar.color,
@@ -1505,7 +1519,6 @@ export const useStockFlowStore = create<StockFlowState>()(
                );
             }
             
-            let newSales = state.sales;
             if(data.salePrice !== undefined) {
                newSales = newSales.map(s => 
                   s.productId === productId ? { ...s, unitSalePrice: data.salePrice!, revenue: s.quantity * data.salePrice! } : s
@@ -1535,41 +1548,6 @@ export const useStockFlowStore = create<StockFlowState>()(
         if (!state) return;
         if (!state.perfumeTypesConfig || !state.perfumeTypesConfig.length) {
           state.perfumeTypesConfig = DEFAULT_PERFUME_TYPES;
-        }
-        if (!Array.isArray(state.purchases) || !Array.isArray(state.products)) return;
-        const existingProducts = [...state.products];
-        let hasChanges = false;
-
-        state.purchases.forEach(pch => {
-          if (!pch.productName || pch.quantity <= 0) return;
-          const found = existingProducts.find(
-            p => p.id === pch.productId || p.name.trim().toLowerCase() === pch.productName.trim().toLowerCase()
-          );
-          if (!found) {
-            hasChanges = true;
-            const newId = pch.productId && !pch.productId.startsWith('NEW') ? pch.productId : 'prod-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
-            existingProducts.push({
-              id: newId,
-              name: pch.productName,
-              sku: '',
-              categoryId: 'Perfumes de Mujer',
-              targetGender: 'Unisex',
-              purchasePrice: pch.unitPurchasePrice || 0,
-              salePrice: Number(((pch.unitPurchasePrice || 0) * 1.5).toFixed(2)) || 0,
-              variants: [
-                {
-                  id: pch.variantId || Math.random().toString(36).substr(2, 9),
-                  size: pch.size || 'Único',
-                  color: pch.color || '',
-                  stock: pch.quantity || 1
-                }
-              ]
-            });
-          }
-        });
-
-        if (hasChanges) {
-          useStockFlowStore.setState({ products: existingProducts });
         }
       }
     }

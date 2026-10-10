@@ -9,6 +9,16 @@ export async function GET(req: NextRequest) {
   if (!admin) return NextResponse.json({ detail: 'No autorizado' }, { status: 401 });
 
   try {
+    // 1. Eliminar automáticamente cualquier proveedor huérfano sin lotes asociados
+    await prisma.supplier.deleteMany({
+      where: {
+        purchase_batches: {
+          none: {},
+        },
+      },
+    });
+
+    // 2. Devolver únicamente los proveedores vigentes ordenados alfabéticamente
     const suppliers = await prisma.supplier.findMany({
       orderBy: { name: 'asc' },
     });

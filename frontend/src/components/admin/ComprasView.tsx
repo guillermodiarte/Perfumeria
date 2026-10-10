@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useStockFlowStore, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory } from '@/store/useStockStore';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
@@ -43,7 +43,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   const [purchaseCurrency, setPurchaseCurrency] = useState<Currency>('ARS');
   const [exchangeRate, setExchangeRate] = useState<number | string>(1);
   const [supplierInput, setSupplierInput] = useState('');
-  const [supplierSuggestions, setSupplierSuggestions] = useState<string[]>([]);
+  const [apiSuppliers, setApiSuppliers] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -264,8 +264,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       const res = await fetch(`${apiUrl}/api/admin/suppliers`, { headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` } });
       if (res.ok) {
         const data = await res.json();
-        const apiNames: string[] = data.map((s: any) => s.name).filter(Boolean);
-        setSupplierSuggestions(prev => Array.from(new Set([...prev, ...apiNames])));
+        const apiNames: string[] = data.map((s: any) => (s.name || '').trim()).filter(Boolean);
+        setApiSuppliers(apiNames);
       }
     } catch { }
   }, [apiKey, apiUrl]);
@@ -279,11 +279,15 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
         const data = await res.json();
         const bList = data.batches || [];
         setBatches(bList);
-        const batchSuppliers = bList.map((b: any) => b.supplier_name).filter(Boolean);
-        setSupplierSuggestions(prev => Array.from(new Set([...prev, ...batchSuppliers])));
       }
     } catch { } finally { setLoadingBatches(false); }
   }, [apiKey, apiUrl]);
+
+  const supplierSuggestions = useMemo(() => {
+    const fromBatches = batches.map(b => (b.supplier_name || '').trim()).filter(Boolean);
+    const fromApi = apiSuppliers.map(s => (s || '').trim()).filter(Boolean);
+    return Array.from(new Set([...fromBatches, ...fromApi])).sort((a, b) => a.localeCompare(b));
+  }, [apiSuppliers, batches]);
 
   // Cargar proveedores y lotes al inicio
   useEffect(() => {
@@ -806,7 +810,14 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                         {/* Dropdown de Productos idéntico a Proveedor */}
                         {productDropdownPIdx === pIdx && (prod.newProductName || '').trim().length >= 1 && (() => {
                           const q = (prod.newProductName || '').trim().toLowerCase();
-                          const filtered = productsStore.filter(p => p.name.toLowerCase().includes(q));
+                          const seenNames = new Set<string>();
+                          const filtered = productsStore.filter(p => {
+                            const nameLower = (p.name || '').trim().toLowerCase();
+                            if (!nameLower.includes(q)) return false;
+                            if (seenNames.has(nameLower)) return false;
+                            seenNames.add(nameLower);
+                            return true;
+                          });
                           if (filtered.length === 0) return null;
                           return (
                             <div className="absolute z-30 top-full mt-1 left-0 right-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">

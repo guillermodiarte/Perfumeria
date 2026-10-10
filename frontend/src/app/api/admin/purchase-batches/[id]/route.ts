@@ -116,6 +116,7 @@ export async function PUT(
           await prisma.purchaseBatchItem.update({
             where: { id: it.id },
             data: {
+              product_name: it.product_name !== undefined ? it.product_name : undefined,
               quantity: it.quantity !== undefined ? Number(it.quantity) : undefined,
               sale_price: it.sale_price !== undefined ? Number(it.sale_price) : undefined,
               unit_cost_ars: it.unit_cost_ars !== undefined ? Number(it.unit_cost_ars) : undefined,
@@ -152,6 +153,15 @@ export async function PUT(
       include: {
         supplier: true,
         items: true,
+      },
+    });
+
+    // Limpiar proveedores huérfanos que hayan quedado sin ningún lote
+    await prisma.supplier.deleteMany({
+      where: {
+        purchase_batches: {
+          none: {},
+        },
       },
     });
 
@@ -200,6 +210,15 @@ export async function DELETE(
     // Eliminar batch (los items se eliminan en cascada por onDelete: Cascade en el schema)
     await prisma.purchaseBatch.delete({
       where: { id },
+    });
+
+    // Limpiar proveedores huérfanos que hayan quedado sin ningún lote
+    await prisma.supplier.deleteMany({
+      where: {
+        purchase_batches: {
+          none: {},
+        },
+      },
     });
 
     return NextResponse.json({

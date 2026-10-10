@@ -170,6 +170,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   const [editForm, setEditForm] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
 
   // Media library picker state
   const [showMediaLib, setShowMediaLib] = useState(false);
@@ -478,8 +479,9 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
               }),
             }).catch(e => console.error('Error sincronizando DB al eliminar producto:', e));
           } catch {}
-          showAlert('Producto eliminado y datos financieros depurados.');
+          showAlert('✅ Producto dado de baja del inventario. El costo de compra permanece registrado como pérdida contable.');
           setConfirmDeleteId(null);
+          setDeleteStep(1);
       }
   };
 
@@ -695,24 +697,92 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
           </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {confirmDeleteId && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl p-6 md:p-8 max-w-sm w-full animate-in zoom-in-95 fade-in duration-200">
-                <div className="size-14 rounded-full bg-red-100 dark:bg-red-500/20 text-red-500 flex items-center justify-center mx-auto mb-4">
-                    <span className="material-symbols-outlined text-3xl">warning</span>
-                </div>
-                <h3 className="text-xl font-black text-center text-slate-900 dark:text-white mb-2">¿Eliminar Producto?</h3>
-                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-6">
-                    Esta acción purgará todo el historial contable de este producto, descontando las ganancias y gastos en Finanzas. Esta acción no se puede deshacer.
-                </p>
-                <div className="flex gap-3">
-                    <button onClick={() => setConfirmDeleteId(null)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">Cancelar</button>
-                    <button onClick={executeDelete} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-colors">Sí, Eliminar</button>
-                </div>
-            </div>
-        </div>
-      )}
+      {/* Delete Confirmation Modal (2 Pasos: Aviso de Pérdida + Confirmación Definitiva) */}
+      {confirmDeleteId && (() => {
+        const prod = products.find(p => p.id === confirmDeleteId);
+        const totalUnits = prod?.variants?.reduce((acc, v) => acc + (v.stock || 0), 0) || 0;
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl p-6 md:p-8 max-w-md w-full animate-in zoom-in-95 fade-in duration-200">
+                  {deleteStep === 1 ? (
+                    <>
+                      <div className="size-16 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto mb-4 border border-amber-500/20">
+                          <span className="material-symbols-outlined text-3xl">trending_down</span>
+                      </div>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-3 py-1 rounded-full mx-auto block w-fit mb-2">
+                          Paso 1 de 2: Aviso de Pérdida Contable
+                      </span>
+                      <h3 className="text-xl font-black text-center text-slate-900 dark:text-white mb-2">
+                          Se registrará como PÉRDIDA
+                      </h3>
+                      
+                      <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3.5 mb-4 text-xs space-y-1.5">
+                          <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                            📦 {prod?.name || 'Producto seleccionado'}
+                          </p>
+                          <p className="text-slate-500 dark:text-slate-400">
+                            Stock en inventario: <strong className="text-slate-700 dark:text-slate-300">{totalUnits} unidades</strong>
+                          </p>
+                      </div>
+
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-6 bg-amber-500/5 border border-amber-500/15 p-3.5 rounded-xl text-center">
+                          Este producto proviene de una compra registrada. Al eliminarlo, se retirará del inventario y <strong>el costo de compra no se borrará: se computará como una PÉRDIDA en Finanzas</strong> por mercadería dada de baja o descartada.
+                      </p>
+
+                      <div className="flex gap-3">
+                          <button 
+                              onClick={() => { setConfirmDeleteId(null); setDeleteStep(1); }} 
+                              className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-sm rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                          >
+                              Cancelar
+                          </button>
+                          <button 
+                              onClick={() => setDeleteStep(2)} 
+                              className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-1.5"
+                          >
+                              <span>Comprendo, continuar</span>
+                              <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                          </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="size-16 rounded-2xl bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+                          <span className="material-symbols-outlined text-3xl">delete_forever</span>
+                      </div>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-3 py-1 rounded-full mx-auto block w-fit mb-2">
+                          Paso 2 de 2: Confirmación Definitiva
+                      </span>
+                      <h3 className="text-xl font-black text-center text-slate-900 dark:text-white mb-2">
+                          ¿Confirmar eliminación definitiva?
+                      </h3>
+                      
+                      <p className="text-center text-sm text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
+                          ¿Estás totalmente seguro de dar de baja y eliminar <strong className="text-slate-900 dark:text-white block mt-1.5 font-bold">"{prod?.name}"</strong>? Esta acción no se puede deshacer.
+                      </p>
+
+                      <div className="flex gap-3">
+                          <button 
+                              onClick={() => setDeleteStep(1)} 
+                              className="py-3 px-4 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-sm rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-1"
+                          >
+                              <span className="material-symbols-outlined text-sm">arrow_back</span>
+                              <span>Atrás</span>
+                          </button>
+                          <button 
+                              onClick={executeDelete} 
+                              className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-1.5"
+                          >
+                              <span className="material-symbols-outlined text-sm">delete</span>
+                              <span>Sí, Eliminar Producto</span>
+                          </button>
+                      </div>
+                    </>
+                  )}
+              </div>
+          </div>
+        );
+      })()}
 
       {/* Edit Product Modal */}
       {editingProduct && editForm && (
