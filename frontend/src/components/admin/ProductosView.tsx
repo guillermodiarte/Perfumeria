@@ -268,21 +268,80 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
 
   const handleEditClick = (p: Product) => {
       setEditingProduct(p);
-      setEditForm(JSON.parse(JSON.stringify(p))); // Deep copy to avoid mutating store directly before save
+      const formCopy = JSON.parse(JSON.stringify(p));
+
+      const group = categoriesConfig.find(g => g.opciones.includes(p.categoryId));
+      const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+
+      if (formCopy.variants && Array.isArray(formCopy.variants)) {
+        formCopy.variants = formCopy.variants.map((v: any) => {
+          let sIdx = v.sizeIndex;
+          if ((sIdx === undefined || sIdx === -1) && vg) {
+            const foundIdx = vg.options.findIndex(o => 
+              v.size && (v.size === o.value || v.size.startsWith(o.value) || (o.description && v.size.includes(o.description)))
+            );
+            sIdx = foundIdx >= 0 ? foundIdx : 0;
+          }
+          return {
+            ...v,
+            sizeIndex: sIdx !== undefined && sIdx >= 0 ? sIdx : 0,
+            description: v.description !== undefined ? v.description : (v.color || ''),
+            color: v.color !== undefined ? v.color : (v.description || ''),
+            stock: v.stock !== undefined ? v.stock : 0,
+            unitPurchasePrice: v.unitPurchasePrice !== undefined ? v.unitPurchasePrice : (p.purchasePrice || 0),
+            manualSalePrice: v.manualSalePrice !== undefined ? v.manualSalePrice : (p.salePrice || 0),
+            autoCalculated: false,
+          };
+        });
+      } else {
+        formCopy.variants = [{
+          id: 'v-' + Math.random().toString(36).substr(2, 9),
+          size: vg && vg.options[0] ? vg.options[0].value : '100ml',
+          sizeIndex: 0,
+          description: '',
+          color: '',
+          stock: 1,
+          unitPurchasePrice: p.purchasePrice || 0,
+          manualSalePrice: p.salePrice || 0,
+          autoCalculated: false
+        }];
+      }
+
+      formCopy._showDetails = Boolean(p.description || p.showTag || p.showFeatures);
+      formCopy.tag = p.tag || 'Alta Demanda';
+      formCopy.showTag = Boolean(p.showTag);
+      formCopy.showFeatures = Boolean(p.showFeatures);
+
+      setEditForm(formCopy);
   };
 
   const handleVariantChange = (vIdx: number, field: string, value: any) => {
       setEditForm((prev: any) => {
           const newForm = { ...prev };
-          const variant = newForm.variants[vIdx];
+          const variant = { ...newForm.variants[vIdx] };
           variant[field] = value;
           
+          if (field === 'sizeIndex') {
+              const group = categoriesConfig.find(g => g.opciones.includes(newForm.categoryId));
+              const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+              if (vg && vg.options[value]) {
+                  const opt = vg.options[value];
+                  variant.size = opt.description ? `${opt.value} - ${opt.description}` : opt.value;
+              }
+          }
+          if (field === 'description') {
+              variant.color = value;
+          }
+          if (field === 'color') {
+              variant.description = value;
+          }
           if (field === 'unitPurchasePrice' && (variant.autoCalculated !== false)) {
-              variant.manualSalePrice = Number((value * (1 + (globalMarkupPrc / 100))).toFixed(2));
+              variant.manualSalePrice = Number((Number(value) * (1 + (globalMarkupPrc / 100))).toFixed(2));
           }
           if (field === 'manualSalePrice') {
               variant.autoCalculated = false;
           }
+          newForm.variants[vIdx] = variant;
           return newForm;
       });
   };
@@ -291,7 +350,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
       setEditForm((prev: any) => {
           const newForm = { ...prev };
           if (newForm.variants.length > 1) {
-              newForm.variants.splice(vIdx, 1);
+              newForm.variants = newForm.variants.filter((_: any, idx: number) => idx !== vIdx);
           }
           return newForm;
       });
@@ -300,41 +359,52 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   const addVariant = () => {
       setEditForm((prev: any) => {
           const newForm = { ...prev };
-          newForm.variants = [...prev.variants];
-          newForm.variants.push({
-              id: 'v-' + Math.random().toString(36).substr(2, 9),
-              size: 'M', color: '', stock: 1, 
-              unitPurchasePrice: 0, manualSalePrice: 0, 
-              autoCalculated: true, sizeIndex: 0
-          });
+          const group = categoriesConfig.find(g => g.opciones.includes(newForm.categoryId));
+          const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+          const defaultOpt = vg && vg.options[0];
+          const defaultSize = defaultOpt ? (defaultOpt.description ? `${defaultOpt.value} - ${defaultOpt.description}` : defaultOpt.value) : '100ml';
+
+          newForm.variants = [
+              ...prev.variants,
+              {
+                  id: 'v-' + Math.random().toString(36).substr(2, 9),
+                  size: defaultSize,
+                  sizeIndex: 0,
+                  description: '',
+                  color: '',
+                  stock: 1, 
+                  unitPurchasePrice: Number(newForm.purchasePrice) || 0,
+                  manualSalePrice: Number(newForm.salePrice) || 0, 
+                  autoCalculated: true
+              }
+          ];
           return newForm;
       });
   };
   
   const handleSaveEdit = () => {
       if(editingProduct && editForm) {
+          const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
+          const variantGroup = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(vg => vg.id === group.variantGroupId) : null;
+
           // Flatten variant sizes if they use indices and ensure prices are numbers
           const formattedVariants = editForm.variants.map((item: any) => {
-              const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
               let finalSize = item.size;
-              
-              if (group && group.variantGroupId !== 'none') {
-                  const variantGroup = variantGroupsConfig.find(vg => vg.id === group.variantGroupId);
-                  if (variantGroup && item.sizeIndex !== undefined) {
-                      const row = variantGroup.options[item.sizeIndex || 0];
-                      if (row) {
-                          finalSize = row.description ? `${row.value} - ${row.description}` : row.value;
-                      }
-                  }
+              if (variantGroup && item.sizeIndex !== undefined && variantGroup.options[item.sizeIndex]) {
+                  const row = variantGroup.options[item.sizeIndex];
+                  finalSize = row.description ? `${row.value} - ${row.description}` : row.value;
               }
+              const desc = item.description || item.color || '';
               const unitCost = (item.unitPurchasePrice !== undefined && item.unitPurchasePrice !== '') ? Number(item.unitPurchasePrice) : (Number(editForm.purchasePrice) || 0);
               const salePr = (item.manualSalePrice !== undefined && item.manualSalePrice !== '') ? Number(item.manualSalePrice) : (Number(editForm.salePrice) || 0);
               return { 
-                ...item, 
-                size: finalSize,
+                id: item.id || ('v-' + Math.random().toString(36).substr(2, 9)),
+                size: finalSize || 'Único',
+                color: desc,
+                description: desc,
                 unitPurchasePrice: unitCost,
                 manualSalePrice: salePr,
-                stock: Number(item.stock) || 0
+                stock: Math.max(0, Number(item.stock) || 0)
               };
           });
 
@@ -352,15 +422,15 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
               targetGender: editForm.targetGender,
               purchasePrice: computedPurchasePrice,
               salePrice: computedSalePrice,
-              imageUrls: editForm.imageUrls,
-              description: editForm.description,
-              tag: editForm.tag,
-              showTag: editForm.showTag,
-              olfactoryNotes: editForm.olfactoryNotes,
-              duration: editForm.duration,
-              intensity: editForm.intensity,
-              family: editForm.family,
-              showFeatures: editForm.showFeatures,
+              imageUrls: editForm.imageUrls || [],
+              description: editForm.description || '',
+              tag: editForm.tag || 'Alta Demanda',
+              showTag: Boolean(editForm.showTag),
+              olfactoryNotes: editForm.olfactoryNotes || '',
+              duration: editForm.duration || '',
+              intensity: editForm.intensity || '',
+              family: editForm.family || '',
+              showFeatures: Boolean(editForm.showFeatures),
           }, formattedVariants);
 
           // Sincronización inmediata con la base de datos
@@ -658,8 +728,10 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                 </div>
 
                 <div className="space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2 pb-6">
-                    {/* Basic Info */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* 1. Producto Padre */}
+                    <div className="space-y-3">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">1. Producto Padre</label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
                             <select 
@@ -813,23 +885,49 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                 Biblioteca
                             </button>
 
-                            <div className="flex gap-2 overflow-x-auto flex-1 min-w-0">
-                                {(editForm.imageUrls || []).map((imgUrl: string, imgIdx: number) => (
-                                    <div key={imgIdx} className="size-10 rounded-md flex-shrink-0 border border-slate-200 dark:border-slate-700 overflow-hidden relative group/img cursor-pointer"
-                                        onClick={() => {
-                                            setEditForm((prev: any) => {
-                                                const arr = [...(prev.imageUrls || [])];
-                                                arr.splice(imgIdx, 1);
-                                                return { ...prev, imageUrls: arr };
-                                            });
-                                        }}
-                                    >
-                                        <img src={imgUrl.startsWith('http') ? imgUrl : (apiUrl ? `${apiUrl}${imgUrl}` : imgUrl)} className="w-full h-full object-cover" />
-                                        <div className="absolute inset-0 bg-red-500/80 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                                            <span className="material-symbols-outlined text-white text-[14px]">close</span>
+                            <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0 py-0.5">
+                                {(editForm.imageUrls || []).map((imgUrl: string, imgIdx: number) => {
+                                    const fullImgSrc = imgUrl.startsWith('http') ? imgUrl : (apiUrl ? `${apiUrl}${imgUrl}` : imgUrl);
+                                    return (
+                                        <div
+                                            key={imgIdx}
+                                            title="Clic sobre la imagen para abrir biblioteca"
+                                            className="size-9 rounded-lg flex-shrink-0 border border-slate-200 dark:border-slate-700 overflow-hidden relative group/img cursor-pointer hover:ring-2 hover:ring-indigo-400 hover:scale-105 transition-all shadow-sm"
+                                            onClick={() => openMediaLib()}
+                                        >
+                                            <img src={fullImgSrc} alt="" className="w-full h-full object-cover" />
+                                            
+                                            <div className="absolute inset-0 bg-indigo-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                                <span className="material-symbols-outlined text-white text-[14px]">photo_library</span>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                title="Eliminar imagen"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const arr = [...(editForm.imageUrls || [])];
+                                                    arr.splice(imgIdx, 1);
+                                                    setEditForm((prev: any) => ({ ...prev, imageUrls: arr }));
+                                                }}
+                                                className="absolute top-0 right-0 size-4 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity rounded-bl z-10"
+                                            >
+                                                <span className="material-symbols-outlined text-[11px] font-bold">close</span>
+                                            </button>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
+                                {!(editForm.imageUrls || []).length && (
+                                    <button
+                                        type="button"
+                                        onClick={() => openMediaLib()}
+                                        className="text-xs text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 italic self-center cursor-pointer transition-colors flex items-center gap-1 px-2 py-1 rounded hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20"
+                                        title="Hacer clic para buscar y elegir de la biblioteca"
+                                    >
+                                        <span className="material-symbols-outlined text-[14px]">photo_library</span>
+                                        Sin fotos aún (clic para buscar en biblioteca)
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -943,152 +1041,194 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                             </div>
                         )}
                     </div>
+                </div>
 
-                    {/* ── Badge / Tag ── */}
-                    <div className="mt-4 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-                        <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 dark:bg-slate-900/60">
-                            <span className="material-symbols-outlined text-primary text-[18px]">local_fire_department</span>
-                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Insignia del Producto</span>
-                        </div>
-                        <div className="p-4 flex flex-wrap items-center gap-4">
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setEditForm((prev: any) => ({ ...prev, showTag: !prev.showTag }))}
-                                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${editForm.showTag ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
-                                >
-                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${editForm.showTag ? 'translate-x-5' : 'translate-x-0'}`} />
-                                </button>
-                                <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Mostrar insignia en tienda</span>
-                            </div>
-                            {editForm.showTag && (
-                                <select
-                                    className="flex-1 min-w-[160px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white"
-                                    value={editForm.tag || 'Alta Demanda'}
-                                    onChange={e => setEditForm((prev: any) => ({ ...prev, tag: e.target.value }))}
-                                >
-                                    <option>Alta Demanda</option>
-                                    <option>Recomendado</option>
-                                    <option>Más Vendido</option>
-                                    <option>Nuevo</option>
-                                    <option>Edición Limitada</option>
-                                    <option>Oferta Especial</option>
-                                </select>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* ── Description ── */}
-                    <div className="mt-4">
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Descripción Premium (visible en la tienda)</label>
-                        <textarea
-                            rows={4}
-                            placeholder="Ej: Creada con las esencias más puras para brindarte una experiencia olfativa inigualable..."
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all resize-none"
-                            value={editForm.description || ''}
-                            onChange={e => setEditForm((prev: any) => ({ ...prev, description: e.target.value }))}
-                        />
-                    </div>
-
-                    {/* ── Olfactory / Feature Attributes ── */}
-                    <div className="mt-4 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-                        <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-900/60">
-                            <div className="flex items-center gap-2">
-                                <span className="material-symbols-outlined text-primary text-[18px]">water_drop</span>
-                                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Atributos Olfativos / Especificaciones</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setEditForm((prev: any) => ({ ...prev, showFeatures: !prev.showFeatures }))}
-                                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${editForm.showFeatures ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
-                                >
-                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${editForm.showFeatures ? 'translate-x-5' : 'translate-x-0'}`} />
-                                </button>
-                                <span className="text-xs text-slate-500">{editForm.showFeatures ? 'Visible' : 'Oculto'}</span>
-                            </div>
-                        </div>
-                        <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {[
-                                { key: 'olfactoryNotes', label: 'Notas Olfativas', placeholder: 'Ej: Cítricas, Florales, Amaderadas', icon: 'air' },
-                                { key: 'duration', label: 'Duración', placeholder: 'Ej: Alta (+8 horas)', icon: 'schedule' },
-                                { key: 'intensity', label: 'Intensidad', placeholder: 'Ej: Moderada - Fuerte', icon: 'auto_awesome' },
-                                { key: 'family', label: 'Familia Olfativa', placeholder: 'Ej: Amaderada Especiada', icon: 'water_drop' },
-                            ].map(({ key, label, placeholder, icon }) => (
-                                <div key={key}>
-                                    <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
-                                        <span className="material-symbols-outlined text-[14px]">{icon}</span> {label}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder={placeholder}
-                                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all"
-                                        value={(editForm as any)[key] || ''}
-                                        onChange={e => setEditForm((prev: any) => ({ ...prev, [key]: e.target.value }))}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Variants */}
-
-                    <div className="mt-2 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
-                        <label className="block text-xs font-bold text-slate-500">Variantes (Stock y Precios)</label>
-                        <p className="text-xs text-slate-400 italic mb-2">Nota: Modificar el stock ajustará retroactivamente las facturas de registro en Finanzas.</p>
-
+                    {/* 2. Variantes (Ítem Físico) */}
+                    <div className="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">2. Variantes (Ítem Físico)</label>
                         <div className="space-y-2">
-                            {editForm.variants.map((variant: any, vIdx: number) => (
-                                <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
-                                    {(() => {
-                                        const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
-                                        if (group && group.variantGroupId !== 'none') {
-                                            const variantGroup = variantGroupsConfig.find(vg => vg.id === group.variantGroupId);
-                                            if (variantGroup) {
-                                                return (
-                                                    <div className="flex-1 min-w-[150px]">
-                                                        <select className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold h-10" value={variant.sizeIndex !== undefined ? variant.sizeIndex : variantGroup.options.findIndex(o => variant.size.includes(o.value))} onChange={e => handleVariantChange(vIdx, 'sizeIndex', Number(e.target.value))}>
-                                                            <option value="-1" disabled>Selecciona talle...</option>
-                                                            {variantGroup.options.map((row, rIdx) => (
-                                                                <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                );
-                                            }
-                                        }
-                                        return null;
-                                    })()}
-
-                                    <div className="flex-1 min-w-[120px]">
-                                        <input type="text" placeholder="Color/Desc" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm h-10" value={variant.color || ''} onChange={e => handleVariantChange(vIdx, 'color', e.target.value)} />
+                            {editForm.variants.map((variant: any, vIdx: number) => {
+                                const group = categoriesConfig.find(g => g.opciones.includes(editForm.categoryId));
+                                const vg = group && group.variantGroupId !== 'none' ? variantGroupsConfig.find(v => v.id === group.variantGroupId) : null;
+                                return (
+                                    <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm">
+                                        {vg && (
+                                            <div className="flex-1 min-w-[180px]">
+                                                <select 
+                                                    className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10 outline-none focus:ring-2 focus:ring-purple-400" 
+                                                    value={variant.sizeIndex !== undefined ? variant.sizeIndex : 0} 
+                                                    onChange={e => handleVariantChange(vIdx, 'sizeIndex', Number(e.target.value))}
+                                                >
+                                                    {vg.options.map((row, rIdx) => (
+                                                        <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
+                                        <div className="flex-1 min-w-[130px]">
+                                            <input 
+                                                type="text" 
+                                                placeholder="Descripción (ej: Negro/Rosa)" 
+                                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white h-10 focus:ring-2 focus:ring-primary outline-none" 
+                                                value={variant.description || variant.color || ''} 
+                                                onChange={e => handleVariantChange(vIdx, 'description', e.target.value)} 
+                                            />
+                                        </div>
+                                        <div className="w-[72px]">
+                                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Stock</label>
+                                            <input 
+                                                type="number" 
+                                                step="1" 
+                                                placeholder="1" 
+                                                className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm text-slate-900 dark:text-white font-bold h-9 text-blue-600 dark:text-blue-400 focus:ring-2 focus:ring-primary outline-none" 
+                                                value={variant.stock === '' ? '' : variant.stock} 
+                                                onChange={e => handleVariantChange(vIdx, 'stock', e.target.value === '' ? '' : Number(e.target.value))} 
+                                            />
+                                        </div>
+                                        <div className="w-[110px]">
+                                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Costo Unit.</label>
+                                            <input 
+                                                type="number" 
+                                                step="0.01" 
+                                                placeholder="0" 
+                                                className="w-full text-center bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800/50 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9 focus:ring-2 focus:ring-primary outline-none" 
+                                                value={variant.unitPurchasePrice === '' ? '' : (variant.unitPurchasePrice !== undefined ? variant.unitPurchasePrice : editForm.purchasePrice)} 
+                                                onChange={e => handleVariantChange(vIdx, 'unitPurchasePrice', e.target.value === '' ? '' : Number(e.target.value))} 
+                                            />
+                                        </div>
+                                        <div className="w-[110px]">
+                                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none truncate">PV Final</label>
+                                            <input 
+                                                type="number" 
+                                                step="0.01" 
+                                                placeholder="0" 
+                                                className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm font-black h-9 text-green-600 dark:text-green-400 focus:ring-2 focus:ring-primary outline-none" 
+                                                value={variant.manualSalePrice === '' ? '' : (variant.manualSalePrice !== undefined ? variant.manualSalePrice : editForm.salePrice)} 
+                                                onChange={e => handleVariantChange(vIdx, 'manualSalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
+                                            />
+                                        </div>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => removeVariant(vIdx)} 
+                                            className={`h-9 px-2 rounded-lg transition-colors flex items-center justify-center ${editForm.variants.length > 1 ? 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-slate-300 opacity-50 cursor-not-allowed'}`} 
+                                            disabled={editForm.variants.length <= 1}
+                                        >
+                                            <span className="material-symbols-outlined text-[20px]">delete</span>
+                                        </button>
                                     </div>
-
-                                    <div className="w-[80px]">
-                                        <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Stock</label>
-                                        <input type="number" step="1" className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm font-bold h-9 text-blue-600 dark:text-blue-400" value={variant.stock === '' ? '' : variant.stock} onChange={e => handleVariantChange(vIdx, 'stock', e.target.value === '' ? '' : Number(e.target.value))} />
-                                    </div>
-
-                                    <div className="w-[100px]">
-                                        <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Costo Unit.</label>
-                                        <input type="number" className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9" value={variant.unitPurchasePrice === '' ? '' : (variant.unitPurchasePrice !== undefined ? variant.unitPurchasePrice : editForm.purchasePrice)} onChange={e => handleVariantChange(vIdx, 'unitPurchasePrice', e.target.value === '' ? '' : Number(e.target.value))} />
-                                    </div>
-
-                                    <div className="w-[100px]">
-                                        <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none truncate">PV Final</label>
-                                        <input type="number" className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm font-black h-9 text-green-600 dark:text-green-400" value={variant.manualSalePrice === '' ? '' : (variant.manualSalePrice !== undefined ? variant.manualSalePrice : editForm.salePrice)} onChange={e => handleVariantChange(vIdx, 'manualSalePrice', e.target.value === '' ? '' : Number(e.target.value))} />
-                                    </div>
-
-                                    <button onClick={() => removeVariant(vIdx)} className={`h-9 px-2 rounded-lg transition-colors flex items-center justify-center border border-transparent ${editForm.variants.length > 1 ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 opacity-50 cursor-not-allowed'}`} disabled={editForm.variants.length <= 1}>
-                                        <span className="material-symbols-outlined text-[20px]">delete</span>
-                                    </button>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
-
-                        <button onClick={addVariant} className="text-sm font-bold text-primary flex items-center gap-1 hover:bg-primary/10 px-3 py-2 rounded-lg w-max transition-colors">
+                        <button 
+                            type="button" 
+                            onClick={addVariant} 
+                            className="text-sm font-bold text-primary flex items-center gap-1 hover:bg-primary/10 px-3 py-2 rounded-lg w-max transition-colors"
+                        >
                             <span className="material-symbols-outlined text-[18px]">add_circle</span> Añadir Variante
                         </button>
+                    </div>
+
+                    {/* 3. Descripción Premium & Atributos (Acordeón colapsable igual a ComprasView) */}
+                    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                        <button 
+                            type="button" 
+                            className="w-full flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors" 
+                            onClick={() => setEditForm((prev: any) => ({ ...prev, _showDetails: !prev._showDetails }))}
+                        >
+                            <span className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-[18px] text-primary">auto_awesome</span>
+                                3. Descripción Premium & Atributos
+                                {((editForm.tag && editForm.showTag) || editForm.description || editForm.showFeatures) && (
+                                    <span className="text-[10px] bg-primary/15 text-primary px-2 py-0.5 rounded-full font-black uppercase tracking-wider">Configurado</span>
+                                )}
+                            </span>
+                            <span className={`material-symbols-outlined text-lg transition-transform duration-200 ${editForm._showDetails ? 'rotate-180' : ''}`}>expand_more</span>
+                        </button>
+
+                        {editForm._showDetails && (
+                            <div className="p-4 space-y-5 bg-white dark:bg-slate-800/30">
+                                {/* Insignia del Producto */}
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Insignia del Producto</label>
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setEditForm((prev: any) => ({ ...prev, showTag: !prev.showTag }))} 
+                                                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${editForm.showTag ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
+                                            >
+                                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${editForm.showTag ? 'translate-x-5' : 'translate-x-0'}`} />
+                                            </button>
+                                            <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Mostrar insignia en tienda</span>
+                                        </div>
+                                        {editForm.showTag && (
+                                            <select 
+                                                className="flex-1 min-w-[160px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-medium" 
+                                                value={editForm.tag || 'Alta Demanda'} 
+                                                onChange={e => setEditForm((prev: any) => ({ ...prev, tag: e.target.value }))}
+                                            >
+                                                <option>Alta Demanda</option>
+                                                <option>Recomendado</option>
+                                                <option>Más Vendido</option>
+                                                <option>Nuevo</option>
+                                                <option>Edición Limitada</option>
+                                                <option>Oferta Especial</option>
+                                            </select>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Descripción Premium */}
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Descripción Premium</label>
+                                    <textarea 
+                                        rows={3} 
+                                        placeholder="Ej: Creada con las esencias más puras..." 
+                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white resize-none focus:ring-2 focus:ring-primary outline-none transition-all" 
+                                        value={editForm.description || ''} 
+                                        onChange={e => setEditForm((prev: any) => ({ ...prev, description: e.target.value }))} 
+                                    />
+                                </div>
+
+                                {/* Atributos Olfativos */}
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Atributos Olfativos</label>
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setEditForm((prev: any) => ({ ...prev, showFeatures: !prev.showFeatures }))} 
+                                                className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${editForm.showFeatures ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
+                                            >
+                                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ${editForm.showFeatures ? 'translate-x-4' : 'translate-x-0'}`} />
+                                            </button>
+                                            <span className="text-xs text-slate-500">{editForm.showFeatures ? 'Visible en tienda' : 'Oculto'}</span>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {[
+                                            { key: 'olfactoryNotes', label: 'Notas Olfativas', placeholder: 'Ej: Cítricas, Florales', icon: 'air' },
+                                            { key: 'duration', label: 'Duración', placeholder: 'Ej: Alta (+8 horas)', icon: 'schedule' },
+                                            { key: 'intensity', label: 'Intensidad', placeholder: 'Ej: Moderada - Fuerte', icon: 'auto_awesome' },
+                                            { key: 'family', label: 'Familia Olfativa', placeholder: 'Ej: Amaderada Especiada', icon: 'water_drop' },
+                                        ].map(({ key, label, placeholder, icon }) => (
+                                            <div key={key} className="flex flex-col gap-1">
+                                                <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
+                                                    <span className="material-symbols-outlined text-[13px]">{icon}</span>{label}
+                                                </label>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder={placeholder} 
+                                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-primary outline-none transition-all" 
+                                                    value={(editForm as any)[key] || ''} 
+                                                    onChange={e => setEditForm((prev: any) => ({ ...prev, [key]: e.target.value }))} 
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                 </div>
