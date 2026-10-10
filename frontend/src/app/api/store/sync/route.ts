@@ -64,6 +64,18 @@ export async function POST(req: NextRequest) {
       create: { key: 'catalog_store_data', value: valueToStore },
     });
 
+    // Sincronizar nombres actualizados en purchase_batch_items para mantener consistencia en la DB
+    if (Array.isArray(body.products)) {
+      for (const prod of body.products) {
+        if (prod.id && prod.name) {
+          await prisma.purchaseBatchItem.updateMany({
+            where: { product_id: prod.id },
+            data: { product_name: prod.name },
+          }).catch(() => {});
+        }
+      }
+    }
+
     try {
       revalidatePath('/');
       revalidatePath('/catalog');

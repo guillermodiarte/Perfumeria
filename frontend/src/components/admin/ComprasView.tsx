@@ -44,6 +44,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Autocomplete producto (dropdown custom con imagen)
+  const [productDropdownPIdx, setProductDropdownPIdx] = useState<number | null>(null);
+
   // PASO 3
   const [shippingCurrency, setShippingCurrency] = useState<Currency>('ARS');
   const [shippingCostOriginal, setShippingCostOriginal] = useState<number | string>('');
@@ -256,7 +259,11 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
     if (!apiKey) return;
     try {
       const res = await fetch(`${apiUrl}/api/admin/suppliers`, { headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` } });
-      if (res.ok) { const data = await res.json(); setSupplierSuggestions(data.map((s: any) => s.name)); }
+      if (res.ok) {
+        const data = await res.json();
+        const apiNames: string[] = data.map((s: any) => s.name).filter(Boolean);
+        setSupplierSuggestions(prev => Array.from(new Set([...prev, ...apiNames])));
+      }
     } catch { }
   }, [apiKey, apiUrl]);
 
@@ -265,7 +272,13 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
     setLoadingBatches(true);
     try {
       const res = await fetch(`${apiUrl}/api/admin/purchase-batches?limit=100`, { headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` } });
-      if (res.ok) { const data = await res.json(); setBatches(data.batches || []); }
+      if (res.ok) {
+        const data = await res.json();
+        const bList = data.batches || [];
+        setBatches(bList);
+        const batchSuppliers = bList.map((b: any) => b.supplier_name).filter(Boolean);
+        setSupplierSuggestions(prev => Array.from(new Set([...prev, ...batchSuppliers])));
+      }
     } catch { } finally { setLoadingBatches(false); }
   }, [apiKey, apiUrl]);
 
@@ -471,6 +484,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       setEditModalBatch(null);
       if (detailBatch?.id === editModalBatch.id) fetchBatchDetail(editModalBatch.id);
       fetchBatches();
+      fetchSuppliers();
     } catch (e: any) {
       showAlert(`Error al guardar edición: ${e.message}`);
     } finally {
@@ -613,6 +627,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       setShowSummary(false);
       setActiveTab('historial');
       fetchBatches();
+      fetchSuppliers();
     } catch (e: any) { showAlert(`Error al guardar: ${e.message}`); } finally { setSaving(false); }
   };
 
@@ -665,14 +680,41 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="relative">
                 <label className="block text-xs font-bold text-slate-500 mb-1">Proveedor / Tienda</label>
-                <input type="text" placeholder="Ej: Tienda de Brazil..." className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white" value={supplierInput} onChange={e => { setSupplierInput(e.target.value); setShowSuggestions(true); }} onBlur={() => setTimeout(() => setShowSuggestions(false), 150)} onFocus={() => setShowSuggestions(true)} />
-                {showSuggestions && supplierSuggestions.filter(s => s.toLowerCase().includes(supplierInput.toLowerCase())).length > 0 && (
-                  <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-xl overflow-hidden">
-                    {supplierSuggestions.filter(s => s.toLowerCase().includes(supplierInput.toLowerCase())).map(s => (
-                      <button key={s} className="w-full text-left px-3 py-2 text-sm hover:bg-primary/10 text-slate-800 dark:text-slate-200" onMouseDown={() => { setSupplierInput(s); setShowSuggestions(false); }}>{s}</button>
-                    ))}
-                  </div>
-                )}
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">store</span>
+                  <input
+                    type="text"
+                    placeholder="Buscar o escribir proveedor..."
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg pl-8 pr-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    value={supplierInput}
+                    onChange={e => { setSupplierInput(e.target.value); setShowSuggestions(true); }}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 180)}
+                    onFocus={() => setShowSuggestions(true)}
+                  />
+                  {supplierInput && (
+                    <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" onMouseDown={() => setSupplierInput('')}>
+                      <span className="material-symbols-outlined text-[15px]">close</span>
+                    </button>
+                  )}
+                </div>
+                {showSuggestions && (() => {
+                  const filtered = supplierSuggestions.filter(s => !supplierInput.trim() || s.toLowerCase().includes(supplierInput.toLowerCase()));
+                  if (filtered.length === 0) return null;
+                  return (
+                    <div className="absolute z-30 top-full mt-1 left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto">
+                      {filtered.map(s => (
+                        <button
+                          key={s}
+                          className="w-full text-left px-3 py-2.5 text-sm hover:bg-primary/10 dark:hover:bg-primary/20 text-slate-800 dark:text-slate-200 flex items-center gap-2 transition-colors"
+                          onMouseDown={() => { setSupplierInput(s); setShowSuggestions(false); }}
+                        >
+                          <span className="material-symbols-outlined text-[14px] text-slate-400">store</span>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">Fecha de Compra</label>
@@ -721,19 +763,125 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                       </select>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <div className={isPerfumeCategory(prod.categoryId) ? '' : 'col-span-1 md:col-span-2'}>
-                        <input list={`pnames-${pIdx}`} placeholder="Nombre de Producto" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white" value={prod.newProductName}
-                          onChange={e => {
-                            const val = e.target.value; updateProduct(pIdx, 'newProductName', val);
-                            const ex = productsStore.find(p => p.name.trim().toLowerCase() === val.trim().toLowerCase());
-                            if (ex) {
-                              updateProduct(pIdx, 'productId', ex.id); updateProduct(pIdx, 'categoryId', ex.categoryId); updateProduct(pIdx, 'newProductSku', ex.sku); updateProduct(pIdx, 'perfumeType', (ex as any).perfumeType || ''); updateProduct(pIdx, 'newProductImageUrls', ex.imageUrls || []);
-                              if (ex.targetGender) updateProduct(pIdx, 'targetGender', ex.targetGender);
-                              ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((ex as any)[f] !== undefined) updateProduct(pIdx, f, (ex as any)[f]); });
-                            } else if (!prod.productId || !prod.productId.startsWith('NEW-')) { updateProduct(pIdx, 'productId', `NEW-${Date.now()}-${pIdx}`); }
-                          }}
-                        />
-                        <datalist id={`pnames-${pIdx}`}>{productsStore.map(p => <option key={p.id} value={p.name} />)}</datalist>
+                      <div className={`relative ${isPerfumeCategory(prod.categoryId) ? '' : 'col-span-1 md:col-span-2'}`}>
+                        {/* Input producto con dropdown custom que muestra imagen */}
+                        <div className="relative">
+                          {/* Miniatura del producto seleccionado dentro del input */}
+                          {(prod.newProductImageUrls || []).length > 0 && (
+                            <div className="absolute left-1.5 top-1/2 -translate-y-1/2 z-10 pointer-events-none">
+                              <img
+                                src={(prod.newProductImageUrls[0] || '').startsWith('http') ? prod.newProductImageUrls[0] : (apiUrl ? `${apiUrl}${prod.newProductImageUrls[0]}` : prod.newProductImageUrls[0])}
+                                alt=""
+                                className="size-6 rounded object-cover border border-slate-200"
+                              />
+                            </div>
+                          )}
+                          <input
+                            type="text"
+                            placeholder="Nombre de Producto"
+                            className={`w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                              (prod.newProductImageUrls || []).length > 0 ? 'pl-9' : 'pl-3'
+                            } ${prod.newProductName ? 'pr-8' : 'pr-3'}`}
+                            value={prod.newProductName}
+                            onChange={e => {
+                              const val = e.target.value;
+                              updateProduct(pIdx, 'newProductName', val);
+                              setProductDropdownPIdx(pIdx);
+                              // Si el valor coincide exactamente con un producto, lo selecciona
+                              const ex = productsStore.find(p => p.name.trim().toLowerCase() === val.trim().toLowerCase());
+                              if (ex) {
+                                updateProduct(pIdx, 'productId', ex.id);
+                                updateProduct(pIdx, 'categoryId', ex.categoryId);
+                                updateProduct(pIdx, 'newProductSku', ex.sku);
+                                updateProduct(pIdx, 'perfumeType', (ex as any).perfumeType || '');
+                                updateProduct(pIdx, 'newProductImageUrls', ex.imageUrls || []);
+                                if (ex.targetGender) updateProduct(pIdx, 'targetGender', ex.targetGender);
+                                ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((ex as any)[f] !== undefined) updateProduct(pIdx, f, (ex as any)[f]); });
+                                setProductDropdownPIdx(null);
+                              } else if (!prod.productId || !prod.productId.startsWith('NEW-')) {
+                                updateProduct(pIdx, 'productId', `NEW-${Date.now()}-${pIdx}`);
+                              }
+                            }}
+                            onFocus={() => setProductDropdownPIdx(pIdx)}
+                            onBlur={() => setTimeout(() => setProductDropdownPIdx(prev => prev === pIdx ? null : prev), 200)}
+                          />
+                          {prod.newProductName && (
+                            <button
+                              type="button"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 z-10"
+                              onMouseDown={e => {
+                                e.preventDefault();
+                                updateProduct(pIdx, 'newProductName', '');
+                                updateProduct(pIdx, 'productId', `NEW-${Date.now()}-${pIdx}`);
+                                updateProduct(pIdx, 'newProductImageUrls', []);
+                                setProductDropdownPIdx(null);
+                              }}
+                            >
+                              <span className="material-symbols-outlined text-[15px]">close</span>
+                            </button>
+                          )}
+                        </div>
+                        {/* Dropdown custom con imagen */}
+                        {productDropdownPIdx === pIdx && (() => {
+                          const q = (prod.newProductName || '').trim().toLowerCase();
+                          const filtered = q.length === 0
+                            ? productsStore.slice(0, 30)
+                            : productsStore.filter(p => p.name.toLowerCase().includes(q)).slice(0, 20);
+                          if (filtered.length === 0) return null;
+                          return (
+                            <div className="absolute z-40 top-full mt-1 left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-64 overflow-y-auto">
+                              {filtered.map(p => {
+                                const imgUrl = (p.imageUrls && p.imageUrls[0]) || '';
+                                const fullImg = imgUrl.startsWith('http') ? imgUrl : (apiUrl && imgUrl ? `${apiUrl}${imgUrl}` : imgUrl);
+                                return (
+                                  <button
+                                    key={p.id}
+                                    type="button"
+                                    className="w-full text-left px-3 py-2 hover:bg-primary/10 dark:hover:bg-primary/20 flex items-center gap-3 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0"
+                                    onMouseDown={() => {
+                                      updateProduct(pIdx, 'newProductName', p.name);
+                                      updateProduct(pIdx, 'productId', p.id);
+                                      updateProduct(pIdx, 'categoryId', p.categoryId);
+                                      updateProduct(pIdx, 'newProductSku', p.sku);
+                                      updateProduct(pIdx, 'perfumeType', (p as any).perfumeType || '');
+                                      updateProduct(pIdx, 'newProductImageUrls', p.imageUrls || []);
+                                      if (p.targetGender) updateProduct(pIdx, 'targetGender', p.targetGender);
+                                      ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((p as any)[f] !== undefined) updateProduct(pIdx, f, (p as any)[f]); });
+                                      setProductDropdownPIdx(null);
+                                    }}
+                                  >
+                                    {/* Imagen miniatura */}
+                                    <div className="size-9 rounded-lg overflow-hidden flex-shrink-0 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                                      {fullImg ? (
+                                        <img src={fullImg} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                      ) : (
+                                        <div className="w-full h-full flex items-center justify-center">
+                                          <span className="material-symbols-outlined text-slate-300 text-[16px]">image</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    {/* Nombre y categoría */}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{p.name}</p>
+                                      <p className="text-xs text-slate-400 truncate">{p.categoryId}</p>
+                                    </div>
+                                    {/* Stock badge */}
+                                    {p.variants && p.variants.length > 0 && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 flex-shrink-0">
+                                        {p.variants.reduce((s: number, v: any) => s + (v.stock || 0), 0)} u.
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                              {q.length === 0 && productsStore.length > 30 && (
+                                <p className="text-center text-xs text-slate-400 py-2 border-t border-slate-100 dark:border-slate-800">
+                                  Escribí para filtrar entre {productsStore.length} productos
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                       {isPerfumeCategory(prod.categoryId) && (
                         <select

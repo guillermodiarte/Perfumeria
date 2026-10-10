@@ -363,6 +363,25 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
               showFeatures: editForm.showFeatures,
           }, formattedVariants);
 
+          // Sincronización inmediata con la base de datos
+          try {
+            const currentState = useStockFlowStore.getState();
+            fetch('/api/store/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                products: currentState.products,
+                categoriesConfig: currentState.categoriesConfig,
+                variantGroupsConfig: currentState.variantGroupsConfig,
+                perfumeTypesConfig: currentState.perfumeTypesConfig,
+                purchases: currentState.purchases,
+                sales: currentState.sales,
+                globalMarkupPrc: currentState.globalMarkupPrc,
+                wholesaleConfig: currentState.wholesaleConfig,
+              }),
+            }).catch(e => console.error('Error sincronizando DB al editar producto:', e));
+          } catch {}
+
           showAlert('Producto y finanzas actualizados con éxito.');
           setEditingProduct(null);
           setEditForm(null);
@@ -372,6 +391,23 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   const executeDelete = () => {
       if(confirmDeleteId) {
           deleteProduct(confirmDeleteId);
+          try {
+            const currentState = useStockFlowStore.getState();
+            fetch('/api/store/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                products: currentState.products,
+                categoriesConfig: currentState.categoriesConfig,
+                variantGroupsConfig: currentState.variantGroupsConfig,
+                perfumeTypesConfig: currentState.perfumeTypesConfig,
+                purchases: currentState.purchases,
+                sales: currentState.sales,
+                globalMarkupPrc: currentState.globalMarkupPrc,
+                wholesaleConfig: currentState.wholesaleConfig,
+              }),
+            }).catch(e => console.error('Error sincronizando DB al eliminar producto:', e));
+          } catch {}
           showAlert('Producto eliminado y datos financieros depurados.');
           setConfirmDeleteId(null);
       }
