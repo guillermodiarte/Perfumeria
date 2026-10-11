@@ -119,6 +119,7 @@ export async function PUT(
               product_name: it.product_name !== undefined ? it.product_name : undefined,
               quantity: it.quantity !== undefined ? Number(it.quantity) : undefined,
               sale_price: it.sale_price !== undefined ? Number(it.sale_price) : undefined,
+              unit_cost_original: it.unit_cost_original !== undefined ? Number(it.unit_cost_original) : undefined,
               unit_cost_ars: it.unit_cost_ars !== undefined ? Number(it.unit_cost_ars) : undefined,
               shipping_per_unit_ars: it.shipping_per_unit_ars !== undefined ? Number(it.shipping_per_unit_ars) : undefined,
               total_cost_per_unit_ars: it.total_cost_per_unit_ars !== undefined ? Number(it.total_cost_per_unit_ars) : undefined,

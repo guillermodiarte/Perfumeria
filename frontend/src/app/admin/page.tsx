@@ -37,6 +37,7 @@ export default function AdminDashboard() {
   };
   const [activeView, setActiveViewState] = useState<ViewId>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [comprasResetKey, setComprasResetKey] = useState(0);
   const isMobileSidebarOpenRef = useRef(false);
   isMobileSidebarOpenRef.current = isMobileSidebarOpen;
 
@@ -802,7 +803,7 @@ export default function AdminDashboard() {
             </button>
           )}
 
-          <button onClick={() => setActiveView('compras')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'compras' ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+          <button onClick={() => { setActiveView('compras'); setComprasResetKey(k => k + 1); }} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'compras' ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
             <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'compras' ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-500'}`}>
               <span className="material-symbols-outlined text-[18px]">local_shipping</span>
             </span>
@@ -1200,7 +1201,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
             ) : activeView === 'compras' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><ComprasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><ComprasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} resetKey={comprasResetKey} /></div>
             ) : activeView === 'ventas' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : (activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador') ? (

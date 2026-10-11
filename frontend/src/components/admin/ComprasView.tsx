@@ -15,7 +15,7 @@ const CURRENCY_SYMBOLS: Record<Currency, string> = {
 const fmt = (n: number) => Math.round(n).toLocaleString('es-AR');
 const fmtUSD = (n: number) => (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: (msg: string) => void; apiKey: string; apiUrl: string }) {
+export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { showAlert: (msg: string) => void; apiKey: string; apiUrl: string; resetKey?: number }) {
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
   const registerPurchaseBatch = useStockFlowStore(s => s.registerPurchaseBatch);
   const deletePurchaseBatch = useStockFlowStore(s => s.deletePurchaseBatch);
@@ -67,6 +67,17 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Reset to 'nueva' tab when parent triggers resetKey change
+  useEffect(() => {
+    if (resetKey === undefined) return;
+    setActiveTabState('nueva');
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'nueva');
+      window.history.replaceState({ tab: 'nueva' }, '', url.toString());
+    }
+  }, [resetKey]);
 
   // PASO 1
   const [purchaseCurrency, setPurchaseCurrency] = useState<Currency>('ARS');
@@ -424,6 +435,21 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
       });
       if (res.ok) {
         const data = await res.json();
+        const mappedItems = (data.items || []).map((it: any) => ({
+          id: it.id,
+          product_id: it.product_id,
+          variant_id: it.variant_id,
+          product_name: it.product_name,
+          original_product_name: it.product_name,  // save original for rename detection
+          variant_label: it.variant_label,
+          original_quantity: it.quantity,
+          quantity: it.quantity,
+          unit_cost_original: it.unit_cost_original || 0,
+          unit_cost_ars: it.unit_cost_ars || 0,
+          shipping_per_unit_ars: it.shipping_per_unit_ars || 0,
+          total_cost_per_unit_ars: it.total_cost_per_unit_ars || 0,
+          sale_price: it.sale_price || 0,
+        }));
         setEditModalBatch({
           id: data.id,
           batch_number: data.batch_number,
@@ -433,20 +459,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
           currency: data.currency,
           exchange_rate: data.exchange_rate,
           shipping_cost_ars: data.shipping_cost_ars || 0,
-          items: (data.items || []).map((it: any) => ({
-            id: it.id,
-            product_id: it.product_id,
-            variant_id: it.variant_id,
-            product_name: it.product_name,
-            variant_label: it.variant_label,
-            original_quantity: it.quantity,
-            quantity: it.quantity,
-            unit_cost_original: it.unit_cost_original || 0,
-            unit_cost_ars: it.unit_cost_ars || 0,
-            shipping_per_unit_ars: it.shipping_per_unit_ars || 0,
-            total_cost_per_unit_ars: it.total_cost_per_unit_ars || 0,
-            sale_price: it.sale_price || 0,
-          })),
+          items: mappedItems,
+          origItems: mappedItems.map((it: any) => ({ ...it })),
         });
       } else {
         showAlert('No se pudo cargar la información del lote para editar.');
@@ -458,11 +472,39 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
     }
   };
 
+  const recalcEditItems = (items: any[], shippingTotal: number) => {
+    const totalCostARS = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_ars) || 0), 0);
+    return items.map((it: any) => {
+      const qty = Number(it.quantity) || 0;
+      const unitCostARS = Number(it.unit_cost_ars) || 0;
+      const blockCost = unitCostARS * qty;
+      const proportion = totalCostARS > 0 ? blockCost / totalCostARS : (items.length > 0 ? 1 / items.length : 0);
+      const shippingPerUnit = qty > 0 ? (shippingTotal * proportion) / qty : 0;
+      return {
+        ...it,
+        shipping_per_unit_ars: shippingPerUnit,
+        total_cost_per_unit_ars: unitCostARS + shippingPerUnit,
+      };
+    });
+  };
+
   const updateEditItem = (idx: number, field: string, val: any) => {
     if (!editModalBatch) return;
     const nextItems = [...editModalBatch.items];
     nextItems[idx] = { ...nextItems[idx], [field]: val };
-    setEditModalBatch({ ...editModalBatch, items: nextItems });
+    // If cost or quantity changed, recalculate shipping distribution
+    if (field === 'unit_cost_ars' || field === 'quantity') {
+      const recalculated = recalcEditItems(nextItems, Number(editModalBatch.shipping_cost_ars) || 0);
+      setEditModalBatch({ ...editModalBatch, items: recalculated });
+    } else {
+      setEditModalBatch({ ...editModalBatch, items: nextItems });
+    }
+  };
+
+  const updateEditShipping = (newShipping: number) => {
+    if (!editModalBatch) return;
+    const recalculated = recalcEditItems(editModalBatch.items, newShipping);
+    setEditModalBatch({ ...editModalBatch, shipping_cost_ars: newShipping, items: recalculated });
   };
 
   const handleSaveEditBatch = async () => {
@@ -476,8 +518,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
         shipping_cost_ars: Number(editModalBatch.shipping_cost_ars) || 0,
         items: editModalBatch.items.map((it: any) => ({
           id: it.id,
+          product_name: (it.product_name || '').trim() || undefined,
           quantity: Number(it.quantity) || 0,
           sale_price: Number(it.sale_price) || 0,
+          unit_cost_original: Number(it.unit_cost_original) || 0,
           unit_cost_ars: Number(it.unit_cost_ars) || 0,
           shipping_per_unit_ars: Number(it.shipping_per_unit_ars) || 0,
           total_cost_per_unit_ars: Number(it.total_cost_per_unit_ars) || 0,
@@ -497,6 +541,31 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
           errMsg = err.detail || errMsg;
         } catch { }
         throw new Error(errMsg);
+      }
+
+      // Cascade-rename product names if changed
+      const origItems: any[] = editModalBatch.origItems || [];
+      const renamedPairs: Array<{oldName: string, newName: string}> = [];
+      for (const it of editModalBatch.items) {
+        const origItem = origItems.find((o: any) => o.id === it.id);
+        if (origItem && origItem.product_name && it.product_name && origItem.product_name.trim() !== it.product_name.trim()) {
+          // Only add the pair once per unique old→new
+          if (!renamedPairs.find(p => p.oldName === origItem.product_name.trim())) {
+            renamedPairs.push({ oldName: origItem.product_name.trim(), newName: it.product_name.trim() });
+          }
+        }
+      }
+      for (const pair of renamedPairs) {
+        const matchingProduct = productsStore.find(p => p.name.trim().toLowerCase() === pair.oldName.toLowerCase());
+        if (matchingProduct) {
+          try {
+            await fetch(`${apiUrl}/api/admin/products/${matchingProduct.id}/rename`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
+              body: JSON.stringify({ newName: pair.newName, oldName: pair.oldName }),
+            });
+          } catch {}
+        }
       }
 
       // Delta de cantidades y nuevos precios
@@ -1779,7 +1848,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                     : null);
               const totalCostARS = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_ars) || 0), 0);
               const totalShippingARS = Number(detailBatch.shipping_cost_ars) || 0;
-              const totalCostFinal = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.total_cost_per_unit_ars) || 0), 0);
+              const totalCostFinal = items.reduce((s: number, it: any) => s + Math.round(Number(it.total_cost_per_unit_ars) || 0) * (Number(it.quantity) || 0), 0);
               const totalSaleValue = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.sale_price) || 0), 0);
               const totalProfit = totalSaleValue - totalCostFinal;
               const marginPct = totalCostFinal > 0 ? (totalProfit / totalCostFinal) * 100 : 0;
@@ -1852,7 +1921,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                             <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</td>
                             <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(it.shipping_per_unit_ars)}</td>
                             <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.total_cost_per_unit_ars)}</td>
-                            <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(it.total_cost_per_unit_ars * it.quantity)}</td>
+                            <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(Math.round(it.total_cost_per_unit_ars) * it.quantity)}</td>
                             <td className="py-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
                               <span className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1 inline-block">
                                 ${fmt(it.sale_price)}
@@ -1932,7 +2001,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                           </div>
                           <div className="bg-primary/5 dark:bg-primary/20 border border-primary/20 rounded-lg p-1.5">
                             <span className="text-[9px] font-bold text-primary uppercase block">Total</span>
-                            <span className="text-[10px] font-mono font-black text-primary">${fmt(it.total_cost_per_unit_ars * it.quantity)}</span>
+                            <span className="text-[10px] font-mono font-black text-primary">${fmt(Math.round(it.total_cost_per_unit_ars) * it.quantity)}</span>
                           </div>
                         </div>
                       </div>
@@ -2158,7 +2227,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                     ? (editTotalCostARS / Number(editModalBatch.exchange_rate)) 
                     : null);
               const editTotalShippingARS = Number(editModalBatch.shipping_cost_ars) || 0;
-              const editTotalCostFinal = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.total_cost_per_unit_ars) || 0), 0);
+              const editTotalCostFinal = editItems.reduce((s: number, it: any) => s + Math.round(Number(it.total_cost_per_unit_ars) || 0) * (Number(it.quantity) || 0), 0);
               const editTotalSaleValue = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.sale_price) || 0), 0);
               const editTotalProfit = editTotalSaleValue - editTotalCostFinal;
               const editMarginPct = editTotalCostFinal > 0 ? (editTotalProfit / editTotalCostFinal) * 100 : 0;
@@ -2190,7 +2259,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                   </div>
 
                   {/* Cabecera de edición */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-2xl">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-2xl">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-500 mb-1">Proveedor / Tienda</label>
                       <input
@@ -2210,6 +2279,17 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                       />
                     </div>
                     <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Costo de Envío Total ($)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        className="w-full bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300 font-bold"
+                        value={editModalBatch.shipping_cost_ars}
+                        onChange={e => updateEditShipping(Number(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div>
                       <label className="block text-[11px] font-bold text-slate-500 mb-1">Notas / Observaciones</label>
                       <input
                         type="text"
@@ -2226,25 +2306,36 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
                         <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                          <th className="pb-2 pr-3">Producto / Variante</th>
-                          <th className="pb-2 pr-3 text-center w-28">Cantidad</th>
-                          <th className="pb-2 pr-3 text-right">Costo ARS</th>
-                          <th className="pb-2 pr-3 text-right">Envío/u</th>
-                          <th className="pb-2 pr-3 text-right">Total/u</th>
-                          <th className="pb-2 pr-3 text-right font-black text-slate-900 dark:text-white">Total</th>
-                          <th className="pb-2 text-right w-36">Precio de Venta</th>
+                          <th className="pb-2 pr-3 min-w-[160px]">Producto / Variante</th>
+                          <th className="pb-2 pr-3 text-center w-24">Cantidad</th>
+                          <th className="pb-2 pr-3 text-right w-32">Costo ARS</th>
+                          <th className="pb-2 pr-3 text-right w-24">Envío/u</th>
+                          <th className="pb-2 pr-3 text-right w-24">Total/u</th>
+                          <th className="pb-2 pr-3 text-right font-black text-slate-900 dark:text-white w-28">Total</th>
+                          <th className="pb-2 text-right w-32">P. Venta</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {editItems.map((it: any, idx: number) => {
                           const delta = (Number(it.quantity) || 0) - it.original_quantity;
+                          const rowTotal = Math.round((Number(it.total_cost_per_unit_ars) || 0) * (Number(it.quantity) || 0));
+                          const origName = (editModalBatch.origItems || [])[idx]?.product_name;
+                          const nameChanged = origName && origName.trim() !== (it.product_name || '').trim();
                           return (
                             <tr key={it.id || idx}>
-                              <td className="py-2.5 pr-3">
-                                <p className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</p>
-                                <p className="text-slate-400">{it.variant_label}</p>
+                              <td className="py-2 pr-3">
+                                <input
+                                  type="text"
+                                  className={`w-full bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-bold text-slate-800 dark:text-slate-200 mb-0.5 ${
+                                    nameChanged ? 'border-blue-400 dark:border-blue-500 ring-1 ring-blue-300' : 'border-slate-200 dark:border-slate-600'
+                                  }`}
+                                  value={it.product_name || ''}
+                                  onChange={e => updateEditItem(idx, 'product_name', e.target.value)}
+                                  title={nameChanged ? `Nombre original: ${origName}` : undefined}
+                                />
+                                <p className="text-slate-400 text-[10px] pl-1">{it.variant_label}</p>
                               </td>
-                              <td className="py-2.5 pr-3 text-center">
+                              <td className="py-2 pr-3 text-center">
                                 <div className="flex flex-col items-center">
                                   <input
                                     type="number"
@@ -2260,19 +2351,26 @@ export default function ComprasView({ showAlert, apiKey, apiUrl }: { showAlert: 
                                   )}
                                 </div>
                               </td>
-                              <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                                ${fmt(it.unit_cost_ars)}
+                              <td className="py-2 pr-3 text-right">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  className="w-28 text-right bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 dark:text-slate-300"
+                                  value={it.unit_cost_ars ?? ''}
+                                  onChange={e => updateEditItem(idx, 'unit_cost_ars', e.target.value === '' ? 0 : Number(e.target.value))}
+                                />
                               </td>
-                              <td className="py-2.5 pr-3 text-right font-mono text-green-600">
+                              <td className="py-2 pr-3 text-right font-mono text-green-600 whitespace-nowrap">
                                 ${fmt(it.shipping_per_unit_ars)}
                               </td>
-                              <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                              <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
                                 ${fmt(it.total_cost_per_unit_ars)}
                               </td>
-                              <td className="py-2.5 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                                ${fmt(it.total_cost_per_unit_ars * (Number(it.quantity) || 0))}
+                              <td className="py-2 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                                ${fmt(rowTotal)}
                               </td>
-                              <td className="py-2.5 text-right">
+                              <td className="py-2 text-right">
                                 <input
                                   type="number"
                                   min="0"

@@ -601,7 +601,7 @@ export default function ProductosView({
       // Variantes del producto existente (target)
       const targetVariants = conflictProduct.variants || [];
 
-      formattedVariants.forEach(sv => {
+      formattedVariants.forEach((sv: any) => {
         const match = targetVariants.find(
           (tv: any) => normSize(tv.size) === normSize(sv.size)
         );
@@ -624,7 +624,7 @@ export default function ProductosView({
 
       targetVariants.forEach((tv: any) => {
         const match = formattedVariants.find(
-          sv => normSize(sv.size) === normSize(tv.size)
+          (sv: any) => normSize(sv.size) === normSize(tv.size)
         );
         if (!match) {
           onlyInTarget.push(tv);
@@ -682,10 +682,10 @@ export default function ProductosView({
     persistProductUpdate(targetProduct.id, {
       ...targetProduct,
       // Tomar imágenes de ambos (sin duplicados)
-      imageUrls: [...new Set([
+      imageUrls: Array.from(new Set([
         ...(targetProduct.imageUrls || []),
         ...(editForm.imageUrls || []),
-      ])],
+      ])),
       description: editForm.description || targetProduct.description || '',
     }, mergedVariants);
 
@@ -939,18 +939,18 @@ export default function ProductosView({
                                      }
 
                                      return (
-                                         <div className="flex flex-wrap items-end gap-x-4 gap-y-2 mb-3">
+                                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
                                               {hasOriginal && (
-                                                  <div>
+                                                  <div className="text-center">
                                                       <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider mb-0.5">Precio Original</p>
                                                       <p className="text-xs font-black text-amber-700 dark:text-amber-300">{origDisplay}</p>
                                                   </div>
                                               )}
-                                              <div>
+                                              <div className="text-center">
                                                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Costo c/envío</p>
                                                   <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{purchasePriceDisplay}</p>
                                               </div>
-                                              <div>
+                                              <div className="text-center">
                                                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">P. Venta</p>
                                                   <p className="text-sm font-black text-slate-900 dark:text-white">{salePriceDisplay}</p>
                                               </div>
@@ -965,10 +965,11 @@ export default function ProductosView({
                                      </div>
                                      <div className="flex flex-wrap gap-2">
                                          {p.variants.map(v => {
-                                             const vCostInfo = getVariantCostInfo(v.id, p.id, v.size);
-                                             const vSale = (v.manualSalePrice !== undefined && v.manualSalePrice > 0) ? v.manualSalePrice : (p.salePrice || 0);
+                                             const sizeLabel = v.size.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "T:") : 
+                                                              v.size.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
+                                                              v.size.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : v.size;
                                              return (
-                                             <div key={v.id} className="flex flex-col flex-1 min-w-[70px] bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-center">
+                                             <div key={v.id} className="flex flex-col flex-1 min-w-[65px] bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-center">
                                                  <div className="flex flex-col justify-center items-center mb-1">
                                                      {(v as any).description && (
                                                          <span className="text-[10px] font-bold text-slate-500 truncate max-w-[80px]" title={(v as any).description}>{(v as any).description}</span>
@@ -977,25 +978,12 @@ export default function ProductosView({
                                                          className="text-xs font-black text-slate-700 dark:text-slate-300 cursor-help"
                                                          title={(v.size.includes("MER:") || v.size.includes("ARG:") || v.size.includes("INT:")) ? v.size : undefined}
                                                      >
-                                                         {v.size.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "T:") : 
-                                                          v.size.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
-                                                          v.size.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : v.size}
+                                                         {sizeLabel}
                                                      </span>
                                                  </div>
-                                                 <div className="flex items-center justify-between text-[11px] font-bold mt-0.5">
+                                                 <div className="flex items-center justify-center gap-1 text-[11px] font-bold">
                                                      <span className="text-[10px] text-slate-400 font-medium">Stock:</span>
-                                                     <span className={v.stock > 0 ? "text-primary" : "text-red-500"}>{v.stock}</span>
-                                                 </div>
-                                                 {vCostInfo && vCostInfo.originalCost && vCostInfo.currency !== 'ARS' && (
-                                                     <div className="text-[9px] text-amber-600 dark:text-amber-400 font-bold truncate mt-0.5" title={`Precio original: ${formatCurrency(vCostInfo.originalCost, vCostInfo.currency)}`}>
-                                                         {formatCurrency(vCostInfo.originalCost, vCostInfo.currency)}
-                                                     </div>
-                                                 )}
-                                                 <div className="flex items-center justify-between text-[11px] mt-1 pt-1 border-t border-slate-200 dark:border-slate-700">
-                                                     <span className="text-[9px] text-slate-400 font-bold uppercase">PV:</span>
-                                                     <span className="font-extrabold text-green-600 dark:text-green-400 text-[11px]">
-                                                         {formatCurrency(vSale)}
-                                                     </span>
+                                                     <span className={`text-xs font-black ${v.stock > 0 ? "text-primary dark:text-emerald-400" : "text-red-500"}`}>{v.stock}</span>
                                                  </div>
                                              </div>
                                          );
@@ -1639,16 +1627,19 @@ export default function ProductosView({
                                             </div>
                                           );
                                         })()}
-                                        <div className="w-[110px]">
+                                        <div className="w-[120px]">
                                             <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none truncate">PV Final</label>
-                                            <input 
-                                                type="number" 
-                                                step="0.01" 
-                                                placeholder="0" 
-                                                className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm font-black h-9 text-green-600 dark:text-green-400 focus:ring-2 focus:ring-primary outline-none" 
-                                                value={variant.manualSalePrice === '' ? '' : (variant.manualSalePrice !== undefined ? variant.manualSalePrice : editForm.salePrice)} 
-                                                onChange={e => handleVariantChange(vIdx, 'manualSalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
-                                            />
+                                            <div className="relative">
+                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-black text-green-600 dark:text-green-400 pointer-events-none">$</span>
+                                                <input 
+                                                    type="number" 
+                                                    step="0.01" 
+                                                    placeholder="0" 
+                                                    className="w-full pl-5 pr-1 text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg py-1 text-sm font-black h-9 text-green-600 dark:text-green-400 focus:ring-2 focus:ring-primary outline-none" 
+                                                    value={variant.manualSalePrice === '' ? '' : (variant.manualSalePrice !== undefined ? variant.manualSalePrice : editForm.salePrice)} 
+                                                    onChange={e => handleVariantChange(vIdx, 'manualSalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
+                                                />
+                                            </div>
                                         </div>
                                         <button 
                                             type="button" 
