@@ -54,8 +54,9 @@ export default function CartDrawer() {
     return parseImageUrl(imgUrl);
   };
 
-  const minWholesaleQty = wholesaleConfig?.minQuantity || 6;
-  const wholesaleDiscountPrc = wholesaleConfig?.discountPercentage || 10;
+  const minWholesaleQty = wholesaleConfig?.minQuantity || 3;
+  const isPercentActive = wholesaleConfig?.enabled !== false;
+  const wholesaleDiscountPrc = wholesaleConfig?.discountPercentage || 15;
   const isUserWholesale = !!(user?.is_wholesale || (user?.wholesale_until && new Date(user.wholesale_until) > new Date()));
 
   const getItemBasePrice = (item: any) => {
@@ -63,11 +64,27 @@ export default function CartDrawer() {
     return (variant?.manualSalePrice !== undefined && variant.manualSalePrice > 0) ? variant.manualSalePrice : (item.product?.salePrice || 0);
   };
 
-  const subtotal = items.reduce((acc, item) => {
-    const isWholesale = isUserWholesale || item.quantity >= minWholesaleQty;
+  const getItemWholesalePrice = (item: any) => {
+    const variant = item.product?.variants?.find((v: any) => v.id === item.variantId || (v.size === item.size && v.color === item.color));
     const basePrice = getItemBasePrice(item);
-    const currentPrice = isWholesale ? basePrice * (1 - wholesaleDiscountPrc / 100) : basePrice;
-    return acc + currentPrice * item.quantity;
+    const customWholesale = (variant?.manualWholesalePrice !== undefined && variant.manualWholesalePrice > 0)
+      ? variant.manualWholesalePrice
+      : (item.product?.wholesalePrice !== undefined && item.product?.wholesalePrice > 0 ? item.product.wholesalePrice : null);
+
+    if (customWholesale != null) return customWholesale;
+    if (isPercentActive && wholesaleDiscountPrc > 0) {
+      return Math.round(basePrice * (1 - wholesaleDiscountPrc / 100));
+    }
+    return basePrice;
+  };
+
+  const getItemEffectivePrice = (item: any) => {
+    const isWholesale = isUserWholesale || item.quantity >= minWholesaleQty;
+    return isWholesale ? getItemWholesalePrice(item) : getItemBasePrice(item);
+  };
+
+  const subtotal = items.reduce((acc, item) => {
+    return acc + getItemEffectivePrice(item) * item.quantity;
   }, 0);
 
   const total = subtotal;
@@ -174,7 +191,7 @@ export default function CartDrawer() {
                       </div>
                       <div className="flex flex-col items-end">
                         <span className="font-black text-primary">
-                          ${((isUserWholesale || item.quantity >= minWholesaleQty) ? getItemBasePrice(item) * (1 - wholesaleDiscountPrc / 100) : getItemBasePrice(item)).toLocaleString('es-AR')}
+                          ${getItemEffectivePrice(item).toLocaleString('es-AR')}
                         </span>
                         {(isUserWholesale || item.quantity >= minWholesaleQty) && (
                           <span className="text-[10px] text-green-600 dark:text-green-400 font-bold uppercase tracking-wider mt-0.5">

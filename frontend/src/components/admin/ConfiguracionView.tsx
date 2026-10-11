@@ -615,14 +615,44 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
             {/* Descuento Mayorista Base */}
             <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 h-full flex flex-col justify-between">
               <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="material-symbols-outlined text-primary text-xl">sell</span>
-                  <label className="block text-sm font-bold text-slate-800 dark:text-white">
-                    Regla de Descuento Mayorista por Ítem
-                  </label>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary text-xl">sell</span>
+                    <label className="block text-sm font-bold text-slate-800 dark:text-white">
+                      Regla de Descuento Mayorista por Ítem
+                    </label>
+                  </div>
+                  {/* Switch para activar / desactivar porcentaje mayorista */}
+                  <div className="flex items-center gap-2.5 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm w-fit">
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                      {wholesaleConfig?.enabled !== false ? 'Porcentaje Activo' : 'Manual en Productos'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextEnabled = wholesaleConfig?.enabled === false;
+                        setWholesaleConfig({
+                          ...wholesaleConfig,
+                          enabled: nextEnabled,
+                        });
+                      }}
+                      className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        wholesaleConfig?.enabled !== false ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
+                      }`}
+                      title={wholesaleConfig?.enabled !== false ? 'Desactivar porcentaje automático' : 'Activar porcentaje automático'}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          wholesaleConfig?.enabled !== false ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-                  Establece la cantidad mínima requerida del mismo producto para aplicar el descuento mayorista automáticamente en compras individuales.
+                  {wholesaleConfig?.enabled !== false
+                    ? 'Aplica este porcentaje de descuento sobre los precios de venta a menos que configures un precio mayorista manual específico en cada producto.'
+                    : 'Porcentaje automático desactivado. El precio al por mayor se ingresa de forma manual en cada producto.'}
                 </p>
               </div>
 
@@ -637,13 +667,21 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Descuento (%)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400">Descuento (%)</label>
+                    {wholesaleConfig?.enabled === false && (
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">Desactivado</span>
+                    )}
+                  </div>
                   <div className="relative">
                     <input
                       type="number"
+                      disabled={wholesaleConfig?.enabled === false}
                       value={wholesaleConfig?.discountPercentage || 10}
                       onChange={(e) => setWholesaleConfig({ ...wholesaleConfig, discountPercentage: Number(e.target.value) || 0 })}
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-4 pr-10 py-3 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                      className={`w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-4 pr-10 py-3 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary shadow-sm ${
+                        wholesaleConfig?.enabled === false ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800/40' : ''
+                      }`}
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
                   </div>

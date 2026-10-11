@@ -71,31 +71,50 @@ export default function CheckoutPage() {
     );
   }
 
+  const isUserWholesale = !!(user?.is_wholesale || (user?.wholesale_until && new Date(user.wholesale_until) > new Date()));
+
   const getItemUnitPrice = (item: any) => {
     const variant = item.product?.variants?.find((v: any) => v.id === item.variantId || (v.size === item.size && v.color === item.color));
     return (variant?.manualSalePrice !== undefined && variant.manualSalePrice > 0) ? variant.manualSalePrice : (item.product?.salePrice || 0);
   };
 
-  const subtotal = items.reduce((acc, item) => acc + (getItemUnitPrice(item) * item.quantity), 0);
+  const getItemWholesalePrice = (item: any) => {
+    const variant = item.product?.variants?.find((v: any) => v.id === item.variantId || (v.size === item.size && v.color === item.color));
+    const basePrice = getItemUnitPrice(item);
+    const customWholesale = (variant?.manualWholesalePrice !== undefined && variant.manualWholesalePrice > 0)
+      ? variant.manualWholesalePrice
+      : (item.product?.wholesalePrice !== undefined && item.product?.wholesalePrice > 0 ? item.product.wholesalePrice : null);
 
-  const isUserWholesale = !!(user?.is_wholesale || (user?.wholesale_until && new Date(user.wholesale_until) > new Date()));
+    if (customWholesale != null) return customWholesale;
+    if (wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0) {
+      return Math.round(basePrice * (1 - (wholesaleConfig.discountPercentage / 100)));
+    }
+    return basePrice;
+  };
+
+  const getItemFinalUnitPrice = (item: any) => {
+    const isWholesale = isUserWholesale || item.quantity >= (wholesaleConfig?.minQuantity || 3);
+    return isWholesale ? getItemWholesalePrice(item) : getItemUnitPrice(item);
+  };
+
+  const subtotal = items.reduce((acc, item) => acc + (getItemUnitPrice(item) * item.quantity), 0);
 
   // Wholesale discount calculation
   const totalDiscount = items.reduce((acc, item) => {
-    if (isUserWholesale || item.quantity >= wholesaleConfig.minQuantity) {
-      const itemSubtotal = getItemUnitPrice(item) * item.quantity;
-      return acc + (itemSubtotal * (wholesaleConfig.discountPercentage / 100));
-    }
-    return acc;
+    const base = getItemUnitPrice(item);
+    const finalPrice = getItemFinalUnitPrice(item);
+    return acc + Math.max(0, base - finalPrice) * item.quantity;
   }, 0);
 
   const activeShippingCost = shippingType === 'delivery' && shippingConfig.delivery_enabled ? shippingConfig.delivery_cost : 0;
   const total = subtotal - totalDiscount + activeShippingCost;
 
   const buildWhatsappMessage = (orderItems: typeof items, orderTotal: number) => {
-    const lines = orderItems.map(item =>
-      `• ${item.product.name} (${item.color ? item.color + ' - ' : ''}${item.size}) x${item.quantity} = $${(getItemUnitPrice(item) * item.quantity).toLocaleString()}`
-    );
+    const lines = orderItems.map(item => {
+      const finalUnit = getItemFinalUnitPrice(item);
+      const isDiscounted = finalUnit < getItemUnitPrice(item);
+      return `• ${item.product.name} (${item.color ? item.color + ' - ' : ''}${item.size}) x${item.quantity} = $${(finalUnit * item.quantity).toLocaleString()}${isDiscounted ? ' (Mayorista)' : ''}`;
+    });
     const greeting = company.whatsappMsgGreeting || '¡Hola! Quiero confirmar un pedido 🛒';
     const msg = [
       greeting,
@@ -180,8 +199,8 @@ export default function CheckoutPage() {
         image_url: item.product.imageUrls?.[0] || '',
         imageUrl: item.product.imageUrls?.[0] || '',
         quantity: item.quantity,
-        sale_price: getItemUnitPrice(item),
-        salePrice: getItemUnitPrice(item)
+        sale_price: getItemFinalUnitPrice(item),
+        salePrice: getItemFinalUnitPrice(item)
       }));
 
       // 1. Create order in Backend
@@ -266,7 +285,12 @@ export default function CheckoutPage() {
                     <div className="flex-1 min-w-0 pr-6 sm:pr-0">
                       <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-tight line-clamp-2">{item.product.name}</h3>
                       <p className="text-xs text-slate-500 mt-1 capitalize">{item.color} - {item.size}</p>
-                      <p className="text-xs text-slate-400 mt-0.5 sm:hidden">${getItemUnitPrice(item).toLocaleString()} c/u</p>
+                      <p className="text-xs text-slate-400 mt-0.5 sm:hidden">
+                        ${getItemFinalUnitPrice(item).toLocaleString()} c/u
+                        {getItemFinalUnitPrice(item) < getItemUnitPrice(item) && (
+                          <span className="line-through text-slate-300 ml-1.5">${getItemUnitPrice(item).toLocaleString()}</span>
+                        )}
+                      </p>
                     </div>
                   </div>
 
@@ -278,10 +302,17 @@ export default function CheckoutPage() {
                       <button onClick={() => updateQuantity(item.product.id, item.variantId, item.quantity + 1)} className="text-slate-400 hover:text-primary font-bold px-1 text-base">+</button>
                     </div>
                     <div className="text-right">
-                      <p className="font-black text-base sm:text-lg text-slate-900 dark:text-white">${(getItemUnitPrice(item) * item.quantity).toLocaleString()}</p>
-                      <p className="text-[11px] text-slate-400 font-medium hidden sm:block">${getItemUnitPrice(item).toLocaleString()} c/u</p>
-                      {(isUserWholesale || item.quantity >= wholesaleConfig.minQuantity) && (
-                        <p className="text-[9px] font-bold text-green-500 uppercase">-{wholesaleConfig.discountPercentage}% Mayorista</p>
+                      <p className="font-black text-base sm:text-lg text-slate-900 dark:text-white">${(getItemFinalUnitPrice(item) * item.quantity).toLocaleString()}</p>
+                      <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
+                        ${getItemFinalUnitPrice(item).toLocaleString()} c/u
+                        {getItemFinalUnitPrice(item) < getItemUnitPrice(item) && (
+                          <span className="line-through text-slate-300 ml-1">${getItemUnitPrice(item).toLocaleString()}</span>
+                        )}
+                      </p>
+                      {(isUserWholesale || item.quantity >= (wholesaleConfig?.minQuantity || 3)) && getItemFinalUnitPrice(item) < getItemUnitPrice(item) && (
+                        <p className="text-[9px] font-bold text-green-500 uppercase">
+                          Mayorista (-${(getItemUnitPrice(item) - getItemFinalUnitPrice(item)).toLocaleString()})
+                        </p>
                       )}
                     </div>
                   </div>

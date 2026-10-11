@@ -161,8 +161,9 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   ) || product.variants[0];
   const maxStock = currentVariant?.stock || 0;
 
-  const minWholesaleQty = wholesaleConfig?.minQuantity || 6;
-  const wholesaleDiscountPrc = wholesaleConfig?.discountPercentage || 20;
+  const minWholesaleQty = wholesaleConfig?.minQuantity || 3;
+  const isPercentActive = wholesaleConfig?.enabled !== false;
+  const wholesaleDiscountPrc = wholesaleConfig?.discountPercentage || 15;
   const isUserWholesale = !!(user?.is_wholesale || (user?.wholesale_until && new Date(user.wholesale_until) > new Date()));
   const isWholesale = Boolean(isUserWholesale || (quantity >= minWholesaleQty));
 
@@ -170,7 +171,20 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const variantSalePrice = currentVariant?.manualSalePrice;
   const basePrice = (variantSalePrice != null && variantSalePrice > 0) ? variantSalePrice : (product.salePrice || 0);
 
-  const currentPrice = isWholesale ? basePrice * (1 - wholesaleDiscountPrc / 100) : basePrice;
+  // Check custom wholesale price
+  const variantWholesalePrice = currentVariant?.manualWholesalePrice;
+  const customWholesale = (variantWholesalePrice != null && variantWholesalePrice > 0)
+    ? variantWholesalePrice
+    : ((product as any).wholesalePrice != null && (product as any).wholesalePrice > 0 ? (product as any).wholesalePrice : null);
+
+  let wholesalePrice = basePrice;
+  if (customWholesale != null) {
+    wholesalePrice = customWholesale;
+  } else if (isPercentActive && wholesaleDiscountPrc > 0) {
+    wholesalePrice = Math.round(basePrice * (1 - wholesaleDiscountPrc / 100));
+  }
+
+  const currentPrice = isWholesale ? wholesalePrice : basePrice;
   const oldPrice = isWholesale ? basePrice : null;
 
   // Determine variant label based on category
@@ -345,7 +359,11 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                     </div>
                     {isWholesale && (
                       <p className="text-xs text-green-600 dark:text-green-400 font-bold">
-                        ¡Descuento del {wholesaleDiscountPrc}% aplicado!
+                        {customWholesale != null
+                          ? (wholesalePrice < basePrice
+                              ? `¡Precio mayorista especial aplicado! (${Math.round((1 - wholesalePrice / basePrice) * 100)}% desc.)`
+                              : '¡Precio mayorista especial aplicado!')
+                          : `¡Descuento del ${wholesaleDiscountPrc}% aplicado!`}
                       </p>
                     )}
                   </div>

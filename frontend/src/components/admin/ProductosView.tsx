@@ -132,6 +132,8 @@ type MergeVariantDecision = {
   targetSalePrice: number;
   sourcePurchasePrice: number;
   targetPurchasePrice: number;
+  sourceWholesalePrice?: number;
+  targetWholesalePrice?: number;
   sourceStock: number;
   targetStock: number;
   mergedStock: number; // siempre suma de ambos
@@ -314,6 +316,7 @@ export default function ProductosView({
 
   
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
+  const wholesaleConfig = useStockFlowStore(s => s.wholesaleConfig);
   const variantGroupsConfig = useStockFlowStore(s => s.variantGroupsConfig);
   const perfumeTypesConfig = useStockFlowStore(s => s.perfumeTypesConfig);
 
@@ -393,6 +396,15 @@ export default function ProductosView({
             );
             sIdx = foundIdx >= 0 ? foundIdx : 0;
           }
+          const vSale = (v.manualSalePrice !== undefined && v.manualSalePrice !== '') ? Number(v.manualSalePrice) : (Number(p.salePrice) || 0);
+          const hasCustomWholesale = v.manualWholesalePrice !== undefined && v.manualWholesalePrice !== '' && Number(v.manualWholesalePrice) > 0;
+          let initWholesale: any = '';
+          if (hasCustomWholesale) {
+            initWholesale = Number(v.manualWholesalePrice);
+          } else if (wholesaleConfig?.enabled !== false && vSale > 0 && (wholesaleConfig?.discountPercentage || 0) > 0) {
+            initWholesale = Math.round(vSale * (1 - (wholesaleConfig.discountPercentage / 100)));
+          }
+
           return {
             ...v,
             sizeIndex: sIdx !== undefined && sIdx >= 0 ? sIdx : 0,
@@ -401,11 +413,22 @@ export default function ProductosView({
             color: v.color !== undefined ? v.color : (v.description || ''),
             stock: v.stock !== undefined ? v.stock : 0,
             unitPurchasePrice: v.unitPurchasePrice !== undefined ? v.unitPurchasePrice : (p.purchasePrice || 0),
-            manualSalePrice: v.manualSalePrice !== undefined ? v.manualSalePrice : (p.salePrice || 0),
+            manualSalePrice: vSale,
+            manualWholesalePrice: initWholesale,
+            customWholesaleSet: hasCustomWholesale,
             autoCalculated: false,
           };
         });
       } else {
+        const vSale = Number(p.salePrice) || 0;
+        const hasCustomWholesale = (p as any).wholesalePrice !== undefined && Number((p as any).wholesalePrice) > 0;
+        let initWholesale: any = '';
+        if (hasCustomWholesale) {
+          initWholesale = Number((p as any).wholesalePrice);
+        } else if (wholesaleConfig?.enabled !== false && vSale > 0 && (wholesaleConfig?.discountPercentage || 0) > 0) {
+          initWholesale = Math.round(vSale * (1 - (wholesaleConfig.discountPercentage / 100)));
+        }
+
         formCopy.variants = [{
           id: 'v-' + Math.random().toString(36).substr(2, 9),
           size: vg && vg.options[0] ? vg.options[0].value : '100ml',
@@ -414,7 +437,9 @@ export default function ProductosView({
           color: '',
           stock: 1,
           unitPurchasePrice: p.purchasePrice || 0,
-          manualSalePrice: p.salePrice || 0,
+          manualSalePrice: vSale,
+          manualWholesalePrice: initWholesale,
+          customWholesaleSet: hasCustomWholesale,
           autoCalculated: false
         }];
       }
@@ -451,6 +476,18 @@ export default function ProductosView({
           }
           if (field === 'manualSalePrice') {
               variant.autoCalculated = false;
+              // Si el porcentaje mayorista está activado y el usuario no fijó un precio mayorista manual específico:
+              if (wholesaleConfig?.enabled !== false && !variant.customWholesaleSet) {
+                  const newPv = Number(value) || 0;
+                  if (newPv > 0 && (wholesaleConfig?.discountPercentage || 0) > 0) {
+                      variant.manualWholesalePrice = Math.round(newPv * (1 - (wholesaleConfig.discountPercentage / 100)));
+                  } else {
+                      variant.manualWholesalePrice = '';
+                  }
+              }
+          }
+          if (field === 'manualWholesalePrice') {
+              variant.customWholesaleSet = true;
           }
           newForm.variants[vIdx] = variant;
           return newForm;
@@ -473,6 +510,11 @@ export default function ProductosView({
           const vg = getVariantGroupForCategory(newForm.categoryId, categoriesConfig, variantGroupsConfig);
           const defaultOpt = vg && vg.options[0];
           const defaultSize = defaultOpt ? (defaultOpt.description ? `${defaultOpt.value} - ${defaultOpt.description}` : defaultOpt.value) : '100ml';
+          const vSale = Number(newForm.salePrice) || 0;
+          let initWholesale: any = '';
+          if (wholesaleConfig?.enabled !== false && vSale > 0 && (wholesaleConfig?.discountPercentage || 0) > 0) {
+              initWholesale = Math.round(vSale * (1 - (wholesaleConfig.discountPercentage / 100)));
+          }
 
           newForm.variants = [
               ...prev.variants,
@@ -484,7 +526,9 @@ export default function ProductosView({
                   color: '',
                   stock: 1, 
                   unitPurchasePrice: Number(newForm.purchasePrice) || 0,
-                  manualSalePrice: Number(newForm.salePrice) || 0, 
+                  manualSalePrice: vSale,
+                  manualWholesalePrice: initWholesale,
+                  customWholesaleSet: false,
                   autoCalculated: true
               }
           ];
@@ -504,6 +548,10 @@ export default function ProductosView({
       const desc = item.description || item.color || '';
       const unitCost = (item.unitPurchasePrice !== undefined && item.unitPurchasePrice !== '') ? Number(item.unitPurchasePrice) : (Number(form.purchasePrice) || 0);
       const salePr = (item.manualSalePrice !== undefined && item.manualSalePrice !== '') ? Number(item.manualSalePrice) : (Number(form.salePrice) || 0);
+      const wholesalePr = (item.manualWholesalePrice !== undefined && item.manualWholesalePrice !== '' && Number(item.manualWholesalePrice) > 0)
+        ? Number(item.manualWholesalePrice)
+        : undefined;
+
       return {
         id: item.id || ('v-' + Math.random().toString(36).substr(2, 9)),
         size: finalSize || 'Único',
@@ -511,6 +559,7 @@ export default function ProductosView({
         description: desc,
         unitPurchasePrice: unitCost,
         manualSalePrice: salePr,
+        manualWholesalePrice: wholesalePr,
         stock: Math.max(0, Number(item.stock) || 0)
       };
     });
@@ -527,6 +576,8 @@ export default function ProductosView({
     const computedSalePrice = validSalePrices.length > 0 ? Math.min(...validSalePrices) : (Number(form.salePrice) || 0);
     const validPurchasePrices = formattedVariants.map((v: any) => v.unitPurchasePrice).filter((pr: number) => pr > 0);
     const computedPurchasePrice = validPurchasePrices.length > 0 ? Math.min(...validPurchasePrices) : (Number(form.purchasePrice) || 0);
+    const validWholesalePrices = formattedVariants.map((v: any) => v.manualWholesalePrice).filter((pr: any) => pr !== undefined && pr > 0);
+    const computedWholesalePrice = validWholesalePrices.length > 0 ? Math.min(...validWholesalePrices) : undefined;
 
     updateProduct(id, {
       name: form.name,
@@ -536,6 +587,7 @@ export default function ProductosView({
       targetGender: form.targetGender,
       purchasePrice: computedPurchasePrice,
       salePrice: computedSalePrice,
+      wholesalePrice: computedWholesalePrice,
       imageUrls: form.imageUrls || [],
       description: form.description || '',
       tag: form.tag || 'Alta Demanda',
@@ -613,6 +665,8 @@ export default function ProductosView({
             targetSalePrice: match.manualSalePrice || conflictProduct.salePrice || 0,
             sourcePurchasePrice: sv.unitPurchasePrice,
             targetPurchasePrice: match.unitPurchasePrice || conflictProduct.purchasePrice || 0,
+            sourceWholesalePrice: sv.manualWholesalePrice,
+            targetWholesalePrice: match.manualWholesalePrice || (conflictProduct as any).wholesalePrice,
             sourceStock: sv.stock,
             targetStock: match.stock || 0,
             mergedStock: sv.stock + (match.stock || 0),
@@ -669,6 +723,7 @@ export default function ProductosView({
           description: origTarget?.description || '',
           unitPurchasePrice: useSource ? c.sourcePurchasePrice : c.targetPurchasePrice,
           manualSalePrice: useSource ? c.sourceSalePrice : c.targetSalePrice,
+          manualWholesalePrice: useSource ? c.sourceWholesalePrice : c.targetWholesalePrice,
           stock: c.mergedStock,
         };
       }),
@@ -912,6 +967,29 @@ export default function ProductosView({
                                          ? `${formatCurrency(minSale || 0)} — ${formatCurrency(maxSale || 0)}`
                                          : formatCurrency(p.salePrice || minSale || 0);
 
+                                     // Calcular P. Mayorista
+                                     const isWholesalePrcActive = wholesaleConfig?.enabled !== false;
+                                     const wholesalePrc = wholesaleConfig?.discountPercentage || 0;
+                                     const variantWholesalePrices = p.variants?.map(v => {
+                                         const vSale = (v.manualSalePrice !== undefined && v.manualSalePrice > 0) ? v.manualSalePrice : (p.salePrice || 0);
+                                         if (v.manualWholesalePrice !== undefined && v.manualWholesalePrice > 0) {
+                                             return v.manualWholesalePrice;
+                                         }
+                                         if ((p as any).wholesalePrice !== undefined && (p as any).wholesalePrice > 0) {
+                                             return (p as any).wholesalePrice;
+                                         }
+                                         if (isWholesalePrcActive && vSale > 0 && wholesalePrc > 0) {
+                                             return Math.round(vSale * (1 - (wholesalePrc / 100)));
+                                         }
+                                         return vSale;
+                                     }).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
+
+                                     const minWholesale = variantWholesalePrices.length > 0 ? Math.min(...variantWholesalePrices) : (p.wholesalePrice || 0);
+                                     const maxWholesale = variantWholesalePrices.length > 0 ? Math.max(...variantWholesalePrices) : (p.wholesalePrice || 0);
+                                     const wholesalePriceDisplay = variantWholesalePrices.length > 1 && minWholesale !== maxWholesale
+                                         ? `${formatCurrency(minWholesale)} — ${formatCurrency(maxWholesale)}`
+                                         : formatCurrency(minWholesale || (p.wholesalePrice || 0));
+
                                      const variantPurchasePrices = p.variants?.map(v => v.unitPurchasePrice).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
                                      const minPurch = variantPurchasePrices.length > 0 ? Math.min(...variantPurchasePrices) : p.purchasePrice;
                                      const maxPurch = variantPurchasePrices.length > 0 ? Math.max(...variantPurchasePrices) : p.purchasePrice;
@@ -953,6 +1031,10 @@ export default function ProductosView({
                                               <div className="text-center">
                                                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">P. Venta</p>
                                                   <p className="text-sm font-black text-slate-900 dark:text-white">{salePriceDisplay}</p>
+                                              </div>
+                                              <div className="text-center">
+                                                  <p className="text-[10px] text-indigo-500 dark:text-indigo-400 font-bold uppercase tracking-wider mb-0.5">P. Mayorista</p>
+                                                  <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{wholesalePriceDisplay}</p>
                                               </div>
                                          </div>
                                      );
@@ -1638,6 +1720,22 @@ export default function ProductosView({
                                                     className="w-full pl-5 pr-1 text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg py-1 text-sm font-black h-9 text-green-600 dark:text-green-400 focus:ring-2 focus:ring-primary outline-none" 
                                                     value={variant.manualSalePrice === '' ? '' : (variant.manualSalePrice !== undefined ? variant.manualSalePrice : editForm.salePrice)} 
                                                     onChange={e => handleVariantChange(vIdx, 'manualSalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="w-[120px]">
+                                            <label className="block text-[10px] text-center font-bold text-indigo-500 dark:text-indigo-400 mb-1 leading-none truncate" title="Precio Mayorista (editable manualmente o sugerido por porcentaje)">
+                                                P. Mayorista
+                                            </label>
+                                            <div className="relative">
+                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-black text-indigo-600 dark:text-indigo-400 pointer-events-none">$</span>
+                                                <input 
+                                                    type="number" 
+                                                    step="0.01" 
+                                                    placeholder="0" 
+                                                    className="w-full pl-5 pr-1 text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg py-1 text-sm font-black h-9 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-400 outline-none" 
+                                                    value={variant.manualWholesalePrice === '' ? '' : (variant.manualWholesalePrice !== undefined ? variant.manualWholesalePrice : '')} 
+                                                    onChange={e => handleVariantChange(vIdx, 'manualWholesalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
                                                 />
                                             </div>
                                         </div>

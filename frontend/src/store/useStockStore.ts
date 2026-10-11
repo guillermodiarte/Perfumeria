@@ -185,6 +185,7 @@ export interface ProductVariant {
   stock: number;
   unitPurchasePrice?: number;  // Costo de compra por variante
   manualSalePrice?: number;    // Precio de venta por variante
+  manualWholesalePrice?: number; // Precio mayorista manual por variante
 }
 
 export interface Product {
@@ -195,6 +196,7 @@ export interface Product {
   targetGender?: 'Hombre' | 'Mujer' | 'Unisex';
   purchasePrice: number;
   salePrice: number;
+  wholesalePrice?: number;      // Precio mayorista base del producto
   imageUrls?: string[];
   variants: ProductVariant[];
   // Descriptive / marketing fields
@@ -266,14 +268,14 @@ export interface StockFlowState {
   products: Product[];
   purchases: PurchaseRecord[];
   sales: SaleRecord[];
-  wholesaleConfig: { minQuantity: number; discountPercentage: number };
+  wholesaleConfig: { minQuantity: number; discountPercentage: number; enabled?: boolean };
   
   categoriesConfig: CategoryConfig[];
   variantGroupsConfig: VariantGroupConfig[];
   perfumeTypesConfig: VariantOption[];
 
   setGlobalMarkup: (percentage: number) => void;
-  setWholesaleConfig: (config: { minQuantity: number; discountPercentage: number }) => void;
+  setWholesaleConfig: (config: { minQuantity: number; discountPercentage: number; enabled?: boolean }) => void;
   setCategoriesConfig: (categories: CategoryConfig[]) => void;
   setVariantGroupsConfig: (groups: VariantGroupConfig[]) => void;
   setPerfumeTypesConfig: (types: VariantOption[]) => void;
@@ -669,7 +671,7 @@ export const useStockFlowStore = create<StockFlowState>()(
   persist(
     (set) => ({
       globalMarkupPrc: 50,
-      wholesaleConfig: { minQuantity: 3, discountPercentage: 15 },
+      wholesaleConfig: { minQuantity: 3, discountPercentage: 15, enabled: true },
       products: MOCK_PRODUCTS,
       purchases: MOCK_PURCHASES,
       sales: MOCK_SALES,
@@ -1111,10 +1113,11 @@ export const useStockFlowStore = create<StockFlowState>()(
             let pName = 'Producto Eliminado';
             let pSize = 'N/A';
             let pColor = 'N/A';
+            let varIndex = -1;
 
             if (productIndex !== -1) {
               pName = updatedProducts[productIndex].name;
-              const varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === item.variantId);
+              varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === item.variantId);
               if(varIndex !== -1) {
                   updatedProducts[productIndex].variants[varIndex].stock -= item.quantity;
                   pSize = updatedProducts[productIndex].variants[varIndex].size;
@@ -1125,7 +1128,17 @@ export const useStockFlowStore = create<StockFlowState>()(
             // Apply Wholesale Discount if applicable (only if not special wholesale with manual prices)
             let unitPrice = item.salePrice;
             if (!paymentOptions?.isSpecialWholesale && paymentOptions?.clientType !== 'special_wholesale' && item.quantity >= state.wholesaleConfig.minQuantity) {
-              unitPrice = unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100);
+              const matchedProd = updatedProducts[productIndex];
+              const matchedVar = varIndex !== -1 ? matchedProd?.variants[varIndex] : undefined;
+              const customWholesale = (matchedVar?.manualWholesalePrice !== undefined && matchedVar.manualWholesalePrice > 0)
+                ? matchedVar.manualWholesalePrice
+                : (matchedProd?.wholesalePrice !== undefined && matchedProd.wholesalePrice > 0 ? matchedProd.wholesalePrice : null);
+
+              if (customWholesale != null) {
+                unitPrice = customWholesale;
+              } else if (state.wholesaleConfig.enabled !== false && state.wholesaleConfig.discountPercentage > 0) {
+                unitPrice = Math.round(unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100));
+              }
             }
 
             const itemRevenue = item.quantity * unitPrice;
@@ -1213,13 +1226,14 @@ export const useStockFlowStore = create<StockFlowState>()(
             let pSize = item.size || 'N/A';
             let pColor = item.color || 'N/A';
             let pImage = item.imageUrl || '';
+            let varIndex = -1;
 
             if (productIndex !== -1) {
               if (!item.productName) pName = updatedProducts[productIndex].name;
               if (!pImage && updatedProducts[productIndex].imageUrls?.length) {
                 pImage = updatedProducts[productIndex].imageUrls![0];
               }
-              const varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === item.variantId);
+              varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === item.variantId);
               if(varIndex !== -1) {
                   // Retain / deduct stock immediately
                   updatedProducts[productIndex].variants[varIndex].stock -= item.quantity;
@@ -1231,7 +1245,17 @@ export const useStockFlowStore = create<StockFlowState>()(
             // Apply Wholesale Discount if applicable
             let unitPrice = item.salePrice;
             if (item.quantity >= state.wholesaleConfig.minQuantity) {
-              unitPrice = unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100);
+              const matchedProd = updatedProducts[productIndex];
+              const matchedVar = varIndex !== -1 ? matchedProd?.variants[varIndex] : undefined;
+              const customWholesale = (matchedVar?.manualWholesalePrice !== undefined && matchedVar.manualWholesalePrice > 0)
+                ? matchedVar.manualWholesalePrice
+                : (matchedProd?.wholesalePrice !== undefined && matchedProd.wholesalePrice > 0 ? matchedProd.wholesalePrice : null);
+
+              if (customWholesale != null) {
+                unitPrice = customWholesale;
+              } else if (state.wholesaleConfig.enabled !== false && state.wholesaleConfig.discountPercentage > 0) {
+                unitPrice = Math.round(unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100));
+              }
             }
 
             newSaleRecords.push({

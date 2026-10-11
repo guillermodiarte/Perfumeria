@@ -54,7 +54,11 @@ export async function POST(req: NextRequest) {
       purchases: body.purchases || [],
       sales: body.sales || [],
       globalMarkupPrc: body.globalMarkupPrc ?? 50,
-      wholesaleConfig: body.wholesaleConfig || { minQuantity: 3, discountPercentage: 15 },
+      wholesaleConfig: body.wholesaleConfig ? {
+        minQuantity: body.wholesaleConfig.minQuantity ?? 3,
+        discountPercentage: body.wholesaleConfig.discountPercentage ?? 15,
+        enabled: body.wholesaleConfig.enabled !== false,
+      } : { minQuantity: 3, discountPercentage: 15, enabled: true },
       updatedAt: new Date().toISOString(),
     });
 
