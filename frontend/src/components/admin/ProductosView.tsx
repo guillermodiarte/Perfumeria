@@ -145,7 +145,20 @@ type MergeState = {
   onlyInTarget: any[];         // variantes solo en el producto existente
 };
 
-export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert: (msg: string) => void; apiKey?: string; apiUrl?: string }) {
+export default function ProductosView({
+  showAlert,
+  apiKey,
+  apiUrl,
+  isSuperAdmin,
+  currentAdminRole,
+}: {
+  showAlert: (msg: string) => void;
+  apiKey?: string;
+  apiUrl?: string;
+  isSuperAdmin?: boolean;
+  currentAdminRole?: string;
+}) {
+  const isSuper = isSuperAdmin ?? (currentAdminRole === 'super_admin');
   const products = useStockFlowStore(s => s.products);
   const deleteProduct = useStockFlowStore(s => s.deleteProduct);
   const updateProduct = useStockFlowStore(s => s.updateProduct);
@@ -236,19 +249,19 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   const handleRepairNames = async () => {
     setLoadingRepair(true);
     try {
-      let updated = 0;
-      for (const prod of products) {
-        const res = await fetch(`/api/admin/products/${encodeURIComponent(prod.id)}/rename`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newName: prod.name }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          updated += data.batchItemsUpdated || 0;
-        }
+      const res = await fetch('/api/admin/products/repair-names', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || err.error || 'Error al reparar nombres');
       }
-      showAlert(`✅ Nombres reparados en historial de compras. ${updated} registros actualizados.`);
+      const data = await res.json();
+      showAlert(`✅ Nombres reparados con éxito. Se actualizaron ${data.itemsUpdated || 0} registros en lotes de compra.`);
     } catch (e: any) {
       showAlert(`Error al reparar nombres: ${e.message}`);
     } finally {
@@ -358,7 +371,7 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
     }
 
     return matchesMain && matchesSub;
-  });
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }));
 
   const mainCategories = ['Todo', ...categoriesConfig.map(c => c.grupo)];
   const subCategories = selectedMainCategory === 'Todo' 
@@ -534,12 +547,15 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
       showFeatures: Boolean(form.showFeatures),
     }, formattedVariants);
 
-    // Si el nombre cambió, actualizar en la BD (purchase_batch_items, order_items, catalog)
+    // Si el nombre cambió, actualizar en cascada en la BD (purchase_batch_items, order_items, catalog)
     if (nameChanged) {
       fetch(`/api/admin/products/${encodeURIComponent(id)}/rename`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newName }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({ newName, oldName }),
       }).catch(e => console.error('[ProductosView] Error actualizando nombre en BD:', e));
     }
 
@@ -758,17 +774,19 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                   className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all"
                 />
             </div>
-            <button
-              onClick={handleRepairNames}
-              disabled={loadingRepair}
-              title="Actualiza los nombres de todos los productos en el historial de compras"
-              className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all disabled:opacity-50"
-            >
-              <span className={`material-symbols-outlined text-[16px] ${loadingRepair ? 'animate-spin' : ''}`}>
-                {loadingRepair ? 'progress_activity' : 'sync'}
-              </span>
-              {loadingRepair ? 'Reparando...' : 'Reparar nombres'}
-            </button>
+            {isSuper && (
+              <button
+                onClick={handleRepairNames}
+                disabled={loadingRepair}
+                title="Actualiza los nombres de todos los productos en el historial de compras"
+                className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all disabled:opacity-50"
+              >
+                <span className={`material-symbols-outlined text-[16px] ${loadingRepair ? 'animate-spin' : ''}`}>
+                  {loadingRepair ? 'progress_activity' : 'sync'}
+                </span>
+                {loadingRepair ? 'Reparando...' : 'Reparar nombres'}
+              </button>
+            )}
         </div>
 
 

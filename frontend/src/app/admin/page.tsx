@@ -975,7 +975,7 @@ export default function AdminDashboard() {
                 <DashboardView setActiveView={setActiveView} apiKey={apiKey} pendingUserCount={pendingCount} />
               </div>
             ) : activeView === 'products' ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><ProductosView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><ProductosView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} currentAdminRole={currentAdminRole} isSuperAdmin={currentAdminRole === 'super_admin'} /></div>
             ) : (activeView === 'sections' && currentAdminRole === 'super_admin') ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <SeccionesView key={sectionsKey} apiKey={apiKey} apiUrl={API_URL} showAlert={showAlert} />
