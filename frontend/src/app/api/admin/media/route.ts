@@ -152,11 +152,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const formData = await req.formData();
-    const file = formData.get('file') as File | null;
-    const { searchParams } = new URL(req.url);
-    const categoryParam = formData.get('category') as string || searchParams.get('category') || 'Otros';
+    // Gather all files from 'files' and 'file'
+    const files: File[] = [];
+    const entries = [...formData.getAll('files'), ...formData.getAll('file')];
+    for (const val of entries) {
+      if (val instanceof File && val.size > 0) {
+        files.push(val);
+      }
+    }
 
-    if (!file) {
+    const { searchParams } = new URL(req.url);
+    const categoryParam = (formData.get('category') as string) || searchParams.get('category') || 'Otros';
+
+    if (files.length === 0) {
       return NextResponse.json({ detail: 'Archivo no proporcionado' }, { status: 400 });
     }
 
@@ -165,16 +173,36 @@ export async function POST(req: NextRequest) {
     const categoryDir = path.join(uploadDir, safeCategory);
     fs.mkdirSync(categoryDir, { recursive: true });
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const { filename: finalName, sizeKb } = await optimizeAndSaveFile(buffer, file.name, categoryDir);
+    const uploadedResults: Array<{ filename: string; category: string; url: string; size: string }> = [];
 
-    const url = `/uploads/${safeCategory}/${finalName}`;
+    for (const file of files) {
+      try {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        const { filename: finalName, sizeKb } = await optimizeAndSaveFile(buffer, file.name, categoryDir);
+        const url = `/uploads/${safeCategory}/${finalName}`;
+        uploadedResults.push({
+          filename: finalName,
+          category: safeCategory,
+          url,
+          size: `${sizeKb} KB`,
+        });
+      } catch (fileErr) {
+        console.error(`Error processing file ${file.name}:`, fileErr);
+      }
+    }
 
+    if (uploadedResults.length === 0) {
+      return NextResponse.json({ detail: 'Error al procesar los archivos' }, { status: 500 });
+    }
+
+    const single = uploadedResults[0];
     return NextResponse.json({
-      filename: finalName,
-      category: safeCategory,
-      url,
-      size: `${sizeKb} KB`,
+      filename: single.filename,
+      category: single.category,
+      url: single.url,
+      size: single.size,
+      files: uploadedResults,
+      count: uploadedResults.length,
     });
   } catch (error: any) {
     console.error('Error uploading media:', error);

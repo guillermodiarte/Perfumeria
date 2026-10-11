@@ -104,10 +104,12 @@ export default function AdminDashboard() {
   const [isExportingMedia, setIsExportingMedia] = useState(false);
   const [isImportingMedia, setIsImportingMedia] = useState(false);
 
-  // Multi-selection state for Media
   const [selectedMediaFiles, setSelectedMediaFiles] = useState<Array<{ category: string; filename: string; url: string }>>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [isDeletingBulkMedia, setIsDeletingBulkMedia] = useState(false);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [mediaUploadProgress, setMediaUploadProgress] = useState('');
+  const [isDraggingOverMedia, setIsDraggingOverMedia] = useState(false);
 
   // Pending customers badge count
   const [pendingCount, setPendingCount] = useState(0);
@@ -369,33 +371,62 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const file = e.target.files[0];
+  const uploadMediaFiles = async (files: File[]) => {
+    if (!files || files.length === 0) return;
     const category = selectedMediaCategory || 'Otros';
 
-    const formData = new FormData();
-    formData.append('file', file);
+    setIsUploadingMedia(true);
+    setMediaUploadProgress(`0/${files.length}`);
+
+    const BATCH_SIZE = 5;
+    let totalUploaded = 0;
+    let anyError = false;
 
     try {
-      setLoading(true);
-      const res = await fetch(`${API_URL}/api/admin/media?category=${category}`, {
-        method: 'POST',
-        headers: { 'X-API-KEY': apiKey },
-        body: formData
-      });
-      if (res.ok) {
-        showAlert('Archivo subido exitosamente.');
+      for (let i = 0; i < files.length; i += BATCH_SIZE) {
+        const batch = files.slice(i, i + BATCH_SIZE);
+        setMediaUploadProgress(`${i + 1}-${Math.min(i + batch.length, files.length)} de ${files.length}`);
+
+        const formData = new FormData();
+        formData.append('category', category);
+        for (const f of batch) {
+          formData.append('files', f);
+        }
+
+        const res = await fetch(`${API_URL}/api/admin/media?category=${encodeURIComponent(category)}`, {
+          method: 'POST',
+          headers: { 'X-API-KEY': apiKey },
+          body: formData
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          totalUploaded += data.count || batch.length;
+        } else {
+          anyError = true;
+        }
+      }
+
+      if (totalUploaded > 0) {
+        showAlert(`${totalUploaded} ${totalUploaded === 1 ? 'archivo subido' : 'archivos subidos'} exitosamente.`);
         fetchMedia(selectedMediaCategory);
-      } else {
-        showAlert('Error al subir el archivo.');
+      }
+      if (anyError) {
+        showAlert('Hubo un inconveniente al subir algunos archivos.');
       }
     } catch (err) {
-      showAlert('Error de red al subir archivo.');
+      showAlert('Error de red al subir archivos.');
     } finally {
-      setLoading(false);
-      e.target.value = ''; // Reset input
+      setIsUploadingMedia(false);
+      setMediaUploadProgress('');
     }
+  };
+
+  const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const files = Array.from(e.target.files);
+    e.target.value = ''; // Reset input
+    uploadMediaFiles(files);
   };
 
   const handleSlideUpload = async (e: React.ChangeEvent<HTMLInputElement>, slideIdx: number) => {
@@ -982,7 +1013,29 @@ export default function AdminDashboard() {
                 <SeccionesView key={sectionsKey} apiKey={apiKey} apiUrl={API_URL} showAlert={showAlert} />
               </div>
             ) : activeView === 'media' ? (
-              <div className="space-y-6">
+              <div
+                className={`space-y-6 relative transition-all rounded-3xl ${isDraggingOverMedia ? 'ring-4 ring-primary/40 bg-primary/5 p-4' : ''}`}
+                onDragOver={(e) => { e.preventDefault(); setIsDraggingOverMedia(true); }}
+                onDragLeave={(e) => {
+                  if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                  setIsDraggingOverMedia(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingOverMedia(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    uploadMediaFiles(Array.from(e.dataTransfer.files));
+                  }
+                }}
+              >
+                {/* Drag and Drop visual feedback */}
+                {isDraggingOverMedia && (
+                  <div className="absolute inset-0 z-50 bg-primary/10 backdrop-blur-[2px] border-2 border-dashed border-primary rounded-3xl flex flex-col items-center justify-center pointer-events-none p-6">
+                    <span className="material-symbols-outlined text-6xl text-primary animate-bounce">upload_file</span>
+                    <p className="text-lg font-black text-primary mt-2">Suelta las imágenes aquí para subirlas</p>
+                  </div>
+                )}
+
                 <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Biblioteca de Medios</h1>
@@ -991,10 +1044,21 @@ export default function AdminDashboard() {
 
                   {/* Botones de acción arriba a la derecha */}
                   <div className="flex flex-wrap items-center gap-3">
-                    <label className="cursor-pointer bg-primary text-white font-bold px-5 py-2.5 rounded-xl hover:bg-primary/90 transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm">
-                      <span className="material-symbols-outlined text-xl">upload_file</span>
-                      <span>Agregar Archivos</span>
-                      <input type="file" className="hidden" onChange={handleMediaUpload} />
+                    <label className={`cursor-pointer bg-primary text-white font-bold px-5 py-2.5 rounded-xl hover:bg-primary/90 transition-all shadow-sm hover:shadow flex items-center gap-2 text-sm ${isUploadingMedia ? 'opacity-60 pointer-events-none' : ''}`}>
+                      {isUploadingMedia ? (
+                        <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                      ) : (
+                        <span className="material-symbols-outlined text-xl">upload_file</span>
+                      )}
+                      <span>{isUploadingMedia ? `Subiendo (${mediaUploadProgress})...` : 'Agregar Archivos'}</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*,video/*,.pdf"
+                        className="hidden"
+                        disabled={isUploadingMedia}
+                        onChange={handleMediaUpload}
+                      />
                     </label>
 
                     {/* Exportar Todo (ZIP) */}
@@ -1190,13 +1254,21 @@ export default function AdminDashboard() {
                     </div>
                   ))}
                   {mediaFiles.length === 0 && !loading && (
-                    <div className="col-span-full py-16 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-                      <div className="size-16 mx-auto bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-400 mb-4">
-                        <span className="material-symbols-outlined text-3xl">image_not_supported</span>
+                    <label className="col-span-full py-16 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-primary/50 transition-colors cursor-pointer flex flex-col items-center justify-center p-6 group">
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*,video/*,.pdf"
+                        className="hidden"
+                        disabled={isUploadingMedia}
+                        onChange={handleMediaUpload}
+                      />
+                      <div className="size-16 mx-auto bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors mb-4">
+                        <span className="material-symbols-outlined text-3xl">upload_file</span>
                       </div>
-                      <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">No hay archivos</h3>
-                      <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Selecciona "Agregar Archivos" para subir imágenes o videos a tu biblioteca.</p>
-                    </div>
+                      <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">No hay archivos en esta categoría</h3>
+                      <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Haz clic aquí o pulsa "Agregar Archivos" para seleccionar varias imágenes o arrástralas directamente.</p>
+                    </label>
                   )}
                 </div>
               </div>
