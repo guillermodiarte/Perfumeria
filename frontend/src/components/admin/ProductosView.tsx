@@ -354,6 +354,11 @@ export default function ProductosView({
       
     if (!matchesSearch) return false;
 
+    // Special filter: "En Promoción"
+    if (selectedMainCategory === 'En Promoción') {
+      return Boolean(p.promoEnabled && p.promoPrice && p.promoPrice > 0);
+    }
+
     const grupo = getGrupoByCategory(p.categoryId);
     const matchesMain = selectedMainCategory === 'Todo' || grupo === selectedMainCategory;
     
@@ -376,8 +381,9 @@ export default function ProductosView({
     return matchesMain && matchesSub;
   }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }));
 
-  const mainCategories = ['Todo', ...categoriesConfig.map(c => c.grupo)];
-  const subCategories = selectedMainCategory === 'Todo' 
+  const promoProductCount = products.filter(p => p.promoEnabled && p.promoPrice && p.promoPrice > 0).length;
+  const mainCategories = ['Todo', 'En Promoción', ...categoriesConfig.map(c => c.grupo)];
+  const subCategories = (selectedMainCategory === 'Todo' || selectedMainCategory === 'En Promoción')
       ? ['Todo'] 
       : ['Todo', ...(categoriesConfig.find(c => c.grupo === selectedMainCategory)?.opciones || [])];
 
@@ -448,6 +454,9 @@ export default function ProductosView({
       formCopy.tag = p.tag || 'Alta Demanda';
       formCopy.showTag = Boolean(p.showTag);
       formCopy.showFeatures = Boolean(p.showFeatures);
+      formCopy.promoEnabled = Boolean((p as any).promoEnabled);
+      formCopy.promoPrice = (p as any).promoPrice || '';
+      formCopy.promoLabel = (p as any).promoLabel || '';
 
       setEditForm(formCopy);
   };
@@ -597,7 +606,10 @@ export default function ProductosView({
       intensity: form.intensity || '',
       family: form.family || '',
       showFeatures: Boolean(form.showFeatures),
-    }, formattedVariants);
+      promoEnabled: Boolean(form.promoEnabled),
+      promoPrice: form.promoEnabled && form.promoPrice ? Number(form.promoPrice) : undefined,
+      promoLabel: form.promoLabel || '',
+    } as any, formattedVariants);
 
     // Si el nombre cambió, actualizar en cascada en la BD (purchase_batch_items, order_items, catalog)
     if (nameChanged) {
@@ -853,13 +865,19 @@ export default function ProductosView({
                     <select 
                         value={selectedMainCategory} 
                         onChange={e => setSelectedMainCategory(e.target.value)}
-                        className="w-full appearance-none !bg-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl px-4 pr-10 py-3 font-bold outline-none focus:ring-2 focus:ring-primary transition-all cursor-pointer"
+                        className={`w-full appearance-none !bg-none border rounded-xl px-4 pr-10 py-3 font-bold outline-none focus:ring-2 transition-all cursor-pointer ${
+                          selectedMainCategory === 'En Promoción'
+                            ? 'bg-orange-50 dark:bg-orange-950/40 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 focus:ring-orange-400'
+                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:ring-primary'
+                        }`}
                     >
                         {mainCategories.map(cat => (
-                            <option key={cat} value={cat}>{cat}</option>
+                            <option key={cat} value={cat}>
+                              {cat === 'En Promoción' && promoProductCount > 0 ? `🔥 En Promoción (${promoProductCount})` : cat}
+                            </option>
                         ))}
                     </select>
-                    <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
+                    <span className={`material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none ${selectedMainCategory === 'En Promoción' ? 'text-orange-400' : 'text-slate-400'}`}>expand_more</span>
                 </div>
             </div>
             <div className="w-full md:w-1/2">
@@ -921,8 +939,9 @@ export default function ProductosView({
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredProducts.map(p => {
                      const totalStock = p.variants.reduce((acc, v) => acc + v.stock, 0);
+                     const hasActivePromo = Boolean((p as any).promoEnabled && (p as any).promoPrice && (p as any).promoPrice > 0);
                      return (
-                         <div key={p.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col group relative animate-in fade-in zoom-in-95 duration-500">
+                         <div key={p.id} className={`bg-white dark:bg-slate-800 rounded-2xl border ${hasActivePromo ? "border-orange-500 ring-2 ring-orange-500/20 shadow-md shadow-orange-500/10" : "border-slate-200 dark:border-slate-700"} overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col group relative animate-in fade-in zoom-in-95 duration-500`}>
                             {/* Action Buttons */}
                             <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-white/80 dark:bg-slate-800/80 backdrop-blur rounded-full p-1 border border-slate-100 dark:border-slate-700">
                                 <button onClick={() => handleEditClick(p)} className="size-8 rounded-full flex items-center justify-center text-slate-500 hover:bg-blue-50 hover:text-blue-500 transition-colors">
@@ -932,6 +951,14 @@ export default function ProductosView({
                                     <span className="material-symbols-outlined text-sm">delete</span>
                                 </button>
                             </div>
+                            
+                            {/* Promo Banner */}
+                            {hasActivePromo && (
+                              <div className="bg-orange-500 text-white text-[10px] font-black uppercase tracking-wider px-3 py-1.5 flex items-center gap-1.5">
+                                <span className="material-symbols-outlined text-[12px]">local_offer</span>
+                                {(p as any).promoLabel || 'Oferta especial'} — ${((p as any).promoPrice as number).toLocaleString('es-AR')}
+                              </div>
+                            )}
                             
                             <ProductGallery urls={p.imageUrls || []} name={p.name} />
                             
@@ -1036,6 +1063,12 @@ export default function ProductosView({
                                                   <p className="text-[10px] text-indigo-500 dark:text-indigo-400 font-bold uppercase tracking-wider mb-0.5">P. Mayorista</p>
                                                   <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{wholesalePriceDisplay}</p>
                                               </div>
+                                              {hasActivePromo && (
+                                                  <div className="text-center">
+                                                      <p className="text-[10px] text-orange-500 dark:text-orange-400 font-bold uppercase tracking-wider mb-0.5">🔥 Promo</p>
+                                                      <p className="text-sm font-black text-orange-600 dark:text-orange-400">{formatCurrency((p as any).promoPrice)}</p>
+                                                  </div>
+                                              )}
                                          </div>
                                      );
                                  })()}
@@ -1863,6 +1896,80 @@ export default function ProductosView({
                         )}
                     </div>
 
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-700">
+                    <button
+                        type="button"
+                        onClick={() => setEditForm((prev: any) => ({ ...prev, _showPromo: !prev._showPromo }))}
+                        className={`w-full flex items-center justify-between px-5 py-4 rounded-xl text-sm font-bold transition-all ${
+                          editForm.promoEnabled
+                            ? 'bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-300'
+                            : 'bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                        }`}
+                    >
+                        <span className="flex items-center gap-2">
+                            <span className="material-symbols-outlined text-[18px] text-orange-500">local_offer</span>
+                            Precio Especial / Promoción
+                            {editForm.promoEnabled && (
+                                <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider">Activa</span>
+                            )}
+                        </span>
+                        <span className={`material-symbols-outlined text-lg transition-transform duration-200 ${editForm._showPromo ? 'rotate-180' : ''}`}>expand_more</span>
+                    </button>
+
+                    {editForm._showPromo && (
+                        <div className="mt-3 p-4 bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800 rounded-xl space-y-4">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Activar precio de promoción</span>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditForm((prev: any) => ({ ...prev, promoEnabled: !prev.promoEnabled }))}
+                                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${editForm.promoEnabled ? 'bg-orange-500' : 'bg-slate-200 dark:bg-slate-700'}`}
+                                    >
+                                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${editForm.promoEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                    </button>
+                                    <span className="text-xs text-slate-500">{editForm.promoEnabled ? 'Activa' : 'Inactiva'}</span>
+                                </div>
+                            </div>
+
+                            {editForm.promoEnabled && (
+                                <>
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">
+                                            <span className="material-symbols-outlined text-[13px]">sell</span>
+                                            Precio de Promoción
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            placeholder="Ej: 15000"
+                                            className="w-full bg-white dark:bg-slate-900 border-2 border-orange-300 dark:border-orange-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none transition-all font-bold"
+                                            value={editForm.promoPrice || ''}
+                                            onChange={e => setEditForm((prev: any) => ({ ...prev, promoPrice: e.target.value }))}
+                                        />
+                                        <p className="text-[10px] text-orange-600 dark:text-orange-400">
+                                            ⚠️ Si este precio es menor al precio mayorista, se mostrará en lugar del precio mayorista para todos los usuarios.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">
+                                            <span className="material-symbols-outlined text-[13px]">label</span>
+                                            Motivo de la Promoción
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="Ej: Promoción Día de la Madre"
+                                            className="w-full bg-white dark:bg-slate-900 border-2 border-orange-300 dark:border-orange-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none transition-all"
+                                            value={editForm.promoLabel || ''}
+                                            onChange={e => setEditForm((prev: any) => ({ ...prev, promoLabel: e.target.value }))}
+                                        />
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-700">

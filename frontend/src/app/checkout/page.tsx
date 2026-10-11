@@ -94,12 +94,29 @@ export default function CheckoutPage() {
 
   const getItemFinalUnitPrice = (item: any) => {
     const isWholesale = isUserWholesale || item.quantity >= (wholesaleConfig?.minQuantity || 3);
-    return isWholesale ? getItemWholesalePrice(item) : getItemUnitPrice(item);
+    const wholesaleP = getItemWholesalePrice(item);
+    const baseP = getItemUnitPrice(item);
+
+    const promoEnabled = item.product?.promoEnabled;
+    const promoPrice = item.product?.promoPrice;
+    const hasPromo = Boolean(promoEnabled && promoPrice && promoPrice > 0);
+
+    if (hasPromo) {
+      if (isWholesale) {
+        // Para mayorista: promo gana si promoPrice < wholesalePrice
+        return promoPrice < wholesaleP ? promoPrice : wholesaleP;
+      } else {
+        // Para minorista: promo aplica si promoPrice < baseP
+        return promoPrice < baseP ? promoPrice : baseP;
+      }
+    }
+
+    return isWholesale ? wholesaleP : baseP;
   };
 
   const subtotal = items.reduce((acc, item) => acc + (getItemUnitPrice(item) * item.quantity), 0);
 
-  // Wholesale discount calculation
+  // Wholesale / Promo discount calculation
   const totalDiscount = items.reduce((acc, item) => {
     const base = getItemUnitPrice(item);
     const finalPrice = getItemFinalUnitPrice(item);
@@ -112,8 +129,9 @@ export default function CheckoutPage() {
   const buildWhatsappMessage = (orderItems: typeof items, orderTotal: number) => {
     const lines = orderItems.map(item => {
       const finalUnit = getItemFinalUnitPrice(item);
-      const isDiscounted = finalUnit < getItemUnitPrice(item);
-      return `• ${item.product.name} (${item.color ? item.color + ' - ' : ''}${item.size}) x${item.quantity} = $${(finalUnit * item.quantity).toLocaleString()}${isDiscounted ? ' (Mayorista)' : ''}`;
+      const isPromoApplied = Boolean(item.product?.promoEnabled && item.product?.promoPrice && finalUnit === item.product.promoPrice && finalUnit < getItemUnitPrice(item));
+      const discountLabel = isPromoApplied ? ` (Promo: ${item.product.promoLabel || 'Oferta'})` : (finalUnit < getItemUnitPrice(item) ? ' (Mayorista)' : '');
+      return `• ${item.product.name} (${item.color ? item.color + ' - ' : ''}${item.size}) x${item.quantity} = $${(finalUnit * item.quantity).toLocaleString()}${discountLabel}`;
     });
     const greeting = company.whatsappMsgGreeting || '¡Hola! Quiero confirmar un pedido 🛒';
     const msg = [
@@ -127,7 +145,7 @@ export default function CheckoutPage() {
       `*Productos:*`,
       ...lines,
       ``,
-      totalDiscount > 0 ? `*Descuento mayorista:* -$${totalDiscount.toLocaleString()}` : '',
+      totalDiscount > 0 ? `*Descuento / Ahorro:* -$${totalDiscount.toLocaleString()}` : '',
       shippingType === 'delivery' ? `*Costo de envío:* ${activeShippingCost === 0 ? 'Gratis' : `$${activeShippingCost.toLocaleString()}`}` : '',
       `*Total: $${orderTotal.toLocaleString()}*`,
       company.whatsappMsgFooter ? `\n${company.whatsappMsgFooter}` : '',
@@ -309,11 +327,15 @@ export default function CheckoutPage() {
                           <span className="line-through text-slate-300 ml-1">${getItemUnitPrice(item).toLocaleString()}</span>
                         )}
                       </p>
-                      {(isUserWholesale || item.quantity >= (wholesaleConfig?.minQuantity || 3)) && getItemFinalUnitPrice(item) < getItemUnitPrice(item) && (
+                      {Boolean(item.product?.promoEnabled && item.product?.promoPrice && getItemFinalUnitPrice(item) === item.product.promoPrice && getItemFinalUnitPrice(item) < getItemUnitPrice(item)) ? (
+                        <p className="text-[9px] font-bold text-orange-500 uppercase flex items-center justify-end gap-0.5">
+                          🔥 {item.product?.promoLabel || 'Oferta'} (-${(getItemUnitPrice(item) - getItemFinalUnitPrice(item)).toLocaleString()})
+                        </p>
+                      ) : (isUserWholesale || item.quantity >= (wholesaleConfig?.minQuantity || 3)) && getItemFinalUnitPrice(item) < getItemUnitPrice(item) ? (
                         <p className="text-[9px] font-bold text-green-500 uppercase">
                           Mayorista (-${(getItemUnitPrice(item) - getItemFinalUnitPrice(item)).toLocaleString()})
                         </p>
-                      )}
+                      ) : null}
                     </div>
                   </div>
 

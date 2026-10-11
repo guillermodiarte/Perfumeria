@@ -112,6 +112,9 @@ function CatalogContent() {
     // Category filter
     if (categoryFilter) {
       result = result.filter(p => {
+        if (categoryFilter === 'En Promoción' || categoryFilter === 'Promociones' || categoryFilter === 'Ofertas') {
+          return Boolean(p.promoEnabled && p.promoPrice && p.promoPrice > 0);
+        }
         if (categoryFilter === 'Perfumes de Mujer') {
           const isWomanOrUnisex = p.targetGender === 'Mujer' || p.targetGender === 'Unisex' || (!p.targetGender && p.categoryId === 'Perfumes de Mujer');
           return isWomanOrUnisex && p.targetGender !== 'Hombre';
@@ -371,6 +374,19 @@ function CatalogContent() {
               >
                 Unisex
               </Link>
+              {storeProducts.some(p => Boolean(p.promoEnabled && p.promoPrice && p.promoPrice > 0)) && (
+                <Link
+                  href="/catalog?category=En%20Promoción"
+                  className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${
+                    categoryFilter === 'En Promoción' || categoryFilter === 'Promociones' || categoryFilter === 'Ofertas'
+                      ? 'bg-orange-500 text-white shadow-sm'
+                      : 'bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[14px]">local_offer</span>
+                  Ofertas
+                </Link>
+              )}
             </div>
 
             {/* TOP BAR: Title, Search Info, Mobile Filter Trigger, Sort */}
@@ -422,11 +438,17 @@ function CatalogContent() {
 
             {/* RESPONSIVE PRODUCT GRID: 2 COLUMNS ON MOBILE */}
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
-              {filteredProducts.map((product: any) => (
+              {filteredProducts.map((product: any) => {
+                const hasPromoInCatalog = Boolean(product.promoEnabled && product.promoPrice && product.promoPrice > 0);
+                return (
                 <Link
                   key={product.id}
                   href={`/product/${product.id}`}
-                  className="group flex flex-col justify-between bg-white dark:bg-slate-900 p-2.5 sm:p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300"
+                  className={`group flex flex-col justify-between p-2.5 sm:p-3.5 rounded-2xl border transition-all duration-300 ${
+                    hasPromoInCatalog
+                      ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800 hover:shadow-xl hover:shadow-orange-500/10'
+                      : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:shadow-xl hover:shadow-primary/5'
+                  }`}
                 >
                   <div>
                     {/* Product Image */}
@@ -446,7 +468,13 @@ function CatalogContent() {
 
                       {/* Badges */}
                       <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
-                        {product.showTag && product.tag ? (
+                        {hasPromoInCatalog && (
+                          <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[9px]">local_offer</span>
+                            Oferta
+                          </span>
+                        )}
+                        {!hasPromoInCatalog && (product.showTag && product.tag ? (
                           <span className="bg-primary text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
                             {product.tag}
                           </span>
@@ -454,7 +482,7 @@ function CatalogContent() {
                           <span className="bg-white/90 dark:bg-slate-900/90 text-primary text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
                             Nuevo
                           </span>
-                        )}
+                        ))}
                         {product.targetGender && (
                           <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full backdrop-blur-md shadow-sm ${
                             product.targetGender === 'Unisex'
@@ -489,7 +517,7 @@ function CatalogContent() {
                   </div>
 
                   {/* Price & Action */}
-                  <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 px-1 flex items-baseline justify-between">
+                  <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 px-1 flex items-baseline justify-between gap-2">
                     {(() => {
                       const variantPrices = product.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
                       const minP = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.salePrice || 0);
@@ -497,6 +525,16 @@ function CatalogContent() {
                       const priceDisplay = variantPrices.length > 1 && minP !== maxP
                         ? `Desde $${minP.toLocaleString('es-AR')}`
                         : `$${(product.salePrice || minP).toLocaleString('es-AR')}`;
+                      if (hasPromoInCatalog) {
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            <p className="text-orange-500 font-black text-sm sm:text-base leading-none">
+                              ${(product.promoPrice as number).toLocaleString('es-AR')}
+                            </p>
+                            <p className="text-slate-400 font-medium text-[10px] line-through">{priceDisplay}</p>
+                          </div>
+                        );
+                      }
                       return (
                         <p className="text-primary font-black text-sm sm:text-base leading-none">
                           {priceDisplay}
@@ -505,7 +543,8 @@ function CatalogContent() {
                     })()}
                   </div>
                 </Link>
-              ))}
+                );
+              })}
             </div>
 
             {/* EMPTY STATE */}

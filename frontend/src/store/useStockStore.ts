@@ -210,6 +210,10 @@ export interface Product {
   family?: string;             // Ej: 'Amaderada Especiada'
   showFeatures?: boolean;      // Mostrar u ocultar el bloque de especificaciones en la tienda
   perfumeType?: string;        // Tipo de perfume: 'Original', 'Primera línea', o personalizado
+  // Promotional price
+  promoEnabled?: boolean;      // Si hay una promoción activa
+  promoPrice?: number;         // Precio especial de promoción
+  promoLabel?: string;         // Motivo de la promoción (ej: 'Promoción Día de la Madre')
 }
 
 export interface PurchaseRecord {
@@ -1125,20 +1129,37 @@ export const useStockFlowStore = create<StockFlowState>()(
               }
             }
 
-            // Apply Wholesale Discount if applicable (only if not special wholesale with manual prices)
+            // Apply Wholesale / Promo pricing
             let unitPrice = item.salePrice;
+            const matchedProd = updatedProducts[productIndex];
+            const matchedVar = varIndex !== -1 ? matchedProd?.variants[varIndex] : undefined;
+
+            let wouldApplyWholesale = false;
+            let wholesaleP: number | null = null;
             if (!paymentOptions?.isSpecialWholesale && paymentOptions?.clientType !== 'special_wholesale' && item.quantity >= state.wholesaleConfig.minQuantity) {
-              const matchedProd = updatedProducts[productIndex];
-              const matchedVar = varIndex !== -1 ? matchedProd?.variants[varIndex] : undefined;
+              wouldApplyWholesale = true;
               const customWholesale = (matchedVar?.manualWholesalePrice !== undefined && matchedVar.manualWholesalePrice > 0)
                 ? matchedVar.manualWholesalePrice
                 : (matchedProd?.wholesalePrice !== undefined && matchedProd.wholesalePrice > 0 ? matchedProd.wholesalePrice : null);
 
               if (customWholesale != null) {
-                unitPrice = customWholesale;
+                wholesaleP = customWholesale;
               } else if (state.wholesaleConfig.enabled !== false && state.wholesaleConfig.discountPercentage > 0) {
-                unitPrice = Math.round(unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100));
+                wholesaleP = Math.round(unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100));
               }
+            }
+
+            const promoActive = Boolean(matchedProd?.promoEnabled && matchedProd.promoPrice && matchedProd.promoPrice > 0);
+            const promoP = promoActive ? matchedProd!.promoPrice! : null;
+
+            if (promoActive && promoP != null) {
+              if (wouldApplyWholesale && wholesaleP != null) {
+                unitPrice = promoP < wholesaleP ? promoP : wholesaleP;
+              } else {
+                unitPrice = promoP < unitPrice ? promoP : unitPrice;
+              }
+            } else if (wouldApplyWholesale && wholesaleP != null) {
+              unitPrice = wholesaleP;
             }
 
             const itemRevenue = item.quantity * unitPrice;
@@ -1242,20 +1263,37 @@ export const useStockFlowStore = create<StockFlowState>()(
               }
             }
 
-            // Apply Wholesale Discount if applicable
+            // Apply Wholesale / Promo pricing
             let unitPrice = item.salePrice;
+            const matchedProd = updatedProducts[productIndex];
+            const matchedVar = varIndex !== -1 ? matchedProd?.variants[varIndex] : undefined;
+
+            let wouldApplyWholesale = false;
+            let wholesaleP: number | null = null;
             if (item.quantity >= state.wholesaleConfig.minQuantity) {
-              const matchedProd = updatedProducts[productIndex];
-              const matchedVar = varIndex !== -1 ? matchedProd?.variants[varIndex] : undefined;
+              wouldApplyWholesale = true;
               const customWholesale = (matchedVar?.manualWholesalePrice !== undefined && matchedVar.manualWholesalePrice > 0)
                 ? matchedVar.manualWholesalePrice
                 : (matchedProd?.wholesalePrice !== undefined && matchedProd.wholesalePrice > 0 ? matchedProd.wholesalePrice : null);
 
               if (customWholesale != null) {
-                unitPrice = customWholesale;
+                wholesaleP = customWholesale;
               } else if (state.wholesaleConfig.enabled !== false && state.wholesaleConfig.discountPercentage > 0) {
-                unitPrice = Math.round(unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100));
+                wholesaleP = Math.round(unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100));
               }
+            }
+
+            const promoActive = Boolean(matchedProd?.promoEnabled && matchedProd.promoPrice && matchedProd.promoPrice > 0);
+            const promoP = promoActive ? matchedProd!.promoPrice! : null;
+
+            if (promoActive && promoP != null) {
+              if (wouldApplyWholesale && wholesaleP != null) {
+                unitPrice = promoP < wholesaleP ? promoP : wholesaleP;
+              } else {
+                unitPrice = promoP < unitPrice ? promoP : unitPrice;
+              }
+            } else if (wouldApplyWholesale && wholesaleP != null) {
+              unitPrice = wholesaleP;
             }
 
             newSaleRecords.push({

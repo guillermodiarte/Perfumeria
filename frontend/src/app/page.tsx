@@ -11,6 +11,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [currentSlide, setCurrentSlide] = useState(0);
   const productsStore = useStockFlowStore(s => s.products);
+  const promoProducts = productsStore.filter(p => Boolean(p.promoEnabled && p.promoPrice && p.promoPrice > 0));
   const latestProducts = [...productsStore].reverse().slice(0, 4);
 
   useEffect(() => {
@@ -221,6 +222,126 @@ export default function Home() {
               )}
             </div>
           </section>
+
+          {/* Promociones Destacadas / Precio Especial (Solo visible si hay promociones activas) */}
+          {promoProducts.length > 0 && (
+            <section className="px-4 sm:px-6 md:px-20 py-10 sm:py-16 relative overflow-hidden bg-gradient-to-b from-orange-500/[0.04] via-amber-500/[0.02] to-transparent border-y border-orange-500/10">
+              {/* Decorative ambient blurs */}
+              <div className="absolute top-0 right-1/4 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl pointer-events-none -z-10" />
+              <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none -z-10" />
+
+              <div className="max-w-[1400px] mx-auto">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 sm:mb-10 gap-4">
+                  <div className="flex flex-col gap-2">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400 text-xs font-black uppercase tracking-wider w-fit">
+                      <span className="material-symbols-outlined text-sm">local_offer</span>
+                      <span>Oportunidad Especial</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-slate-900 dark:text-white text-xl sm:text-3xl font-extrabold tracking-tight">
+                        Promociones Destacadas
+                      </h2>
+                      <span className="bg-orange-500 text-white text-xs font-black px-2.5 py-0.5 rounded-full">
+                        {promoProducts.length}
+                      </span>
+                    </div>
+                    <div className="h-1 w-14 sm:w-20 bg-orange-500 rounded-full"></div>
+                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm max-w-lg mt-0.5">
+                      Aprovecha nuestras ofertas exclusivas en fragancias seleccionadas por tiempo limitado.
+                    </p>
+                  </div>
+
+                  <Link
+                    href="/catalog?category=En%20Promoci%C3%B3n"
+                    className="group inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs sm:text-sm shadow-md shadow-orange-500/20 hover:shadow-orange-500/30 transition-all self-start sm:self-auto"
+                  >
+                    <span>Ver todas las ofertas</span>
+                    <span className="material-symbols-outlined text-base group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                  </Link>
+                </div>
+
+                {/* Products Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+                  {promoProducts.map((product) => {
+                    const promoP = product.promoPrice || 0;
+                    const variantPrices = product.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
+                    const minNormalPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.salePrice || 0);
+                    const savings = Math.max(0, minNormalPrice - promoP);
+                    const savingsPrc = minNormalPrice > 0 ? Math.round((savings / minNormalPrice) * 100) : 0;
+
+                    return (
+                      <Link
+                        key={product.id}
+                        href={`/product/${product.id}`}
+                        className="group flex flex-col justify-between p-3 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-orange-900/50 hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-xl hover:shadow-orange-500/10 transition-all duration-300 relative"
+                      >
+                        <div>
+                          {/* Image */}
+                          <div className="relative aspect-[3/4] overflow-hidden rounded-xl bg-slate-50 dark:bg-slate-800 mb-3">
+                            {product.imageUrls && product.imageUrls.length > 0 ? (
+                              <div
+                                className="w-full h-full bg-center bg-cover transition-transform duration-700 group-hover:scale-105"
+                                style={{
+                                  backgroundImage: `url("${product.imageUrls[0].startsWith('http') ? product.imageUrls[0] : `${API_URL}${product.imageUrls[0]}`}")`
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
+                                <span className="material-symbols-outlined text-3xl opacity-40">image</span>
+                              </div>
+                            )}
+
+                            {/* Badges */}
+                            <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+                              <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[10px]">local_offer</span>
+                                {product.promoLabel || 'Oferta'}
+                              </span>
+                              {savingsPrc > 0 && (
+                                <span className="bg-red-600 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                                  -{savingsPrc}% OFF
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Metadata */}
+                          <div className="flex flex-col gap-1 px-1">
+                            <p className="text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider truncate">
+                              {product.categoryId || 'Fragancia'}
+                            </p>
+                            <h3 className="text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-bold group-hover:text-orange-500 transition-colors line-clamp-2 leading-tight">
+                              {product.name}
+                            </h3>
+                          </div>
+                        </div>
+
+                        {/* Price */}
+                        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 px-1 flex items-baseline justify-between gap-2 flex-wrap">
+                          <div className="flex flex-col">
+                            <span className="text-orange-500 font-black text-base sm:text-lg leading-none">
+                              ${promoP.toLocaleString('es-AR')}
+                            </span>
+                            {minNormalPrice > promoP && (
+                              <span className="text-slate-400 font-medium text-[10px] sm:text-[11px] line-through mt-0.5">
+                                ${minNormalPrice.toLocaleString('es-AR')}
+                              </span>
+                            )}
+                          </div>
+                          {savings > 0 && (
+                            <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-0.5 rounded-md">
+                              Ahorro ${savings.toLocaleString('es-AR')}
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Featured Categories */}
           <section className="px-4 sm:px-6 md:px-20 py-8 sm:py-12">

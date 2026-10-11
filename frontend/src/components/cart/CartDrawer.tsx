@@ -80,7 +80,24 @@ export default function CartDrawer() {
 
   const getItemEffectivePrice = (item: any) => {
     const isWholesale = isUserWholesale || item.quantity >= minWholesaleQty;
-    return isWholesale ? getItemWholesalePrice(item) : getItemBasePrice(item);
+    const wholesaleP = getItemWholesalePrice(item);
+    const baseP = getItemBasePrice(item);
+
+    const promoEnabled = item.product?.promoEnabled;
+    const promoPrice = item.product?.promoPrice;
+    const hasPromo = Boolean(promoEnabled && promoPrice && promoPrice > 0);
+
+    if (hasPromo) {
+      if (isWholesale) {
+        // Para mayorista: promo gana si promoPrice < wholesalePrice
+        return promoPrice < wholesaleP ? promoPrice : wholesaleP;
+      } else {
+        // Para minorista: aplica promo si promoPrice < baseP
+        return promoPrice < baseP ? promoPrice : baseP;
+      }
+    }
+
+    return isWholesale ? wholesaleP : baseP;
   };
 
   const subtotal = items.reduce((acc, item) => {
@@ -190,14 +207,27 @@ export default function CartDrawer() {
                         </button>
                       </div>
                       <div className="flex flex-col items-end">
-                        <span className="font-black text-primary">
-                          ${getItemEffectivePrice(item).toLocaleString('es-AR')}
-                        </span>
-                        {(isUserWholesale || item.quantity >= minWholesaleQty) && (
-                          <span className="text-[10px] text-green-600 dark:text-green-400 font-bold uppercase tracking-wider mt-0.5">
-                            {isUserWholesale ? 'Mayorista (Cuenta)' : 'Mayorista'}
-                          </span>
-                        )}
+                        {(() => {
+                          const effPrice = getItemEffectivePrice(item);
+                          const baseP = getItemBasePrice(item);
+                          const isPromoApplied = Boolean(item.product?.promoEnabled && item.product?.promoPrice && effPrice === item.product.promoPrice && effPrice < baseP);
+                          return (
+                            <>
+                              <span className={`font-black ${isPromoApplied ? 'text-orange-500' : 'text-primary'}`}>
+                                ${effPrice.toLocaleString('es-AR')}
+                              </span>
+                              {isPromoApplied ? (
+                                <span className="text-[10px] text-orange-500 dark:text-orange-400 font-bold uppercase tracking-wider mt-0.5 flex items-center gap-0.5">
+                                  🔥 {item.product.promoLabel || 'Oferta'}
+                                </span>
+                              ) : (isUserWholesale || item.quantity >= minWholesaleQty) ? (
+                                <span className="text-[10px] text-green-600 dark:text-green-400 font-bold uppercase tracking-wider mt-0.5">
+                                  {isUserWholesale ? 'Mayorista (Cuenta)' : 'Mayorista'}
+                                </span>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>

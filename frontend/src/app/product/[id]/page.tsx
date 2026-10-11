@@ -184,8 +184,26 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     wholesalePrice = Math.round(basePrice * (1 - wholesaleDiscountPrc / 100));
   }
 
-  const currentPrice = isWholesale ? wholesalePrice : basePrice;
-  const oldPrice = isWholesale ? basePrice : null;
+  // Promo price logic:
+  const hasPromo = Boolean((product as any).promoEnabled && (product as any).promoPrice && (product as any).promoPrice > 0);
+  const promoPrice: number = hasPromo ? (product as any).promoPrice : 0;
+  const promoLabel: string = (product as any).promoLabel || '';
+  // Regla: Para mayoristas, promo gana si promoPrice < wholesalePrice (si wholesalePrice <= promoPrice, gana mayorista).
+  // Para minoristas, aplica promo si promoPrice < basePrice.
+  const showPromo = hasPromo && (isWholesale ? promoPrice < wholesalePrice : promoPrice < basePrice);
+
+  let currentPrice: number;
+  let oldPrice: number | null;
+  if (showPromo) {
+    currentPrice = promoPrice;
+    oldPrice = basePrice;
+  } else if (isWholesale) {
+    currentPrice = wholesalePrice;
+    oldPrice = basePrice;
+  } else {
+    currentPrice = basePrice;
+    oldPrice = null;
+  }
 
   // Determine variant label based on category
   const catGroup = categoriesConfig.find(g => g.opciones.includes(product.categoryId));
@@ -344,26 +362,43 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                   
                   {/* Price */}
                   <div className="flex flex-col mt-1 gap-1">
+                    {/* Promo Banner */}
+                    {showPromo && (
+                      <div className="inline-flex items-center gap-2 bg-orange-500 text-white px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider w-fit mb-1">
+                        <span className="material-symbols-outlined text-sm">local_offer</span>
+                        {promoLabel || 'Oferta especial'}
+                      </div>
+                    )}
                     <div className="flex items-baseline gap-3 flex-wrap">
-                      <p className="text-3xl font-black text-primary">
+                      <p className={`text-3xl font-black ${showPromo ? 'text-orange-500' : 'text-primary'}`}>
                         ${currentPrice.toLocaleString('es-AR')}
                       </p>
-                      {oldPrice && !isWholesale && (
+                      {oldPrice && (
                         <span className="text-sm font-medium text-slate-400 line-through">${oldPrice.toLocaleString('es-AR')}</span>
                       )}
-                      {isWholesale && (
+                      {!showPromo && isWholesale && (
                         <span className="text-[11px] bg-primary/20 text-primary px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
                           Precio mayorista
                         </span>
                       )}
+                      {showPromo && (
+                        <span className="text-[11px] bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                          Precio especial
+                        </span>
+                      )}
                     </div>
-                    {isWholesale && (
+                    {!showPromo && isWholesale && (
                       <p className="text-xs text-green-600 dark:text-green-400 font-bold">
                         {customWholesale != null
                           ? (wholesalePrice < basePrice
                               ? `¡Precio mayorista especial aplicado! (${Math.round((1 - wholesalePrice / basePrice) * 100)}% desc.)`
                               : '¡Precio mayorista especial aplicado!')
                           : `¡Descuento del ${wholesaleDiscountPrc}% aplicado!`}
+                      </p>
+                    )}
+                    {showPromo && (
+                      <p className="text-xs text-orange-600 dark:text-orange-400 font-bold">
+                        ¡Precio especial aplicado! Ahorra ${(oldPrice! - promoPrice).toLocaleString('es-AR')}
                       </p>
                     )}
                   </div>
