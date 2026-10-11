@@ -11,6 +11,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV DATABASE_URL="file:/app/data/dev.db"
 RUN npx prisma generate
 RUN npm run build
 

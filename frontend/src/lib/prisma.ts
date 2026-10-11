@@ -1,5 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = 'file:/app/data/dev.db';
+}
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
   hasCheckedSchema?: boolean;
@@ -16,10 +20,10 @@ if (!globalForPrisma.prisma) {
   globalForPrisma.prisma = prisma;
 }
 
-// Auto-migración: crea tablas y columnas faltantes al iniciar el servidor.
-// Esto garantiza que la DB de producción esté siempre actualizada aunque
-// el `prisma migrate` haya fallado en el contenedor Docker.
-if (!globalForPrisma.hasCheckedSchema) {
+// Auto-migración: crea tablas y columnas faltantes al iniciar el servidor en runtime.
+// No ejecutar durante la fase de build estático.
+const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build' || process.env.npm_lifecycle_event === 'build';
+if (!globalForPrisma.hasCheckedSchema && !isBuildPhase) {
   globalForPrisma.hasCheckedSchema = true;
   (async () => {
     // ── Columnas nuevas en customers ──────────────────────────────────────
