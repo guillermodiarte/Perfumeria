@@ -234,7 +234,7 @@ export default function Home() {
           {promoProducts.length > 0 && (() => {
             const isFewItems = promoProducts.length <= 3;
             return (
-              <section className="relative overflow-hidden py-10 sm:py-16 my-4 border-y border-orange-500/30 bg-slate-950">
+              <section className="relative overflow-hidden py-6 sm:py-8 my-4 border-y border-orange-500/30 bg-slate-950">
                 {/* Background image */}
                 <div 
                   className="absolute inset-0 bg-cover bg-center transition-transform duration-1000 scale-105"
@@ -248,7 +248,7 @@ export default function Home() {
 
                 <div className="relative z-10 max-w-[1400px] mx-auto px-4 sm:px-6 md:px-20">
                   {/* Header */}
-                  <div className={`flex flex-col ${isFewItems ? 'items-center text-center' : 'sm:flex-row sm:items-end justify-between'} mb-8 sm:mb-10 gap-4`}>
+                  <div className={`flex flex-col ${isFewItems ? 'items-center text-center' : 'sm:flex-row sm:items-end justify-between'} mb-5 sm:mb-6 gap-3`}>
                     <div className={`flex flex-col gap-2 ${isFewItems ? 'items-center' : ''}`}>
                       <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-orange-500/20 border border-orange-500/30 text-orange-400 text-xs font-black uppercase tracking-wider w-fit shadow-sm">
                         <span className="material-symbols-outlined text-sm animate-pulse">local_offer</span>
@@ -340,21 +340,26 @@ export default function Home() {
                           </div>
 
                           {/* Price */}
-                          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 px-1 flex items-baseline justify-between gap-2 flex-wrap">
-                            <div className="flex flex-col">
-                              <span className="text-orange-500 font-black text-base sm:text-lg leading-none">
+                          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 px-1 text-center">
+                            {/* New price + old price in same row */}
+                            <div className="flex items-baseline justify-center gap-2.5 flex-wrap">
+                              <span className="text-orange-500 font-black text-2xl sm:text-3xl leading-none tracking-tight">
                                 ${promoP.toLocaleString('es-AR')}
                               </span>
                               {minNormalPrice > promoP && (
-                                <span className="text-slate-400 font-medium text-[10px] sm:text-[11px] line-through mt-0.5">
+                                <span className="text-slate-400 font-semibold text-base sm:text-lg line-through leading-none">
                                   ${minNormalPrice.toLocaleString('es-AR')}
                                 </span>
                               )}
                             </div>
+                            {/* Savings badge below */}
                             {savings > 0 && (
-                              <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-0.5 rounded-md">
-                                Ahorro ${savings.toLocaleString('es-AR')}
-                              </span>
+                              <div className="mt-1.5 flex justify-center">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-950/50 px-2 py-0.5 rounded-md">
+                                  <span className="material-symbols-outlined text-[11px]">savings</span>
+                                  Ahorrás ${savings.toLocaleString('es-AR')}
+                                </span>
+                              </div>
                             )}
                           </div>
                         </Link>
