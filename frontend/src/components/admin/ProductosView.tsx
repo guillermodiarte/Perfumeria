@@ -151,6 +151,51 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
   const updateProduct = useStockFlowStore(s => s.updateProduct);
   const registerPurchaseBatch = useStockFlowStore(s => s.registerPurchaseBatch);
   const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
+  const purchases = useStockFlowStore(s => s.purchases);
+
+  // ── Utilidades de formato de moneda ────────────────────────────────────
+  const formatCurrency = (amount: number, currency: string = 'ARS'): string => {
+    if (amount === undefined || amount === null || isNaN(amount)) return '—';
+    const c = (currency || 'ARS').toUpperCase().trim();
+    const isPyg = c === 'PYG' || c === 'GUARANIES' || c === 'GUARANÍES' || c === '₲';
+    const isUsd = c === 'USD' || c === 'U$S' || c === 'DOLARES' || c === 'DÓLARES' || c === 'US$';
+    const isBrl = c === 'BRL' || c === 'REALES' || c === 'R$';
+
+    // Guaranies: sin decimales
+    if (isPyg) {
+      const rounded = Math.round(amount);
+      const formatted = rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      return `₲ ${formatted}`;
+    }
+    // Todas las demás: 2 decimales, punto de miles, coma decimal (ej: $1.023.000,79)
+    const rounded = Math.round(amount * 100) / 100;
+    const [intRaw, decRaw] = rounded.toFixed(2).split('.');
+    const intFormatted = intRaw.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    const result = `${intFormatted},${decRaw}`;
+    if (isUsd) return `U$S ${result}`;
+    if (isBrl) return `R$ ${result}`;
+    return `$${result}`;  // ARS
+  };
+
+  // Devuelve los datos de costo original de una variante buscando en el historial de compras
+  const getVariantCostInfo = (variantId?: string, productId?: string, size?: string) => {
+    let records = (purchases || []).filter(p => variantId && p.variantId === variantId);
+    if (records.length === 0 && productId) {
+      records = (purchases || []).filter(p => p.productId === productId && (!size || p.size === size));
+    }
+    if (records.length === 0 && productId) {
+      records = (purchases || []).filter(p => p.productId === productId);
+    }
+    if (records.length === 0) return null;
+    records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const latest = records[0];
+    return {
+      originalCost: latest.unitCostOriginal,
+      currency: latest.purchaseCurrency || 'ARS',
+      arsWithShipping: latest.unitPurchasePrice,
+      shippingPerUnit: latest.shippingPerUnitARS,
+    };
+  };
 
   const [loadingSync, setLoadingSync] = useState(false);
   const effectiveApiUrl = apiUrl || API_URL;
@@ -846,24 +891,49 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                      const minSale = variantSalePrices.length > 0 ? Math.min(...variantSalePrices) : p.salePrice;
                                      const maxSale = variantSalePrices.length > 0 ? Math.max(...variantSalePrices) : p.salePrice;
                                      const salePriceDisplay = variantSalePrices.length > 1 && minSale !== maxSale 
-                                         ? `$${minSale.toLocaleString("es-AR")} - $${maxSale.toLocaleString("es-AR")}`
-                                         : `$${(p.salePrice || minSale || 0).toLocaleString("es-AR")}`;
+                                         ? `${formatCurrency(minSale || 0)} — ${formatCurrency(maxSale || 0)}`
+                                         : formatCurrency(p.salePrice || minSale || 0);
 
                                      const variantPurchasePrices = p.variants?.map(v => v.unitPurchasePrice).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
                                      const minPurch = variantPurchasePrices.length > 0 ? Math.min(...variantPurchasePrices) : p.purchasePrice;
                                      const maxPurch = variantPurchasePrices.length > 0 ? Math.max(...variantPurchasePrices) : p.purchasePrice;
                                      const purchasePriceDisplay = variantPurchasePrices.length > 1 && minPurch !== maxPurch
-                                         ? `$${minPurch.toLocaleString("es-AR")} - $${maxPurch.toLocaleString("es-AR")}`
-                                         : `$${(p.purchasePrice || minPurch || 0).toLocaleString("es-AR")}`;
+                                         ? `${formatCurrency(minPurch || 0)} — ${formatCurrency(maxPurch || 0)}`
+                                         : formatCurrency(p.purchasePrice || minPurch || 0);
+
+                                     // Chequear si alguna variante tiene costo original en moneda extranjera
+                                     const origCosts: { cost: number; currency: string }[] = [];
+                                     for (const v of p.variants) {
+                                         const ci = getVariantCostInfo(v.id, p.id, v.size);
+                                         if (ci && ci.originalCost && ci.currency !== 'ARS') {
+                                             origCosts.push({ cost: ci.originalCost, currency: ci.currency });
+                                         }
+                                     }
+                                     const hasOriginal = origCosts.length > 0;
+                                     let origDisplay = '';
+                                     if (hasOriginal) {
+                                         const cur = origCosts[0].currency;
+                                         const minOrig = Math.min(...origCosts.map(c => c.cost));
+                                         const maxOrig = Math.max(...origCosts.map(c => c.cost));
+                                         origDisplay = minOrig !== maxOrig
+                                             ? `${formatCurrency(minOrig, cur)} — ${formatCurrency(maxOrig, cur)}`
+                                             : formatCurrency(minOrig, cur);
+                                     }
 
                                      return (
-                                         <div className="flex gap-4">
+                                         <div className="flex flex-wrap items-end gap-x-4 gap-y-2 mb-3">
+                                              {hasOriginal && (
+                                                  <div>
+                                                      <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider mb-0.5">Precio Original</p>
+                                                      <p className="text-xs font-black text-amber-700 dark:text-amber-300">{origDisplay}</p>
+                                                  </div>
+                                              )}
                                               <div>
-                                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">P. Compra</p>
-                                                  <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{purchasePriceDisplay}</p>
+                                                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Costo c/envío</p>
+                                                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{purchasePriceDisplay}</p>
                                               </div>
                                               <div>
-                                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">P. Venta</p>
+                                                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">P. Venta</p>
                                                   <p className="text-sm font-black text-slate-900 dark:text-white">{salePriceDisplay}</p>
                                               </div>
                                          </div>
@@ -876,7 +946,10 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${totalStock > 0 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}`}>{totalStock > 0 ? `${totalStock} Disp.` : "Agotado"}</span>
                                      </div>
                                      <div className="flex flex-wrap gap-2">
-                                         {p.variants.map(v => (
+                                         {p.variants.map(v => {
+                                             const vCostInfo = getVariantCostInfo(v.id, p.id, v.size);
+                                             const vSale = (v.manualSalePrice !== undefined && v.manualSalePrice > 0) ? v.manualSalePrice : (p.salePrice || 0);
+                                             return (
                                              <div key={v.id} className="flex flex-col flex-1 min-w-[70px] bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-center">
                                                  <div className="flex flex-col justify-center items-center mb-1">
                                                      {(v as any).description && (
@@ -895,14 +968,20 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                                      <span className="text-[10px] text-slate-400 font-medium">Stock:</span>
                                                      <span className={v.stock > 0 ? "text-primary" : "text-red-500"}>{v.stock}</span>
                                                  </div>
+                                                 {vCostInfo && vCostInfo.originalCost && vCostInfo.currency !== 'ARS' && (
+                                                     <div className="text-[9px] text-amber-600 dark:text-amber-400 font-bold truncate mt-0.5" title={`Precio original: ${formatCurrency(vCostInfo.originalCost, vCostInfo.currency)}`}>
+                                                         {formatCurrency(vCostInfo.originalCost, vCostInfo.currency)}
+                                                     </div>
+                                                 )}
                                                  <div className="flex items-center justify-between text-[11px] mt-1 pt-1 border-t border-slate-200 dark:border-slate-700">
                                                      <span className="text-[9px] text-slate-400 font-bold uppercase">PV:</span>
-                                                     <span className="font-extrabold text-green-600 dark:text-green-400">
-                                                         ${((v.manualSalePrice !== undefined && v.manualSalePrice > 0) ? v.manualSalePrice : (p.salePrice || 0)).toLocaleString("es-AR")}
+                                                     <span className="font-extrabold text-green-600 dark:text-green-400 text-[11px]">
+                                                         {formatCurrency(vSale)}
                                                      </span>
                                                  </div>
                                              </div>
-                                         ))}
+                                         );
+                                         })}
                                          {p.variants.length === 0 && (
                                              <div className="w-full text-center text-xs text-slate-400 italic py-2">Sin variantes. Usa Ingreso Mercadería.</div>
                                          )}
@@ -958,12 +1037,12 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                 <div className="flex flex-wrap gap-2">
                   {mergeState.onlyInSource.map((v, i) => (
                     <span key={'s' + i} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[11px]">add</span> {v.size} · {v.stock} uds · ${v.manualSalePrice?.toLocaleString('es-AR')}
+                      <span className="material-symbols-outlined text-[11px]">add</span> {v.size} · {v.stock} uds · {formatCurrency(v.manualSalePrice || 0)}
                     </span>
                   ))}
                   {mergeState.onlyInTarget.map((v, i) => (
                     <span key={'t' + i} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[11px]">keep</span> {v.size} · {v.stock} uds · ${(v.manualSalePrice || 0)?.toLocaleString('es-AR')}
+                      <span className="material-symbols-outlined text-[11px]">keep</span> {v.size} · {v.stock} uds · {formatCurrency(v.manualSalePrice || 0)}
                     </span>
                   ))}
                 </div>
@@ -1003,8 +1082,8 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                           }`}
                         >
                           <span className="text-[10px] font-black uppercase text-blue-600 dark:text-blue-400 mb-1">Precio Nuevo</span>
-                          <span className="text-base font-black text-slate-900 dark:text-white">${conflict.sourceSalePrice.toLocaleString('es-AR')}</span>
-                          <span className="text-[10px] text-slate-500">Costo: ${conflict.sourcePurchasePrice.toLocaleString('es-AR')}</span>
+                          <span className="text-base font-black text-slate-900 dark:text-white">{formatCurrency(conflict.sourceSalePrice)}</span>
+                          <span className="text-[10px] text-slate-500">Costo: {formatCurrency(conflict.sourcePurchasePrice)}</span>
                           {conflict.priceChoice === 'source' && (
                             <span className="material-symbols-outlined text-blue-500 text-sm mt-1">check_circle</span>
                           )}
@@ -1024,8 +1103,8 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                           }`}
                         >
                           <span className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 mb-1">Precio Existente</span>
-                          <span className="text-base font-black text-slate-900 dark:text-white">${conflict.targetSalePrice.toLocaleString('es-AR')}</span>
-                          <span className="text-[10px] text-slate-500">Costo: ${conflict.targetPurchasePrice.toLocaleString('es-AR')}</span>
+                          <span className="text-base font-black text-slate-900 dark:text-white">{formatCurrency(conflict.targetSalePrice)}</span>
+                          <span className="text-[10px] text-slate-500">Costo: {formatCurrency(conflict.targetPurchasePrice)}</span>
                           {conflict.priceChoice === 'target' && (
                             <span className="material-symbols-outlined text-emerald-500 text-sm mt-1">check_circle</span>
                           )}
@@ -1522,17 +1601,26 @@ export default function ProductosView({ showAlert, apiKey, apiUrl }: { showAlert
                                                 onChange={e => handleVariantChange(vIdx, 'stock', e.target.value === '' ? '' : Number(e.target.value))} 
                                             />
                                         </div>
-                                        <div className="w-[110px]">
-                                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Costo Unit.</label>
-                                            <input 
-                                                type="number" 
-                                                step="0.01" 
-                                                placeholder="0" 
-                                                className="w-full text-center bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800/50 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9 focus:ring-2 focus:ring-primary outline-none" 
-                                                value={variant.unitPurchasePrice === '' ? '' : (variant.unitPurchasePrice !== undefined ? variant.unitPurchasePrice : editForm.purchasePrice)} 
-                                                onChange={e => handleVariantChange(vIdx, 'unitPurchasePrice', e.target.value === '' ? '' : Number(e.target.value))} 
-                                            />
-                                        </div>
+                                        {/* Costo: READ-ONLY — muestra precio original + ARS c/envío */}
+                                        {(() => {
+                                          const ci = variant.id ? getVariantCostInfo(variant.id) : null;
+                                          const arsTotal = variant.unitPurchasePrice !== undefined ? variant.unitPurchasePrice : (editForm.purchasePrice || 0);
+                                          return (
+                                            <div className="flex flex-col items-center min-w-[120px]">
+                                              <label className="block text-[10px] text-center font-bold text-slate-400 mb-1 leading-none">Costo c/envío</label>
+                                              <div className="w-full text-center bg-slate-100 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 h-auto min-h-[36px] flex flex-col items-center justify-center" title="El costo se calcula automáticamente al registrar la compra">
+                                                {ci && ci.originalCost && ci.currency !== 'ARS' && (
+                                                  <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 leading-tight">
+                                                    {formatCurrency(ci.originalCost, ci.currency)}
+                                                  </span>
+                                                )}
+                                                <span className="text-xs font-bold text-red-600 dark:text-red-400 leading-tight">
+                                                  {formatCurrency(arsTotal)}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
                                         <div className="w-[110px]">
                                             <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none truncate">PV Final</label>
                                             <input 
