@@ -54,6 +54,19 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
   const [uploadingCatIdx, setUploadingCatIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // States for promociones editor
+  const [promosSettings, setPromosSettings] = useState({
+    title: 'Promociones Destacadas',
+    subtitle: 'Aprovecha nuestras ofertas exclusivas en fragancias seleccionadas por tiempo limitado.',
+    buttonText: 'Ver todas las ofertas',
+    bgImage: '/uploads/Banners/1.webp',
+    tagline: 'Oportunidad Especial',
+  });
+  const [mediaLibPromos, setMediaLibPromos] = useState(false);
+  const [mediaLibPromosImages, setMediaLibPromosImages] = useState<string[]>([]);
+  const [mediaLibPromosLoading, setMediaLibPromosLoading] = useState(false);
+  const [mediaLibPromosSearch, setMediaLibPromosSearch] = useState('');
+
   // Media library picker for banner slides
   const [mediaLibSlideIdx, setMediaLibSlideIdx] = useState<number | null>(null);
   const [mediaLibImages, setMediaLibImages] = useState<string[]>([]);
@@ -198,6 +211,15 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
         siteDescription: currentHeader.siteDescription || 'Catálogo de fragancias exclusivas, maquillaje y accesorios.',
         ogImageUrl: currentHeader.ogImageUrl || '/uploads/Banners/1.webp',
         ogTitle: currentHeader.ogTitle || currentHeader.siteTitle || 'Ciara Bonita | Fragancias Exclusivas',
+      });
+    } else if (section === 'home_promos') {
+      const p = settings['home_promos'] || {};
+      setPromosSettings({
+        title: p.title || 'Promociones Destacadas',
+        subtitle: p.subtitle || 'Aprovecha nuestras ofertas exclusivas en fragancias seleccionadas por tiempo limitado.',
+        buttonText: p.buttonText || 'Ver todas las ofertas',
+        bgImage: p.bgImage || '/uploads/Banners/1.webp',
+        tagline: p.tagline || 'Oportunidad Especial',
       });
     }
   };
@@ -1707,10 +1729,248 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
     return <div className="p-12 text-center text-slate-500"><span className="material-symbols-outlined animate-spin text-4xl">autorenew</span></div>;
   }
 
+  const renderPromosEditor = () => {
+    const openPromosMediaLib = async () => {
+      setMediaLibPromos(true);
+      if (mediaLibPromosImages.length > 0) return;
+      setMediaLibPromosLoading(true);
+      try {
+        const res = await fetch(`/api/admin/media`, {
+          headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const files = data.files || [];
+          const urls: string[] = files
+            .map((f: any) => (typeof f === 'string' ? f : f.url || ''))
+            .filter((u: string) => Boolean(u) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(u));
+          setMediaLibPromosImages(urls);
+        }
+      } catch { /* ignore */ } finally {
+        setMediaLibPromosLoading(false);
+      }
+    };
+
+    const filteredPromos = mediaLibPromosSearch.trim()
+      ? mediaLibPromosImages.filter(u => u.toLowerCase().includes(mediaLibPromosSearch.toLowerCase()))
+      : mediaLibPromosImages;
+
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setActiveEditor(null)}
+            className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-white transition text-sm font-semibold px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+            Volver
+          </button>
+          <div>
+            <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Sección Promociones Destacadas</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Personaliza los textos y la imagen de fondo de la sección de ofertas en la página principal.</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Left: Text fields */}
+          <div className="space-y-4">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 space-y-4">
+              <h3 className="font-bold text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                <span className="material-symbols-outlined text-orange-400 text-[18px]">text_fields</span>
+                Textos de la sección
+              </h3>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Etiqueta pequeña (badge)</label>
+                <input
+                  type="text"
+                  value={promosSettings.tagline}
+                  onChange={e => setPromosSettings(p => ({ ...p, tagline: e.target.value }))}
+                  placeholder="Oportunidad Especial"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">Texto del badge naranja que aparece arriba del título.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Título principal</label>
+                <input
+                  type="text"
+                  value={promosSettings.title}
+                  onChange={e => setPromosSettings(p => ({ ...p, title: e.target.value }))}
+                  placeholder="Promociones Destacadas"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Subtítulo / Descripción</label>
+                <textarea
+                  rows={3}
+                  value={promosSettings.subtitle}
+                  onChange={e => setPromosSettings(p => ({ ...p, subtitle: e.target.value }))}
+                  placeholder="Aprovecha nuestras ofertas exclusivas..."
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Texto del botón</label>
+                <input
+                  type="text"
+                  value={promosSettings.buttonText}
+                  onChange={e => setPromosSettings(p => ({ ...p, buttonText: e.target.value }))}
+                  placeholder="Ver todas las ofertas"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Background image */}
+          <div className="space-y-4">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 space-y-4">
+              <h3 className="font-bold text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                <span className="material-symbols-outlined text-orange-400 text-[18px]">wallpaper</span>
+                Imagen de fondo
+              </h3>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={openPromosMediaLib}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400 text-xs font-bold hover:bg-orange-100 transition"
+                >
+                  <span className="material-symbols-outlined text-[16px]">photo_library</span>
+                  {mediaLibPromos ? 'Cerrar biblioteca' : 'Seleccionar de biblioteca'}
+                </button>
+              </div>
+
+              {/* Media library picker */}
+              {mediaLibPromos && (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                    <div className="relative">
+                      <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">search</span>
+                      <input
+                        type="text"
+                        value={mediaLibPromosSearch}
+                        onChange={e => setMediaLibPromosSearch(e.target.value)}
+                        placeholder="Buscar por nombre..."
+                        className="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      />
+                    </div>
+                  </div>
+                  <div className="p-3 max-h-52 overflow-y-auto">
+                    {mediaLibPromosLoading ? (
+                      <div className="flex items-center justify-center py-8 gap-2 text-slate-400">
+                        <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                        <span className="text-xs">Cargando imágenes...</span>
+                      </div>
+                    ) : filteredPromos.length === 0 ? (
+                      <div className="text-center py-8 text-xs text-slate-400">No hay imágenes en la biblioteca</div>
+                    ) : (
+                      <div className="grid grid-cols-5 gap-2 sm:grid-cols-8">
+                        {filteredPromos.map((url, i) => {
+                          const fullUrl = url.startsWith('http') ? url : `${apiUrl}${url}`;
+                          const isSelected = promosSettings.bgImage === url;
+                          return (
+                            <button key={i} type="button" title={url.split('/').pop()}
+                              onClick={() => { setPromosSettings(p => ({ ...p, bgImage: url })); setMediaLibPromos(false); }}
+                              className={`relative group/lib aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                                isSelected ? 'border-orange-500 ring-2 ring-orange-300 scale-105' : 'border-transparent hover:border-orange-400 hover:scale-105'
+                              }`}
+                            >
+                              <img src={fullUrl} alt="" className="w-full h-full object-cover" />
+                              {isSelected && (
+                                <div className="absolute inset-0 bg-orange-500/30 flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-white text-[18px] drop-shadow">check_circle</span>
+                                </div>
+                              )}
+                              {!isSelected && (
+                                <div className="absolute inset-0 bg-black/0 group-hover/lib:bg-black/20 flex items-center justify-center opacity-0 group-hover/lib:opacity-100 transition-all">
+                                  <span className="material-symbols-outlined text-white text-[16px] drop-shadow">add_circle</span>
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="px-3 py-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 text-center">
+                    Hacé click en una imagen para usarla como fondo de la sección
+                  </div>
+                </div>
+              )}
+
+              {/* Preview */}
+              {promosSettings.bgImage ? (
+                <div
+                  className="relative h-44 w-full rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-inner flex items-center justify-center"
+                  style={{ backgroundImage: `url('${getMediaSrc(promosSettings.bgImage)}')`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/75 to-slate-950/90" />
+                  <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 via-transparent to-black/50" />
+                  <div className="relative z-10 text-center px-4">
+                    <p className="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-1">{promosSettings.tagline || 'Oportunidad Especial'}</p>
+                    <p className="text-white text-lg font-extrabold drop-shadow">{promosSettings.title || 'Promociones Destacadas'}</p>
+                    <p className="text-slate-300 text-[10px] mt-1 line-clamp-2">{promosSettings.subtitle}</p>
+                  </div>
+                  <div className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-md px-3 py-1 rounded-lg text-white text-xs font-semibold flex items-center gap-1.5 shadow">
+                    <span className="material-symbols-outlined text-sm text-emerald-400">check_circle</span>
+                    Vista previa
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-400 bg-white/50 dark:bg-slate-900/50">
+                  Sin imagen de fondo seleccionada.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Note */}
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/60">
+          <span className="material-symbols-outlined text-orange-500 text-[20px] mt-0.5">info</span>
+          <p className="text-xs text-orange-700 dark:text-orange-300">
+            <strong>¿Cómo activar las promociones?</strong> Esta sección aparece automáticamente en la página principal cuando hay productos con precio de promoción activo. Activás las promos desde <strong>Productos</strong> → editá un producto → activá la opción <em>"Activar promoción"</em>.
+          </p>
+        </div>
+
+        {/* Save */}
+        <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700/80">
+          <button
+            type="button"
+            onClick={() => setActiveEditor(null)}
+            className="px-5 py-2.5 font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition"
+          >
+            ← Volver a Secciones
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => saveSettings('home_promos', promosSettings)}
+            className="px-6 py-2.5 font-bold text-xs bg-orange-500 text-white hover:bg-orange-600 rounded-xl transition flex items-center gap-2 shadow-md shadow-orange-500/20 disabled:opacity-50"
+          >
+            <span className={`material-symbols-outlined text-base ${saving ? 'animate-spin' : ''}`}>
+              {saving ? 'progress_activity' : 'save'}
+            </span>
+            <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (activeEditor === 'home_banner') return renderBannerEditor();
   if (activeEditor === 'home_categories') return renderCategoriesEditor();
   if (activeEditor === 'site_header') return renderHeaderEditor();
   if (activeEditor === 'donde_estamos') return renderDondeEstamosEditor();
+  if (activeEditor === 'home_promos') return renderPromosEditor();
 
   return (
     <div className="space-y-6">
@@ -1749,6 +2009,25 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
             <span className="w-8 h-1.5 rounded-full bg-purple-500"></span>
             <span className="w-8 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700"></span>
             <span className="w-8 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700"></span>
+          </div>
+          <span className="material-symbols-outlined absolute right-6 top-6 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+        </div>
+
+        {/* Promociones Destacadas */}
+        <div onClick={() => handleEditSection('home_promos')} className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-orange-200 dark:border-orange-900/60 shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden flex flex-col items-start gap-4">
+          <div className="size-12 bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 rounded-xl flex items-center justify-center">
+            <span className="material-symbols-outlined">local_offer</span>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="font-bold text-lg dark:text-white group-hover:text-orange-500 transition-colors">Promociones Destacadas</h3>
+              <span className="bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-300 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">Ofertas</span>
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">Personaliza el título, subtítulo, imagen de fondo y el texto del botón de la sección de precios especiales.</p>
+          </div>
+          <div className="mt-auto pt-4 flex gap-2">
+            <span className="w-8 h-1.5 rounded-full bg-orange-500"></span>
+            <span className="w-8 h-1.5 rounded-full bg-orange-300"></span>
           </div>
           <span className="material-symbols-outlined absolute right-6 top-6 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
         </div>
