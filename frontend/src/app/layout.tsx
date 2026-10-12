@@ -9,6 +9,8 @@ import Toast from '@/components/ui/Toast'
 import SiteHeadSync from '@/components/layout/SiteHeadSync'
 import StoreSyncProvider from '@/components/layout/StoreSyncProvider'
 import NextAuthProvider from '@/components/auth/NextAuthProvider'
+import PWARegistrar from '@/components/pwa/PWARegistrar'
+import PWAManifestLink from '@/components/pwa/PWAManifestLink'
 import { prisma } from '@/lib/prisma'
 
 const inter = Inter({
@@ -102,6 +104,13 @@ export default async function RootLayout({
       <head>
         <link rel="icon" href={faviconUrl} />
         <link rel="apple-touch-icon" href={faviconUrl} />
+        {/* PWA: mobile web app meta tags */}
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Ciara Bonita" />
+        <meta name="theme-color" content="#1a1a2e" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         {/* Usamos el CDN para material symbols ya que es lo más directo basado en el HTML */}
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL,GRAD,opsz@100..700,0..1,-50..200,24&display=swap" rel="stylesheet" />
       </head>
@@ -111,6 +120,9 @@ export default async function RootLayout({
       */}
       <body className={`bg-background-light dark:bg-background-dark font-sans text-slate-900 dark:text-slate-100 antialiased min-h-screen flex flex-col`}>
         <NextAuthProvider>
+          {/* PWA: registra el service worker y el manifest correcto según la ruta */}
+          <PWARegistrar />
+          <PWAManifestLink />
           <SiteHeadSync />
           <StoreSyncProvider />
           <Header />

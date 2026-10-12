@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from './prisma';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-lyg-token-998877';
-const TOKEN_EXPIRY = '7d';
+const TOKEN_EXPIRY = '365d'; // Sesión larga para PWA admin instalada
 
 export function hashPassword(password: string): string {
   return bcrypt.hashSync(password, 10);

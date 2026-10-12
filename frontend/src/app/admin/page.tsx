@@ -244,7 +244,12 @@ export default function AdminDashboard() {
         setCurrentAdminName(me.name || 'Admin');
         setCurrentAdminEmail(me.email || '');
         setIsAuthenticated(true);
-        setApiKey(token);
+        // Usar el token renovado si el servidor lo devuelve (para mantener sesión PWA)
+        const activeToken = me.refreshed_token || token;
+        setApiKey(activeToken);
+        if (me.refreshed_token) {
+          localStorage.setItem('lyg_api_key', me.refreshed_token);
+        }
         fetchProducts();
         fetchCategories();
       } else {
@@ -255,6 +260,7 @@ export default function AdminDashboard() {
       handleLogout();
     }
   };
+
 
   useEffect(() => {
     if (apiKey && isAuthenticated) {
