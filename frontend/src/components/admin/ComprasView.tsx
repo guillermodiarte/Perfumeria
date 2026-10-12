@@ -156,6 +156,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
   const [showClearDraftModal, setShowClearDraftModal] = useState(false);
   const [isDraftLoaded, setIsDraftLoaded] = useState(false);
   const DRAFT_COMPRAS_KEY = 'lyg_draft_compra';
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [draftUpdatedAt, setDraftUpdatedAt] = useState<string | null>(null);
+  const [draftUpdatedBy, setDraftUpdatedBy] = useState<string | null>(null);
+  const [isSyncingServerDraft, setIsSyncingServerDraft] = useState(false);
 
   // Modal Biblioteca de Medios (Imágenes)
   const [mediaLibTargetPIdx, setMediaLibTargetPIdx] = useState<number | null>(null);
@@ -234,54 +238,186 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     )
   );
 
-  // Cargar borrador persistido al montar
-  useEffect(() => {
+  // Helper para obtener token de autenticación
+  const getAuthToken = useCallback(() => {
+    return apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') || '' : '');
+  }, [apiKey]);
+
+  // Consulta el borrador compartido desde el servidor
+  const fetchServerDraft = useCallback(async (isManual = false) => {
     try {
-      const saved = localStorage.getItem(DRAFT_COMPRAS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.supplierInput !== undefined) setSupplierInput(parsed.supplierInput);
-        if (parsed.purchaseDate) setPurchaseDate(parsed.purchaseDate);
-        if (parsed.purchaseCurrency) setPurchaseCurrency(parsed.purchaseCurrency);
-        if (parsed.exchangeRate !== undefined) setExchangeRate(parsed.exchangeRate);
-        if (parsed.shippingCurrency) setShippingCurrency(parsed.shippingCurrency);
-        if (parsed.shippingCostOriginal !== undefined) setShippingCostOriginal(parsed.shippingCostOriginal);
-        if (Array.isArray(parsed.products) && parsed.products.length > 0) {
-          setProducts(parsed.products);
+      if (isManual) setIsSyncingServerDraft(true);
+      const token = getAuthToken();
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/purchases/draft` : '/api/admin/purchases/draft';
+      const res = await fetch(endpoint, {
+        headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.draft) {
+          const parsed = data.draft;
+          if (parsed.supplierInput !== undefined) setSupplierInput(parsed.supplierInput);
+          if (parsed.purchaseDate) setPurchaseDate(parsed.purchaseDate);
+          if (parsed.purchaseCurrency) setPurchaseCurrency(parsed.purchaseCurrency);
+          if (parsed.exchangeRate !== undefined) setExchangeRate(parsed.exchangeRate);
+          if (parsed.shippingCurrency) setShippingCurrency(parsed.shippingCurrency);
+          if (parsed.shippingCostOriginal !== undefined) setShippingCostOriginal(parsed.shippingCostOriginal);
+          if (Array.isArray(parsed.products) && parsed.products.length > 0) {
+            setProducts(parsed.products);
+          }
+          try {
+            localStorage.setItem(DRAFT_COMPRAS_KEY, JSON.stringify(parsed));
+          } catch {}
+          if (data.updated_at) setDraftUpdatedAt(data.updated_at);
+          if (data.updated_by) setDraftUpdatedBy(data.updated_by);
+          setCloudSyncStatus('saved');
+          if (isManual) showAlert('✅ Borrador compartido sincronizado correctamente.');
+          return true;
+        } else {
+          return false;
         }
       }
     } catch (e) {
-      console.error('Error al cargar borrador de compras:', e);
+      console.error('Error al consultar borrador del servidor:', e);
+      if (isManual) showAlert('⚠️ No se pudo conectar al servidor para sincronizar.');
     } finally {
-      setIsDraftLoaded(true);
+      if (isManual) setIsSyncingServerDraft(false);
     }
-  }, []);
+    return false;
+  }, [apiUrl, getAuthToken, showAlert]);
 
-  // Guardar borrador automáticamente al cambiar datos
-  useEffect(() => {
-    if (!isDraftLoaded) return;
+  // Guarda el borrador en el servidor
+  const saveServerDraft = useCallback(async (draftData: any) => {
     try {
-      if (hasDraftData) {
-        const draft = {
-          supplierInput,
-          purchaseDate,
-          purchaseCurrency,
-          exchangeRate,
-          shippingCurrency,
-          shippingCostOriginal,
-          products,
-        };
-        localStorage.setItem(DRAFT_COMPRAS_KEY, JSON.stringify(draft));
+      const token = getAuthToken();
+      if (!token) return;
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/purchases/draft` : '/api/admin/purchases/draft';
+      setCloudSyncStatus('saving');
+      const res = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': token,
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ draft: draftData })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCloudSyncStatus('saved');
+        if (data.updated_at) setDraftUpdatedAt(data.updated_at);
+        if (data.updated_by) setDraftUpdatedBy(data.updated_by);
       } else {
-        localStorage.removeItem(DRAFT_COMPRAS_KEY);
+        setCloudSyncStatus('error');
       }
     } catch (e) {
-      console.error('Error al guardar borrador de compras:', e);
+      console.error('Error al guardar borrador en el servidor:', e);
+      setCloudSyncStatus('error');
     }
-  }, [isDraftLoaded, hasDraftData, supplierInput, purchaseDate, purchaseCurrency, exchangeRate, shippingCurrency, shippingCostOriginal, products]);
+  }, [apiUrl, getAuthToken]);
+
+  // Elimina el borrador del servidor
+  const clearServerDraft = useCallback(async () => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/purchases/draft` : '/api/admin/purchases/draft';
+      await fetch(endpoint, {
+        method: 'DELETE',
+        headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }
+      });
+    } catch (e) {
+      console.error('Error al eliminar borrador del servidor:', e);
+    }
+  }, [apiUrl, getAuthToken]);
+
+  // Cargar borrador al montar: primero local para respuesta rápida, luego servidor para datos compartidos
+  useEffect(() => {
+    let isMounted = true;
+    const initDraft = async () => {
+      let localDraft: any = null;
+      try {
+        const saved = localStorage.getItem(DRAFT_COMPRAS_KEY);
+        if (saved) {
+          localDraft = JSON.parse(saved);
+          if (localDraft.supplierInput !== undefined) setSupplierInput(localDraft.supplierInput);
+          if (localDraft.purchaseDate) setPurchaseDate(localDraft.purchaseDate);
+          if (localDraft.purchaseCurrency) setPurchaseCurrency(localDraft.purchaseCurrency);
+          if (localDraft.exchangeRate !== undefined) setExchangeRate(localDraft.exchangeRate);
+          if (localDraft.shippingCurrency) setShippingCurrency(localDraft.shippingCurrency);
+          if (localDraft.shippingCostOriginal !== undefined) setShippingCostOriginal(localDraft.shippingCostOriginal);
+          if (Array.isArray(localDraft.products) && localDraft.products.length > 0) {
+            setProducts(localDraft.products);
+          }
+        }
+      } catch (e) {
+        console.error('Error al cargar borrador local de compras:', e);
+      }
+
+      // Sincronizar con el servidor
+      const foundOnServer = await fetchServerDraft(false);
+
+      // Si no había en el servidor pero sí local, respaldarlo al servidor para que el otro admin lo vea
+      if (!foundOnServer && localDraft && isMounted) {
+        saveServerDraft(localDraft);
+      }
+
+      if (isMounted) {
+        setIsDraftLoaded(true);
+      }
+    };
+
+    initDraft();
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchServerDraft, saveServerDraft]);
+
+  // Guardar borrador automáticamente al cambiar datos con debounce
+  useEffect(() => {
+    if (!isDraftLoaded) return;
+    const timer = setTimeout(() => {
+      try {
+        if (hasDraftData) {
+          const draft = {
+            supplierInput,
+            purchaseDate,
+            purchaseCurrency,
+            exchangeRate,
+            shippingCurrency,
+            shippingCostOriginal,
+            products,
+          };
+          localStorage.setItem(DRAFT_COMPRAS_KEY, JSON.stringify(draft));
+          saveServerDraft(draft);
+        } else {
+          localStorage.removeItem(DRAFT_COMPRAS_KEY);
+          clearServerDraft();
+          setCloudSyncStatus('idle');
+          setDraftUpdatedAt(null);
+          setDraftUpdatedBy(null);
+        }
+      } catch (e) {
+        console.error('Error al guardar borrador de compras:', e);
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [isDraftLoaded, hasDraftData, supplierInput, purchaseDate, purchaseCurrency, exchangeRate, shippingCurrency, shippingCostOriginal, products, saveServerDraft, clearServerDraft]);
+
+  // Si el usuario vuelve a enfocar la ventana o navegador, comprobar cambios del servidor
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      if (activeTab === 'nueva' && isDraftLoaded) {
+        fetchServerDraft(false);
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+    return () => window.removeEventListener('focus', handleWindowFocus);
+  }, [activeTab, isDraftLoaded, fetchServerDraft]);
 
   // Limpiar y resetear borrador
-  const handleClearDraft = () => {
+  const handleClearDraft = async () => {
     setSupplierInput('');
     setPurchaseDate(new Date().toISOString().split('T')[0]);
     setPurchaseCurrency('ARS');
@@ -290,12 +426,17 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     setShippingCostOriginal('');
     setProducts([createEmptyProduct()]);
     setShowSummary(false);
+    setCloudSyncStatus('idle');
+    setDraftUpdatedAt(null);
+    setDraftUpdatedBy(null);
     try {
       localStorage.removeItem(DRAFT_COMPRAS_KEY);
     } catch {}
+    await clearServerDraft();
     setShowClearDraftModal(false);
     showAlert('🗑️ Datos eliminados y formulario reseteado.');
   };
+
 
   // Autocomplete proveedores
   const fetchSuppliers = useCallback(async () => {
@@ -724,6 +865,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
       try {
         localStorage.removeItem(DRAFT_COMPRAS_KEY);
       } catch {}
+      clearServerDraft();
+      setCloudSyncStatus('idle');
+      setDraftUpdatedAt(null);
+      setDraftUpdatedBy(null);
       setProducts([createEmptyProduct()]);
       setShippingCostOriginal('');
       setSupplierInput('');
@@ -778,9 +923,34 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         <div className="space-y-6">
           {/* PASO 1 */}
           <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-2xl space-y-4">
-            <h3 className="text-sm font-black text-blue-800 dark:text-blue-300 flex items-center gap-2">
-              <span className="material-symbols-outlined text-lg">receipt_long</span> Paso 1 — Datos del Lote
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-black text-blue-800 dark:text-blue-300 flex items-center gap-2">
+                <span className="material-symbols-outlined text-lg">receipt_long</span> Paso 1 — Datos del Lote
+              </h3>
+
+              <div className="flex items-center gap-2">
+                {cloudSyncStatus === 'saving' && (
+                  <span className="text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-100/70 dark:bg-amber-950/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5 animate-pulse">
+                    <span className="material-symbols-outlined text-sm animate-spin">sync</span> Guardando en la nube...
+                  </span>
+                )}
+                {hasDraftData && cloudSyncStatus === 'saved' && (
+                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5" title="Este borrador está sincronizado en la base de datos y visible para todos los administradores en cualquier dispositivo">
+                    <span className="material-symbols-outlined text-sm">cloud_done</span> Borrador compartido {draftUpdatedBy ? `(${draftUpdatedBy})` : ''}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => fetchServerDraft(true)}
+                  disabled={isSyncingServerDraft}
+                  title="Consultar si otro administrador actualizó este borrador en otro dispositivo"
+                  className="text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-100/80 hover:bg-blue-200/80 dark:bg-blue-900/50 dark:hover:bg-blue-800/60 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                >
+                  <span className={`material-symbols-outlined text-sm ${isSyncingServerDraft ? 'animate-spin' : ''}`}>sync</span>
+                  {isSyncingServerDraft ? 'Sincronizando...' : 'Sincronizar'}
+                </button>
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="relative">
                 <label className="block text-xs font-bold text-slate-500 mb-1">Proveedor / Tienda</label>
