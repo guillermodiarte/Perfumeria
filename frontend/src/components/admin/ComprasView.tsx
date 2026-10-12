@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useStockFlowStore, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory } from '@/store/useStockStore';
+import { useStockFlowStore, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize } from '@/store/useStockStore';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
 type Currency = 'ARS' | 'USD' | 'BRL' | 'PYG';
@@ -616,7 +616,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         const suggestedSalePrice = globalMarkupPrc > 0 ? Math.round(totalCostPerUnitARS * (1 + globalMarkupPrc / 100)) : 0;
 
         let sizeLabel = 'Único';
-        if (variantGroup) { const opt = variantGroup.options[variant.sizeIndex || 0]; if (opt) sizeLabel = opt.description ? `${opt.value} (${opt.description})` : opt.value; }
+        if (variantGroup) { const opt = variantGroup.options[variant.sizeIndex || 0]; if (opt) sizeLabel = opt.description ? `${opt.value} - ${opt.description}` : opt.value; }
         const variantLabel = `${sizeLabel}${(variant as any).description ? ` – ${(variant as any).description}` : ''}`;
 
         const existingProd = prod.productId && !prod.productId.startsWith('NEW')
@@ -625,8 +625,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         const rawOptVal = (variantGroup?.options[variant.sizeIndex || 0]?.value || '').trim().toLowerCase();
         const existingVariant = existingProd
           ? (existingProd.variants.find(v =>
-              v.size.trim().toLowerCase() === sizeLabel.trim().toLowerCase() ||
-              (rawOptVal && v.size.trim().toLowerCase() === rawOptVal)
+              isSameVariant(v, { size: sizeLabel, description: (variant as any).description }) ||
+              (rawOptVal && normalizeVariantSize(v.size) === normalizeVariantSize(rawOptVal))
             ) || (existingProd.variants.length === 1 ? existingProd.variants[0] : null))
           : null;
         const hasConflict = !!existingProd && Math.abs((existingProd.purchasePrice || 0) - totalCostPerUnitARS) > 0.01;

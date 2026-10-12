@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory } from '@/store/useStockStore';
+import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize, consolidateProductVariants } from '@/store/useStockStore';
 import { API_URL } from '@/utils/api';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
@@ -548,7 +548,7 @@ export default function ProductosView({
   /** Formatea las variantes del formulario de edición a formato guardable */
   const buildFormattedVariants = (form: any) => {
     const variantGroup = getVariantGroupForCategory(form.categoryId, categoriesConfig, variantGroupsConfig);
-    return form.variants.map((item: any) => {
+    const rawVariants = form.variants.map((item: any) => {
       let finalSize = item.size;
       if (variantGroup && item.sizeIndex !== undefined && variantGroup.options[item.sizeIndex]) {
         const row = variantGroup.options[item.sizeIndex];
@@ -572,6 +572,8 @@ export default function ProductosView({
         stock: Math.max(0, Number(item.stock) || 0)
       };
     });
+
+    return consolidateProductVariants(rawVariants);
   };
 
   /** Ejecuta el guardado final (sin fusión) */
@@ -667,7 +669,7 @@ export default function ProductosView({
 
       formattedVariants.forEach((sv: any) => {
         const match = targetVariants.find(
-          (tv: any) => normSize(tv.size) === normSize(sv.size)
+          (tv: any) => isSameVariant(tv, sv)
         );
         if (match) {
           conflicts.push({
@@ -690,7 +692,7 @@ export default function ProductosView({
 
       targetVariants.forEach((tv: any) => {
         const match = formattedVariants.find(
-          (sv: any) => normSize(sv.size) === normSize(tv.size)
+          (sv: any) => isSameVariant(sv, tv)
         );
         if (!match) {
           onlyInTarget.push(tv);
@@ -720,13 +722,13 @@ export default function ProductosView({
     const { targetProduct, conflicts, onlyInSource, onlyInTarget } = mergeState;
 
     // Construir variantes fusionadas para el producto TARGET (que sobrevive)
-    const mergedVariants: any[] = [
+    const mergedVariants: any[] = consolidateProductVariants([
       // Variantes en conflicto: usar precio elegido + stock sumado
       ...conflicts.map(c => {
         const useSource = c.priceChoice === 'source';
         // Encontrar la variante original del target para preservar su id
         const origTarget = (targetProduct.variants || []).find(
-          (tv: any) => tv.size.toLowerCase().trim() === c.size.toLowerCase().trim()
+          (tv: any) => isSameVariant(tv, { size: c.size })
         );
         return {
           id: origTarget?.id || ('v-' + Math.random().toString(36).substr(2, 9)),
@@ -743,7 +745,7 @@ export default function ProductosView({
       ...onlyInSource.map(sv => ({ ...sv, id: 'v-' + Math.random().toString(36).substr(2, 9) })),
       // Variantes solo en el target → se mantienen
       ...onlyInTarget,
-    ];
+    ]);
 
     // Actualizar el producto TARGET con las variantes fusionadas y el nuevo nombre (ya lo tiene)
     persistProductUpdate(targetProduct.id, {

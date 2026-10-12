@@ -178,6 +178,54 @@ export function getVariantGroupForCategory(
   return null;
 }
 
+export function normalizeVariantSize(s: string | undefined | null): string {
+  if (!s) return '';
+  return s
+    .toLowerCase()
+    .replace(/\(.*?\)/g, '')
+    .replace(/\s*[-–—]\s*.*$/, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+export function normalizeVariantColor(c: string | undefined | null): string {
+  if (!c) return '';
+  return c.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+export function isSameVariant(
+  v1: { size?: string; color?: string; description?: string } | null | undefined,
+  v2: { size?: string; color?: string; description?: string } | null | undefined
+): boolean {
+  if (!v1 || !v2) return false;
+  const s1 = normalizeVariantSize(v1.size);
+  const s2 = normalizeVariantSize(v2.size);
+  if (s1 !== s2) return false;
+  const c1 = normalizeVariantColor(v1.color || v1.description);
+  const c2 = normalizeVariantColor(v2.color || v2.description);
+  return c1 === c2;
+}
+
+export function consolidateProductVariants<T extends { size?: string; color?: string; description?: string; stock?: number; unitPurchasePrice?: number; manualSalePrice?: number; manualWholesalePrice?: number }>(variants: T[]): T[] {
+  if (!Array.isArray(variants) || variants.length <= 1) return variants || [];
+  const consolidated: T[] = [];
+  for (const v of variants) {
+    const existingIdx = consolidated.findIndex(item => isSameVariant(item, v));
+    if (existingIdx >= 0) {
+      consolidated[existingIdx] = {
+        ...consolidated[existingIdx],
+        stock: (Number(consolidated[existingIdx].stock) || 0) + (Number(v.stock) || 0),
+        unitPurchasePrice: consolidated[existingIdx].unitPurchasePrice || v.unitPurchasePrice || 0,
+        manualSalePrice: consolidated[existingIdx].manualSalePrice || v.manualSalePrice || 0,
+        manualWholesalePrice: consolidated[existingIdx].manualWholesalePrice || v.manualWholesalePrice || undefined,
+      };
+    } else {
+      consolidated.push({ ...v });
+    }
+  }
+  return consolidated;
+}
+
 export interface ProductVariant {
   id: string; // Unique ID for the variant
   size: string;
@@ -754,12 +802,9 @@ export const useStockFlowStore = create<StockFlowState>()(
                 existingProd.imageUrls = mergedImages;
               }
 
-              // Check if variant with same size & color exists
-              const pSize = (purchase.size || 'Único').trim().toLowerCase();
-              const pColor = (purchase.color || '').trim().toLowerCase();
-
-              const varIndex = existingProd.variants.findIndex(
-                v => (v.size || 'Único').trim().toLowerCase() === pSize && (v.color || '').trim().toLowerCase() === pColor
+              // Check if variant with same size & color exists (normalizado)
+              const varIndex = existingProd.variants.findIndex(v =>
+                isSameVariant(v, { size: purchase.size || 'Único', color: purchase.color || '' })
               );
 
               if (varIndex !== -1) {
@@ -920,11 +965,9 @@ export const useStockFlowStore = create<StockFlowState>()(
                 existingProd.imageUrls = merged;
               }
 
-              // Buscar variante por tamaño + color
-              const pSize = item.size.trim().toLowerCase();
-              const pColor = item.color.trim().toLowerCase();
-              const varIndex = existingProd.variants.findIndex(
-                v => v.size.trim().toLowerCase() === pSize && v.color.trim().toLowerCase() === pColor
+              // Buscar variante por tamaño + color (normalizado)
+              const varIndex = existingProd.variants.findIndex(v =>
+                isSameVariant(v, { size: item.size, color: item.color || (item as any).description || '' })
               );
 
               if (varIndex !== -1) {
@@ -1031,7 +1074,7 @@ export const useStockFlowStore = create<StockFlowState>()(
 
               const vIdx = prod.variants.findIndex(v =>
                 (item.variantId && v.id === item.variantId) ||
-                (sizeFromLabel && v.size.trim().toLowerCase() === sizeFromLabel && (!colorFromLabel || v.color.trim().toLowerCase() === colorFromLabel))
+                isSameVariant(v, { size: sizeFromLabel, color: colorFromLabel })
               );
 
               if (vIdx !== -1) {
@@ -1066,7 +1109,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               const sizeFromLabel = diff.variantLabel ? diff.variantLabel.split(' –')[0].trim().toLowerCase() : '';
               const vIdx = prod.variants.findIndex(v =>
                 (diff.variantId && v.id === diff.variantId) ||
-                (sizeFromLabel && v.size.trim().toLowerCase() === sizeFromLabel)
+                isSameVariant(v, { size: sizeFromLabel })
               );
               if (vIdx !== -1) {
                 prod.variants[vIdx].stock = Math.max(0, prod.variants[vIdx].stock + diff.quantityDelta);
@@ -1592,16 +1635,26 @@ export const useStockFlowStore = create<StockFlowState>()(
       },
 
       importData: (data: any) => {
-          set((state) => ({
+          set((state) => {
+            const rawProducts = data.products ?? state.products;
+            const sanitizedProducts = Array.isArray(rawProducts)
+              ? rawProducts.map((p: any) => ({
+                  ...p,
+                  variants: consolidateProductVariants(p.variants || [])
+                }))
+              : rawProducts;
+
+            return {
               globalMarkupPrc: data.globalMarkupPrc ?? state.globalMarkupPrc,
               wholesaleConfig: data.wholesaleConfig ?? state.wholesaleConfig,
               categoriesConfig: data.categoriesConfig ?? state.categoriesConfig,
               variantGroupsConfig: data.variantGroupsConfig ?? state.variantGroupsConfig,
               perfumeTypesConfig: data.perfumeTypesConfig ?? state.perfumeTypesConfig ?? DEFAULT_PERFUME_TYPES,
-              products: data.products ?? state.products,
+              products: sanitizedProducts,
               purchases: data.purchases ?? state.purchases,
               sales: data.sales ?? state.sales
-          }));
+            };
+          });
       }
     }),
     {
@@ -1610,6 +1663,12 @@ export const useStockFlowStore = create<StockFlowState>()(
         if (!state) return;
         if (!state.perfumeTypesConfig || !state.perfumeTypesConfig.length) {
           state.perfumeTypesConfig = DEFAULT_PERFUME_TYPES;
+        }
+        if (Array.isArray(state.products)) {
+          state.products = state.products.map(p => ({
+            ...p,
+            variants: consolidateProductVariants(p.variants || [])
+          }));
         }
       }
     }

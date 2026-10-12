@@ -1,23 +1,98 @@
+# ==========================================
+# Dependencies & Package Managers
+# ==========================================
 node_modules/
-**/.DS_Store
-*.tsbuildinfo
-.env
-.env.local
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Python
+# ==========================================
+# Next.js & Frontend Build Outputs
+# ==========================================
+.next/
+**/.next/
+out/
+**/out/
+build/
+dist/
+*.tsbuildinfo
+.vercel/
+
+# ==========================================
+# Python & Virtual Environments
+# ==========================================
 __pycache__/
-*.pyc
+**/__pycache__/
+*.py[cod]
+*$py.class
 venv/
 .venv/
+env/
+.env/
+backend/test*.py
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+**/.env
+**/.env.local
+**/.env*.local
+*.pem
+*.key
+
+# ==========================================
+# Databases, Journals & Backups
+# ==========================================
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite-journal
+*.bak
+*.bak_*
+dev.db.bak*
+*.tmp
+*.dump
+*.sql
+catalog_export*.json
+backend/perfumeria.db
+
+# Excepción: plantilla SQLite inicial para primer despliegue
 *.db
 !frontend/prisma/dev.db
 
-# Frontend Next.js build output
-.next/
-out/
-build/
+# ==========================================
+# Uploads & Media Files
+# ==========================================
+# Duplicados de uploads en frontend/public
+frontend/public/uploads/
 
-# Backend legacy uploads
+# Fotos dinámicas de productos y uploads varios de usuarios
+uploads/productos/**
+!uploads/productos/**/.gitkeep
+uploads/Otros/**
+!uploads/Otros/**/.gitkeep
+
+# Legacy backend uploads
 backend/uploads/**
 !backend/uploads/**/
 !backend/uploads/**/.gitkeep
+
+# ==========================================
+# Operating System & IDE Files
+# ==========================================
+.DS_Store
+**/.DS_Store
+Thumbs.db
+ehthumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
