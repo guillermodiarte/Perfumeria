@@ -194,23 +194,38 @@ export default function ProductosView({
 
   // Devuelve los datos de costo original de una variante buscando en el historial de compras
   const getVariantCostInfo = (variantId?: string, productId?: string, size?: string) => {
+    const normSize = normalizeVariantSize(size);
+    // 1. Match exacto por variantId
     let records = (purchases || []).filter(p => variantId && p.variantId === variantId);
-    if (records.length === 0 && productId) {
-      records = (purchases || []).filter(p => p.productId === productId && (!size || p.size === size));
+    // 2. Match por productId + size exacto
+    if (records.length === 0 && productId && size) {
+      records = (purchases || []).filter(p => p.productId === productId && p.size === size);
     }
-    if (records.length === 0 && productId) {
-      records = (purchases || []).filter(p => p.productId === productId);
+    // 3. Match por productId + size normalizado (mismo ml, ej: 30ml con 30ml)
+    if (records.length === 0 && productId && normSize) {
+      records = (purchases || []).filter(p => p.productId === productId && normalizeVariantSize(p.size) === normSize);
     }
+    // NUNCA mezclar compras de un tamaño con otro tamaño diferente
     if (records.length === 0) return null;
     records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const latest = records[0];
+
     return {
       originalCost: latest.unitCostOriginal,
       currency: latest.purchaseCurrency || 'ARS',
       arsWithShipping: latest.unitPurchasePrice,
       shippingPerUnit: latest.shippingPerUnitARS,
+      exchangeRate: latest.exchangeRate,
+      batchNumber: latest.batchId,
+      date: latest.date,
+      supplierName: latest.supplierName,
+      quantity: latest.quantity,
     };
   };
+
+  // Modal para ver el desglose completo de costos de compra por variante
+  const [costDetailsProduct, setCostDetailsProduct] = useState<Product | null>(null);
+  const [costDetailsTabId, setCostDetailsTabId] = useState<string | null>(null);
 
   const [loadingSync, setLoadingSync] = useState(false);
   const effectiveApiUrl = apiUrl || API_URL;
@@ -989,88 +1004,56 @@ export default function ProductosView({
                                  <h4 className="text-lg font-black text-slate-900 dark:text-white leading-tight pr-14 mt-1 mb-3">{p.name}</h4>
                                  
                                  {(() => {
-                                     const variantSalePrices = p.variants?.map(v => v.manualSalePrice).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
-                                     const minSale = variantSalePrices.length > 0 ? Math.min(...variantSalePrices) : p.salePrice;
-                                     const maxSale = variantSalePrices.length > 0 ? Math.max(...variantSalePrices) : p.salePrice;
-                                     const salePriceDisplay = variantSalePrices.length > 1 && minSale !== maxSale 
-                                         ? `${formatCurrency(minSale || 0)} — ${formatCurrency(maxSale || 0)}`
-                                         : formatCurrency(p.salePrice || minSale || 0);
-
-                                     // Calcular P. Mayorista
                                      const isWholesalePrcActive = wholesaleConfig?.enabled !== false;
                                      const wholesalePrc = wholesaleConfig?.discountPercentage || 0;
-                                     const variantWholesalePrices = p.variants?.map(v => {
-                                         const vSale = (v.manualSalePrice !== undefined && v.manualSalePrice > 0) ? v.manualSalePrice : (p.salePrice || 0);
-                                         if (v.manualWholesalePrice !== undefined && v.manualWholesalePrice > 0) {
-                                             return v.manualWholesalePrice;
-                                         }
-                                         if ((p as any).wholesalePrice !== undefined && (p as any).wholesalePrice > 0) {
-                                             return (p as any).wholesalePrice;
-                                         }
-                                         if (isWholesalePrcActive && vSale > 0 && wholesalePrc > 0) {
-                                             return Math.round(vSale * (1 - (wholesalePrc / 100)));
-                                         }
-                                         return vSale;
-                                     }).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
-
-                                     const minWholesale = variantWholesalePrices.length > 0 ? Math.min(...variantWholesalePrices) : (p.wholesalePrice || 0);
-                                     const maxWholesale = variantWholesalePrices.length > 0 ? Math.max(...variantWholesalePrices) : (p.wholesalePrice || 0);
-                                     const wholesalePriceDisplay = variantWholesalePrices.length > 1 && minWholesale !== maxWholesale
-                                         ? `${formatCurrency(minWholesale)} — ${formatCurrency(maxWholesale)}`
-                                         : formatCurrency(minWholesale || (p.wholesalePrice || 0));
-
-                                     const variantPurchasePrices = p.variants?.map(v => v.unitPurchasePrice).filter((pr): pr is number => pr !== undefined && pr > 0) || [];
-                                     const minPurch = variantPurchasePrices.length > 0 ? Math.min(...variantPurchasePrices) : p.purchasePrice;
-                                     const maxPurch = variantPurchasePrices.length > 0 ? Math.max(...variantPurchasePrices) : p.purchasePrice;
-                                     const purchasePriceDisplay = variantPurchasePrices.length > 1 && minPurch !== maxPurch
-                                         ? `${formatCurrency(minPurch || 0)} — ${formatCurrency(maxPurch || 0)}`
-                                         : formatCurrency(p.purchasePrice || minPurch || 0);
-
-                                     // Chequear si alguna variante tiene costo original en moneda extranjera
-                                     const origCosts: { cost: number; currency: string }[] = [];
-                                     for (const v of p.variants) {
+                                 
+                                     // Construir info por variante
+                                     const variantPriceBadges = p.variants.map(v => {
+                                         const vSalePrice = (v.manualSalePrice !== undefined && (v.manualSalePrice as any) !== '' && Number(v.manualSalePrice) > 0)
+                                             ? Number(v.manualSalePrice) : (p.salePrice || 0);
+                                         const vWholesalePrice = (() => {
+                                             if (v.manualWholesalePrice !== undefined && (v.manualWholesalePrice as any) !== '' && Number(v.manualWholesalePrice) > 0) return Number(v.manualWholesalePrice);
+                                             if (p.variants?.length === 1 && (p as any).wholesalePrice > 0 && (p as any).wholesalePrice < vSalePrice) return (p as any).wholesalePrice;
+                                             if (isWholesalePrcActive && vSalePrice > 0 && wholesalePrc > 0) return Math.round(vSalePrice * (1 - wholesalePrc / 100));
+                                             return 0;
+                                         })();
+                                         const sizeLabel = v.size?.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "") :
+                                                          v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "") :
+                                                          v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "") : (v.size || "");
                                          const ci = getVariantCostInfo(v.id, p.id, v.size);
-                                         if (ci && ci.originalCost && ci.currency !== 'ARS') {
-                                             origCosts.push({ cost: ci.originalCost, currency: ci.currency });
-                                         }
-                                     }
-                                     const hasOriginal = origCosts.length > 0;
-                                     let origDisplay = '';
-                                     if (hasOriginal) {
-                                         const cur = origCosts[0].currency;
-                                         const minOrig = Math.min(...origCosts.map(c => c.cost));
-                                         const maxOrig = Math.max(...origCosts.map(c => c.cost));
-                                         origDisplay = minOrig !== maxOrig
-                                             ? `${formatCurrency(minOrig, cur)} — ${formatCurrency(maxOrig, cur)}`
-                                             : formatCurrency(minOrig, cur);
-                                     }
-
+                                         return { v, sizeLabel, vSalePrice, vWholesalePrice, ci };
+                                     });
+                                 
                                      return (
-                                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
-                                              {hasOriginal && (
-                                                  <div className="text-center">
-                                                      <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider mb-0.5">Precio Original</p>
-                                                      <p className="text-xs font-black text-amber-700 dark:text-amber-300">{origDisplay}</p>
-                                                  </div>
-                                              )}
-                                              <div className="text-center">
-                                                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Costo c/envío</p>
-                                                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{purchasePriceDisplay}</p>
-                                              </div>
-                                              <div className="text-center">
-                                                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">P. Venta</p>
-                                                  <p className="text-sm font-black text-slate-900 dark:text-white">{salePriceDisplay}</p>
-                                              </div>
-                                              <div className="text-center">
-                                                  <p className="text-[10px] text-indigo-500 dark:text-indigo-400 font-bold uppercase tracking-wider mb-0.5">P. Mayorista</p>
-                                                  <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{wholesalePriceDisplay}</p>
-                                              </div>
-                                              {hasActivePromo && (
-                                                  <div className="text-center">
-                                                      <p className="text-[10px] text-orange-500 dark:text-orange-400 font-bold uppercase tracking-wider mb-0.5">🔥 Promo</p>
-                                                      <p className="text-sm font-black text-orange-600 dark:text-orange-400">{formatCurrency((p as any).promoPrice)}</p>
-                                                  </div>
-                                              )}
+                                         <div className="mb-3">
+                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                                                 <span className="material-symbols-outlined text-[12px]">sell</span>
+                                                 Precios de venta
+                                                 <span className="text-[9px] font-normal text-slate-400 ml-1">(toca para ver detalles)</span>
+                                             </p>
+                                             <div className="flex flex-wrap gap-1.5">
+                                                 {variantPriceBadges.map(({ v, sizeLabel, vSalePrice }) => (
+                                                     <button
+                                                         key={v.id}
+                                                         type="button"
+                                                         onClick={() => { setCostDetailsProduct(p); setCostDetailsTabId(v.id); }}
+                                                         className="group flex flex-col items-center px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-primary hover:shadow-md hover:shadow-primary/10 transition-all cursor-pointer text-left"
+                                                         title={`Ver detalles de costos — ${sizeLabel}`}
+                                                     >
+                                                         <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 group-hover:text-primary transition-colors leading-none mb-0.5">{sizeLabel}</span>
+                                                         <span className="text-sm font-black text-slate-900 dark:text-white group-hover:text-primary transition-colors">{formatCurrency(vSalePrice)}</span>
+                                                     </button>
+                                                 ))}
+                                                 {p.variants.length === 0 && (
+                                                     <span className="text-xs text-slate-400 italic">Sin variantes</span>
+                                                 )}
+                                             </div>
+                                             {hasActivePromo && (
+                                                 <div className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-orange-600 dark:text-orange-400">
+                                                     <span className="material-symbols-outlined text-[12px]">local_fire_department</span>
+                                                     Promo activa: {formatCurrency((p as any).promoPrice)}
+                                                 </div>
+                                             )}
                                          </div>
                                      );
                                  })()}
@@ -1082,9 +1065,9 @@ export default function ProductosView({
                                      </div>
                                      <div className="flex flex-wrap gap-2">
                                          {p.variants.map(v => {
-                                             const sizeLabel = v.size.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "T:") : 
-                                                              v.size.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
-                                                              v.size.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : v.size;
+                                             const sizeLabel = v.size?.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "T:") : 
+                                                              v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
+                                                              v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : (v.size || "");
                                              return (
                                              <div key={v.id} className="flex flex-col flex-1 min-w-[65px] bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-center">
                                                  <div className="flex flex-col justify-center items-center mb-1">
@@ -1093,7 +1076,7 @@ export default function ProductosView({
                                                      )}
                                                      <span 
                                                          className="text-xs font-black text-slate-700 dark:text-slate-300 cursor-help"
-                                                         title={(v.size.includes("MER:") || v.size.includes("ARG:") || v.size.includes("INT:")) ? v.size : undefined}
+                                                         title={(v.size.includes("MER:") || v.size.includes("ARG:") || v.size?.includes("INT:")) ? v.size : undefined}
                                                      >
                                                          {sizeLabel}
                                                      </span>
@@ -1117,6 +1100,252 @@ export default function ProductosView({
              </div>
           </div>
       )}
+
+
+      {/* ── Modal de Detalles de Precio / Costos ─────────────────────────── */}
+      {costDetailsProduct && (() => {
+        const prod = costDetailsProduct as any;
+        const focusVariantId = prod._focusVariantId;
+        const isWholesaleActive = wholesaleConfig?.enabled !== false;
+        const wholesalePct = wholesaleConfig?.discountPercentage || 0;
+
+        // Calcular desglose por variante
+        const variantDetails = (prod.variants || []).map((v: any) => {
+          const vSalePrice = (v.manualSalePrice !== undefined && v.manualSalePrice !== '' && Number(v.manualSalePrice) > 0)
+            ? Number(v.manualSalePrice) : (prod.salePrice || 0);
+          const vWholesalePrice = (() => {
+            if (v.manualWholesalePrice !== undefined && v.manualWholesalePrice !== '' && Number(v.manualWholesalePrice) > 0) return Number(v.manualWholesalePrice);
+            if (prod.variants?.length === 1 && prod.wholesalePrice > 0 && prod.wholesalePrice < vSalePrice) return prod.wholesalePrice;
+            if (isWholesaleActive && vSalePrice > 0 && wholesalePct > 0) return Math.round(vSalePrice * (1 - wholesalePct / 100));
+            return 0;
+          })();
+          const sizeLabel = v.size?.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "") :
+                           v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "") :
+                           v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "") : (v.size || '');
+          const ci = getVariantCostInfo(v.id, prod.id, v.size);
+          const margin = vSalePrice > 0 && v.unitPurchasePrice > 0
+            ? Math.round(((vSalePrice - v.unitPurchasePrice) / vSalePrice) * 100) : null;
+          return { v, sizeLabel, vSalePrice, vWholesalePrice, ci, margin };
+        });
+
+        return (
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setCostDetailsProduct(null)}
+          >
+            <div
+              className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden max-h-[90vh] flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3 px-6 pt-6 pb-4 border-b border-slate-100 dark:border-slate-700">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined">price_check</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight truncate">{prod.name}</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Desglose de precios y costos</p>
+                </div>
+                <button
+                  onClick={() => setCostDetailsProduct(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex-shrink-0"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              {/* Selector de pestañas por medida (si hay más de 1 variante) */}
+              {variantDetails.length > 1 && (
+                <div className="flex items-center gap-2 px-6 py-2.5 bg-slate-50/80 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-700/60 overflow-x-auto custom-scrollbar">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1 flex-shrink-0">Medida:</span>
+                  {variantDetails.map(({ v, sizeLabel }: any) => {
+                    const activeId = costDetailsTabId || focusVariantId || variantDetails[0]?.v.id;
+                    const isSelected = v.id === activeId;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setCostDetailsTabId(v.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-primary text-white shadow-sm shadow-primary/25'
+                            : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary/50'
+                        }`}
+                      >
+                        <span>{sizeLabel}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>
+                          {v.stock} uds
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Contenido de la medida activa */}
+              <div className="overflow-y-auto flex-1 custom-scrollbar p-6">
+                {(() => {
+                  const activeId = costDetailsTabId || focusVariantId || variantDetails[0]?.v.id;
+                  const item = variantDetails.find((d: any) => d.v.id === activeId) || variantDetails[0];
+                  if (!item) return null;
+                  const { v, sizeLabel, vSalePrice, vWholesalePrice, ci, margin } = item;
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Cabecera de la variante */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                          {sizeLabel}
+                        </span>
+                        {v.color && <span className="text-xs text-slate-500 font-medium">{v.color}</span>}
+                        <span className={`ml-auto text-xs font-bold px-2.5 py-1 rounded-lg ${v.stock > 0 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                          Stock: {v.stock} uds
+                        </span>
+                      </div>
+
+                      {/* Cuadrícula de precios */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Precio de venta */}
+                        <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3 col-span-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Precio de Venta</p>
+                              <p className="text-xl font-black text-slate-900 dark:text-white">{formatCurrency(vSalePrice)}</p>
+                            </div>
+                            {margin !== null && (
+                              <div className="text-right">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Margen</p>
+                                <p className={`text-lg font-black ${margin >= 50 ? 'text-green-600 dark:text-green-400' : margin >= 30 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {margin}%
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Precio mayorista */}
+                        {vWholesalePrice > 0 && (
+                          <div className="bg-indigo-50 dark:bg-indigo-950/30 rounded-xl p-3">
+                            <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-0.5">P. Mayorista</p>
+                            <p className="text-sm font-black text-indigo-700 dark:text-indigo-300">{formatCurrency(vWholesalePrice)}</p>
+                            {isWholesaleActive && wholesalePct > 0 && (
+                              <p className="text-[10px] text-indigo-400 mt-0.5">−{wholesalePct}% dto.</p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Costo con envío */}
+                        {(v.unitPurchasePrice > 0 || ci?.arsWithShipping > 0) && (
+                          <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Costo c/envío (ARS)</p>
+                            <p className="text-sm font-black text-slate-700 dark:text-slate-200">{formatCurrency(v.unitPurchasePrice || ci?.arsWithShipping || 0)}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Datos del último ingreso */}
+                      {ci ? (
+                        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Detalle del último ingreso</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {/* Moneda extranjera (USD / PYG / BRL) — SOLO si la compra fue en moneda extranjera */}
+                            {ci.originalCost && ci.currency && ci.currency !== 'ARS' ? (
+                              <div className="bg-amber-50 dark:bg-amber-950/40 rounded-xl p-3 col-span-2 border border-amber-200/60 dark:border-amber-800/40">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="text-[10px] text-amber-700 dark:text-amber-400 font-black uppercase tracking-wider flex items-center gap-1">
+                                      <span className="material-symbols-outlined text-[13px]">payments</span>
+                                      {(() => {
+                                        const c = ci.currency.toUpperCase();
+                                        if (['USD', 'U$S', 'DOLARES', 'DÓLARES'].includes(c)) return 'Precio en Dólares (USD)';
+                                        if (['PYG', 'GUARANIES', 'GUARANÍES', '₲'].includes(c)) return 'Precio en Guaraníes (PYG)';
+                                        if (['BRL', 'REALES', 'R$'].includes(c)) return 'Precio en Reales (BRL)';
+                                        return `Precio en ${ci.currency}`;
+                                      })()}
+                                    </p>
+                                    <p className="text-xl font-black text-amber-900 dark:text-amber-100 mt-0.5">
+                                      {formatCurrency(ci.originalCost, ci.currency)}
+                                    </p>
+                                  </div>
+                                  {ci.exchangeRate ? (
+                                    <div className="text-right">
+                                      <p className="text-[10px] text-amber-700 dark:text-amber-400 font-black uppercase tracking-wider">Cotización / Cambio</p>
+                                      <p className="text-sm font-black text-amber-900 dark:text-amber-100">
+                                        ${ci.exchangeRate < 10
+                                          ? ci.exchangeRate.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                                          : ci.exchangeRate.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                                      </p>
+                                      <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80">
+                                        Base: {formatCurrency(Math.round(ci.originalCost * ci.exchangeRate * 100) / 100)}
+                                      </p>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : ci.originalCost && ci.shippingPerUnit > 0 ? (
+                              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-2.5 col-span-2 flex items-center justify-between">
+                                <div>
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Costo base de compra (sin envío)</p>
+                                  <p className="text-sm font-black text-slate-700 dark:text-slate-200">{formatCurrency(ci.originalCost)}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase">Envío por unidad</p>
+                                  <p className="text-sm font-black text-slate-700 dark:text-slate-200">+{formatCurrency(ci.shippingPerUnit)}</p>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {ci.shippingPerUnit > 0 && ci.currency !== 'ARS' && (
+                              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-2.5">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase">Envío por unidad</p>
+                                <p className="text-sm font-black text-slate-700 dark:text-slate-200">{formatCurrency(ci.shippingPerUnit)}</p>
+                              </div>
+                            )}
+
+                            {ci.batchNumber && (
+                              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-2.5">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase">Nro. Lote</p>
+                                <p className="text-xs font-black text-slate-700 dark:text-slate-200 truncate">{ci.batchNumber}</p>
+                              </div>
+                            )}
+
+                            {ci.supplierName && (
+                              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-2.5">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase">Proveedor</p>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{ci.supplierName}</p>
+                              </div>
+                            )}
+
+                            {ci.quantity && (
+                              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-2.5">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase">Uds. ingresadas</p>
+                                <p className="text-sm font-black text-slate-700 dark:text-slate-200">{ci.quantity}</p>
+                              </div>
+                            )}
+
+                            {ci.date && (
+                              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-2.5 col-span-2">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase">Fecha de compra</p>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                                  {new Date(ci.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-slate-50 dark:bg-slate-900/30 rounded-xl p-3 text-center text-xs text-slate-400 italic">
+                          Sin historial de compra registrado para esta medida
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Modal de Fusión de Productos ─────────────────────────────────────── */}
       {mergeState && (

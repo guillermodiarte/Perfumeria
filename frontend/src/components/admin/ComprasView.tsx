@@ -14,6 +14,20 @@ const CURRENCY_SYMBOLS: Record<Currency, string> = {
 
 const fmt = (n: number) => Math.round(n).toLocaleString('es-AR');
 const fmtUSD = (n: number) => (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatOrigCost = (amount: number, currency: string = 'ARS') => {
+  const c = (currency || 'ARS').toUpperCase().trim();
+  const n = Number(amount) || 0;
+  if (c === 'PYG' || c === 'GUARANIES' || c === 'GUARANÍES' || c === '₲') {
+    return `₲ ${Math.round(n).toLocaleString('es-AR')}`;
+  }
+  if (c === 'USD' || c === 'U$S') {
+    return `USD $${fmtUSD(n)}`;
+  }
+  if (c === 'BRL') {
+    return `R$ ${fmtUSD(n)}`;
+  }
+  return `$${fmt(n)}`;
+};
 
 export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { showAlert: (msg: string) => void; apiKey: string; apiUrl: string; resetKey?: number }) {
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
@@ -738,6 +752,15 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     }
   };
 
+  // Helper para verificar si una fila de resumen tiene conflicto de precio con el stock previo de esa MISMA variante
+  const isRowConflict = (r: { existingVariant?: any | null; existingProd?: any | null; totalCostPerUnitARS: number }) => {
+    if (!r.existingVariant) return false;
+    const prevCost = r.existingVariant.unitPurchasePrice ?? (
+      r.existingProd?.variants?.length === 1 ? r.existingProd.purchasePrice : 0
+    ) ?? 0;
+    return prevCost > 0 && Math.abs(prevCost - r.totalCostPerUnitARS) > 0.01;
+  };
+
   const handleOpenSummary = () => {
     if (products.some(p => !p.newProductName?.trim())) { showAlert('Completá el nombre de todos los productos.'); return; }
     if (allVariants.some(v => !v.quantity || Number(v.quantity) <= 0)) { showAlert('Todas las variantes deben tener cantidad > 0.'); return; }
@@ -763,16 +786,42 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         const existingProd = prod.productId && !prod.productId.startsWith('NEW')
           ? productsStore.find(p => p.id === prod.productId)
           : productsStore.find(p => p.name.trim().toLowerCase() === prod.newProductName.trim().toLowerCase());
-        const rawOptVal = (variantGroup?.options[variant.sizeIndex || 0]?.value || '').trim().toLowerCase();
-        const existingVariant = existingProd
-          ? (existingProd.variants.find(v =>
-              isSameVariant(v, { size: sizeLabel, description: (variant as any).description }) ||
-              (rawOptVal && normalizeVariantSize(v.size) === normalizeVariantSize(rawOptVal))
-            ) || (existingProd.variants.length === 1 ? existingProd.variants[0] : null))
-          : null;
-        const hasConflict = !!existingProd && Math.abs((existingProd.purchasePrice || 0) - totalCostPerUnitARS) > 0.01;
+        const rawOptVal = (variantGroup?.options[variant.sizeIndex || 0]?.value || '').trim();
+        const cleanSize = sizeLabel.split(' –')[0].trim();
 
-        rows.push({ pIdx, vIdx, productName: prod.newProductName, variantLabel, quantity: qty, unitCostOriginal, unitCostARS, shippingPerUnitARS, totalCostPerUnitARS, suggestedSalePrice, salePrice: suggestedSalePrice, existingProd: existingProd || null, existingVariant: existingVariant || null, salePriceConflict: hasConflict ? null : 'update', customSalePrice: suggestedSalePrice });
+        // Buscar si existe exactamente esta variante en el producto (por tamaño y color)
+        const existingVariant = existingProd
+          ? (existingProd.variants.find(v => {
+              if (isSameVariant(v, { size: sizeLabel, color: (variant as any).color || (variant as any).description, description: (variant as any).description })) {
+                return true;
+              }
+              const normVSize = normalizeVariantSize(v.size);
+              if (rawOptVal && normVSize === normalizeVariantSize(rawOptVal)) return true;
+              if (cleanSize && normVSize === normalizeVariantSize(cleanSize)) return true;
+              return false;
+            }) || null)
+          : null;
+
+        // Solo hay conflicto si la variante YA existía previamente en el producto y su costo cambió
+        const hasConflict = isRowConflict({ existingVariant, existingProd, totalCostPerUnitARS });
+
+        rows.push({
+          pIdx,
+          vIdx,
+          productName: prod.newProductName,
+          variantLabel,
+          quantity: qty,
+          unitCostOriginal,
+          unitCostARS,
+          shippingPerUnitARS,
+          totalCostPerUnitARS,
+          suggestedSalePrice,
+          salePrice: suggestedSalePrice,
+          existingProd: existingProd || null,
+          existingVariant: existingVariant || null,
+          salePriceConflict: hasConflict ? null : 'update',
+          customSalePrice: suggestedSalePrice
+        });
       });
     });
     setSummaryRows(rows);
@@ -798,7 +847,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
 
     // Buscar si queda algún otro producto con conflicto sin resolver
     const nextIdx = nextRows.findIndex(
-      (r, i) => i !== rowIdx && r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null
+      (r, i) => i !== rowIdx && isRowConflict(r) && r.salePriceConflict === null
     );
 
     if (nextIdx !== -1) {
@@ -812,7 +861,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
 
   const handleConfirmSave = async () => {
     const firstUnresolvedIdx = summaryRows.findIndex(
-      r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null
+      r => isRowConflict(r) && r.salePriceConflict === null
     );
     if (firstUnresolvedIdx !== -1) {
       setConflictModal({ row: summaryRows[firstUnresolvedIdx], rowIdx: firstUnresolvedIdx });
@@ -832,7 +881,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         total_cost_ars: totalCompraARS + shippingCostARS,
         items: summaryRows.map(row => {
           const prod = products[row.pIdx];
-          const finalSalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice;
+          const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
+          const finalSalePrice = row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice;
           return { product_id: prod.productId, variant_id: `v-new`, product_name: row.productName, variant_label: row.variantLabel, quantity: row.quantity, unit_cost_original: row.unitCostOriginal, unit_cost_ars: row.unitCostARS, shipping_per_unit_ars: row.shippingPerUnitARS, total_cost_per_unit_ars: row.totalCostPerUnitARS, sale_price: finalSalePrice };
         }),
       };
@@ -856,7 +906,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         exchangeRate: effectiveExchangeRate,
         items: summaryRows.map(row => {
           const prod = products[row.pIdx];
-          const finalSalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice;
+          const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
+          const finalSalePrice = row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice;
           return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
         }),
       });
@@ -1623,18 +1674,18 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
               </div>
               {/* Banner de alerta si hay conflictos pendientes */}
               {(() => {
-                const pendingCount = summaryRows.filter(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null).length;
+                const pendingCount = summaryRows.filter(r => isRowConflict(r) && r.salePriceConflict === null).length;
                 if (pendingCount === 0) return null;
                 return (
                   <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
                     <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 text-xs font-bold">
                       <span className="material-symbols-outlined text-amber-600 text-lg">warning</span>
-                      <span>Hay <strong>{pendingCount} producto(s)</strong> con precio diferente al stock anterior. Seleccioná qué hacer con el precio de venta.</span>
+                      <span>Hay <strong>{pendingCount} variante(s)</strong> con costo diferente al stock anterior de esa misma variante. Seleccioná qué hacer con el precio de venta.</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => {
-                        const firstIdx = summaryRows.findIndex(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01 && r.salePriceConflict === null);
+                        const firstIdx = summaryRows.findIndex(r => isRowConflict(r) && r.salePriceConflict === null);
                         if (firstIdx !== -1) setConflictModal({ row: summaryRows[firstIdx], rowIdx: firstIdx });
                       }}
                       className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow transition flex items-center justify-center gap-1.5 whitespace-nowrap"
@@ -1663,8 +1714,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {summaryRows.map((row, idx) => {
-                      const hasConflict = !!row.existingProd && Math.abs((row.existingProd.purchasePrice || 0) - row.totalCostPerUnitARS) > 0.01;
-                      const displaySalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePrice;
+                      const hasConflict = isRowConflict(row);
+                      const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
+                      const displaySalePrice = row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePrice;
+                      const prevVariantCost = row.existingVariant?.unitPurchasePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.purchasePrice : 0) ?? 0;
                       return (
                         <tr key={idx} className={hasConflict ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}>
                           <td className="py-2 pr-3">
@@ -1673,7 +1726,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                             {hasConflict && (
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">
-                                  ⚠ Costo ant: ${fmt(row.existingProd.purchasePrice || 0)}
+                                  ⚠ Costo ant: ${fmt(prevVariantCost)}
                                 </span>
                                 {row.salePriceConflict === null ? (
                                   <button
@@ -1728,8 +1781,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
               {/* Vista Mobile: Tarjetas compactas con Precio de Venta al frente sin scroll horizontal */}
               <div className="md:hidden flex-1 overflow-y-auto space-y-3 pr-0.5">
                 {summaryRows.map((row, idx) => {
-                  const hasConflict = !!row.existingProd && Math.abs((row.existingProd.purchasePrice || 0) - row.totalCostPerUnitARS) > 0.01;
-                  const displaySalePrice = row.salePriceConflict === 'keep' ? (row.existingProd?.salePrice || row.salePrice) : row.salePrice;
+                  const hasConflict = isRowConflict(row);
+                  const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
+                  const displaySalePrice = row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePrice;
+                  const prevVariantCost = row.existingVariant?.unitPurchasePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.purchasePrice : 0) ?? 0;
                   return (
                     <div key={idx} className={`border rounded-2xl p-3.5 space-y-2.5 ${hasConflict ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700'}`}>
                       <div className="flex items-start justify-between gap-2">
@@ -1759,7 +1814,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                       {hasConflict && (
                         <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">
-                            ⚠ Costo ant: ${fmt(row.existingProd.purchasePrice || 0)}
+                            ⚠ Costo ant: ${fmt(prevVariantCost)}
                           </span>
                           {row.salePriceConflict === null ? (
                             <button
@@ -1828,20 +1883,32 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                     <span className="text-[10px] text-slate-400 block font-medium">unidades</span>
                   </div>
 
-                  {/* 2. Costo Total en Dólares */}
-                  <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">Costo en USD</span>
-                    <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
-                      {totalCostUSDSummary !== null ? `USD $${fmtUSD(totalCostUSDSummary)}` : `${CURRENCY_SYMBOLS[purchaseCurrency]}${fmtUSD(totalCostOrigSummary)}`}
-                    </span>
-                    <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
-                      {purchaseCurrency === 'USD' ? 'costo mercadería' : 'en dólares'}
-                    </span>
-                  </div>
+                  {/* 2. Moneda original o Costo Envío si es ARS */}
+                  {purchaseCurrency !== 'ARS' ? (
+                    <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
+                        {purchaseCurrency === 'USD' ? 'Costo en USD' : purchaseCurrency === 'PYG' ? 'Costo en Guaraníes' : purchaseCurrency === 'BRL' ? 'Costo en Reales' : `Costo en ${purchaseCurrency}`}
+                      </span>
+                      <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
+                        {formatOrigCost(totalCostOrigSummary, purchaseCurrency)}
+                      </span>
+                      <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
+                        costo mercadería
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Envío</span>
+                      <span className="text-sm sm:text-base font-black text-green-600 dark:text-green-400 font-mono leading-tight">${fmt(shippingCostARS)}</span>
+                      <span className="text-[10px] text-slate-400 block font-medium">flete total</span>
+                    </div>
+                  )}
 
                   {/* 3. Costo Total en Pesos */}
                   <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo en Pesos</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      {purchaseCurrency !== 'ARS' ? 'Costo en Pesos' : 'Costo Mercadería'}
+                    </span>
                     <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(totalCostARSSummary)}</span>
                     <span className="text-[10px] text-slate-400 block font-medium">sin flete</span>
                   </div>
@@ -1889,11 +1956,13 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
 
       {/* MODAL: CONFLICTO DE PRECIO */}
       {conflictModal && (() => {
-        const totalConflicts = summaryRows.filter(r => r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01).length;
-        const currentConflictIdx = summaryRows.filter((r, i) => i <= conflictModal.rowIdx && r.existingProd && Math.abs((r.existingProd.purchasePrice || 0) - r.totalCostPerUnitARS) > 0.01).length;
+        const totalConflicts = summaryRows.filter(r => isRowConflict(r)).length;
+        const currentConflictIdx = summaryRows.filter((r, i) => i <= conflictModal.rowIdx && isRowConflict(r)).length;
 
-        const existingStock = conflictModal.row.existingVariant?.stock ?? (conflictModal.row.existingProd?.variants?.reduce((s: number, v: any) => s + (v.stock || 0), 0) ?? 0);
-        const stockUnitsText = existingStock > 0 ? `${existingStock} unidades` : (conflictModal.row.existingVariant?.stock !== undefined ? `${conflictModal.row.existingVariant.stock} unidades` : '0 unidades');
+        const prevCost = conflictModal.row.existingVariant?.unitPurchasePrice ?? (conflictModal.row.existingProd?.variants?.length === 1 ? conflictModal.row.existingProd.purchasePrice : 0) ?? 0;
+        const prevSalePrice = conflictModal.row.existingVariant?.manualSalePrice ?? (conflictModal.row.existingProd?.variants?.length === 1 ? conflictModal.row.existingProd.salePrice : 0) ?? conflictModal.row.salePrice;
+        const existingStock = conflictModal.row.existingVariant?.stock ?? 0;
+        const stockUnitsText = `${existingStock} unidades`;
 
         return (
           <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1917,10 +1986,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
               <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 space-y-3 text-xs">
                 <div className="grid grid-cols-2 gap-3 pb-2 border-b border-slate-200 dark:border-slate-700">
                   <div className="space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Stock Anterior</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Stock Anterior ({conflictModal.row.variantLabel})</span>
                     <p className="text-slate-700 dark:text-slate-300 font-bold">{stockUnitsText}</p>
-                    <p className="text-slate-500">Costo: <span className="font-bold text-red-500">${fmt(conflictModal.row.existingProd?.purchasePrice || 0)}</span></p>
-                    <p className="text-slate-500">Precio de Venta actual: <span className="font-bold text-slate-900 dark:text-white">${fmt(conflictModal.row.existingProd?.salePrice || 0)}</span></p>
+                    <p className="text-slate-500">Costo: <span className="font-bold text-red-500">${fmt(prevCost)}</span></p>
+                    <p className="text-slate-500">Precio de Venta actual: <span className="font-bold text-slate-900 dark:text-white">${fmt(prevSalePrice)}</span></p>
                   </div>
                   <div className="space-y-1 bg-amber-100/50 dark:bg-amber-950/40 p-2 rounded-xl">
                     <span className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-400 block">Nuevo Ingreso</span>
@@ -1930,7 +1999,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                   </div>
                 </div>
                 <p className="text-slate-600 dark:text-slate-300 text-xs">
-                  El costo de este producto cambió. ¿Cómo querés actualizar el precio de venta?
+                  El costo de esta variante cambió. ¿Cómo querés actualizar su precio de venta?
                 </p>
               </div>
 
@@ -1943,20 +2012,20 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                 >
                   <span className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-sm shrink-0">1</span>
                   <div className="flex-1">
-                    <p className="font-black text-slate-900 dark:text-white text-xs">Actualizar todo al nuevo Precio de Venta (${fmt(conflictModal.row.suggestedSalePrice)})</p>
-                    <p className="text-[11px] text-slate-500">Tanto las {stockUnitsText} viejas como las nuevas se venderán al nuevo Precio de Venta.</p>
+                    <p className="font-black text-slate-900 dark:text-white text-xs">Actualizar al nuevo Precio de Venta (${fmt(conflictModal.row.suggestedSalePrice)})</p>
+                    <p className="text-[11px] text-slate-500">Tanto las {stockUnitsText} viejas como las nuevas de esta variante se venderán al nuevo Precio de Venta.</p>
                   </div>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => resolveConflict(conflictModal.rowIdx, 'keep', conflictModal.row.existingProd?.salePrice || conflictModal.row.salePrice)}
+                  onClick={() => resolveConflict(conflictModal.rowIdx, 'keep', prevSalePrice || conflictModal.row.salePrice)}
                   className="w-full flex items-center gap-3 p-3.5 border-2 border-slate-300 hover:border-slate-400 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900/40 rounded-2xl transition text-left group"
                 >
                   <span className="size-8 rounded-full bg-slate-400 text-white flex items-center justify-center font-bold text-sm shrink-0">2</span>
                   <div className="flex-1">
-                    <p className="font-black text-slate-900 dark:text-white text-xs">Mantener el Precio de Venta anterior (${fmt(conflictModal.row.existingProd?.salePrice || 0)})</p>
-                    <p className="text-[11px] text-slate-500">Se mantiene el Precio de Venta anterior. Solo se suma el stock.</p>
+                    <p className="font-black text-slate-900 dark:text-white text-xs">Mantener el Precio de Venta anterior (${fmt(prevSalePrice)})</p>
+                    <p className="text-[11px] text-slate-500">Se mantiene el Precio de Venta anterior para esta variante. Solo se suma el stock.</p>
                   </div>
                 </button>
 
@@ -2198,20 +2267,32 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                         <span className="text-[10px] text-slate-400 block font-medium">unidades</span>
                       </div>
 
-                      {/* 2. Costo Total en Dólares */}
-                      <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">Costo en USD</span>
-                        <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
-                          {totalCostUSD !== null ? `USD $${fmtUSD(totalCostUSD)}` : `${CURRENCY_SYMBOLS[detailBatch.currency as Currency] || ''}${fmtUSD(totalCostOrig)}`}
-                        </span>
-                        <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
-                          {detailBatch.currency === 'USD' ? 'costo mercadería' : 'en dólares'}
-                        </span>
-                      </div>
+                      {/* 2. Moneda original o Costo Envío si es ARS */}
+                      {detailBatch.currency !== 'ARS' ? (
+                        <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                          <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
+                            {detailBatch.currency === 'USD' ? 'Costo en USD' : detailBatch.currency === 'PYG' ? 'Costo en Guaraníes' : detailBatch.currency === 'BRL' ? 'Costo en Reales' : `Costo en ${detailBatch.currency}`}
+                          </span>
+                          <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
+                            {formatOrigCost(totalCostOrig, detailBatch.currency)}
+                          </span>
+                          <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
+                            costo mercadería
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Envío</span>
+                          <span className="text-sm sm:text-base font-black text-green-600 dark:text-green-400 font-mono leading-tight">${fmt(totalShippingARS)}</span>
+                          <span className="text-[10px] text-slate-400 block font-medium">flete total</span>
+                        </div>
+                      )}
 
                       {/* 3. Costo Total en Pesos */}
                       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo en Pesos</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          {detailBatch.currency !== 'ARS' ? 'Costo en Pesos' : 'Costo Mercadería'}
+                        </span>
                         <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(totalCostARS)}</span>
                         <span className="text-[10px] text-slate-400 block font-medium">sin flete</span>
                       </div>
@@ -2600,17 +2681,29 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                         <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">{editTotalUnits}</span>
                         <span className="text-[10px] text-slate-400 block font-medium">unidades</span>
                       </div>
-                      <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">Costo en USD</span>
-                        <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
-                          {editTotalCostUSD !== null ? `USD $${fmtUSD(editTotalCostUSD)}` : '—'}
-                        </span>
-                        <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
-                          {editModalBatch.currency === 'USD' ? 'costo mercadería' : 'en dólares'}
-                        </span>
-                      </div>
+                      {editModalBatch.currency !== 'ARS' ? (
+                        <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                          <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
+                            {editModalBatch.currency === 'USD' ? 'Costo en USD' : editModalBatch.currency === 'PYG' ? 'Costo en Guaraníes' : editModalBatch.currency === 'BRL' ? 'Costo en Reales' : `Costo en ${editModalBatch.currency}`}
+                          </span>
+                          <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
+                            {formatOrigCost(editTotalCostOrig, editModalBatch.currency)}
+                          </span>
+                          <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
+                            costo mercadería
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Envío</span>
+                          <span className="text-sm sm:text-base font-black text-green-600 dark:text-green-400 font-mono leading-tight">${fmt(editTotalShippingARS)}</span>
+                          <span className="text-[10px] text-slate-400 block font-medium">flete total</span>
+                        </div>
+                      )}
                       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo en Pesos</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          {editModalBatch.currency !== 'ARS' ? 'Costo en Pesos' : 'Costo Mercadería'}
+                        </span>
                         <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(editTotalCostARS)}</span>
                         <span className="text-[10px] text-slate-400 block font-medium">sin flete</span>
                       </div>

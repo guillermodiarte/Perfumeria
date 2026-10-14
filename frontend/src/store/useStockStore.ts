@@ -939,13 +939,15 @@ export const useStockFlowStore = create<StockFlowState>()(
               targetProductId = existingProd.id;
               targetProductName = existingProd.name;
 
-              // El costo del producto se actualiza con el nuevo totalCostPerUnitARS
-              existingProd.purchasePrice = item.totalCostPerUnitARS;
-
-              // PV según decisión del modal
-              if (item.salePriceConflict !== 'keep') {
-                existingProd.salePrice = finalSalePrice;
-              }
+              // Preservar precios de variantes existentes que no tuvieran precio manual asignado
+              existingProd.variants.forEach(v => {
+                if (v.manualSalePrice === undefined || v.manualSalePrice === null || v.manualSalePrice === 0) {
+                  v.manualSalePrice = existingProd.salePrice;
+                }
+                if (v.unitPurchasePrice === undefined || v.unitPurchasePrice === null || v.unitPurchasePrice === 0) {
+                  v.unitPurchasePrice = existingProd.purchasePrice;
+                }
+              });
 
               // Actualizar metadata si se proveyó
               if (item.categoryId) existingProd.categoryId = item.categoryId;
@@ -975,7 +977,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                 existingProd.variants[varIndex].unitPurchasePrice = item.totalCostPerUnitARS;
                 existingProd.variants[varIndex].manualSalePrice = item.salePriceConflict !== 'keep'
                   ? finalSalePrice
-                  : existingProd.variants[varIndex].manualSalePrice;
+                  : (existingProd.variants[varIndex].manualSalePrice || finalSalePrice);
                 targetVariantId = existingProd.variants[varIndex].id;
               } else {
                 targetVariantId = 'v-' + Math.random().toString(36).substr(2, 9);
@@ -987,6 +989,16 @@ export const useStockFlowStore = create<StockFlowState>()(
                   unitPurchasePrice: item.totalCostPerUnitARS,
                   manualSalePrice: finalSalePrice,
                 });
+              }
+
+              // El precio base general del producto en el catálogo refleja el precio accesible desde el cual arranca
+              const allValidSalePrices = existingProd.variants.map(v => v.manualSalePrice).filter((p): p is number => !!p && p > 0);
+              if (allValidSalePrices.length > 0) {
+                existingProd.salePrice = Math.min(...allValidSalePrices);
+              }
+              const allValidCostPrices = existingProd.variants.map(v => v.unitPurchasePrice).filter((p): p is number => !!p && p > 0);
+              if (allValidCostPrices.length > 0) {
+                existingProd.purchasePrice = Math.min(...allValidCostPrices);
               }
             } else {
               // ─── Producto nuevo ─────────────────────────────────────────
@@ -1172,38 +1184,11 @@ export const useStockFlowStore = create<StockFlowState>()(
               }
             }
 
-            // Apply Wholesale / Promo pricing
-            let unitPrice = item.salePrice;
-            const matchedProd = updatedProducts[productIndex];
-            const matchedVar = varIndex !== -1 ? matchedProd?.variants[varIndex] : undefined;
-
-            let wouldApplyWholesale = false;
-            let wholesaleP: number | null = null;
-            if (!paymentOptions?.isSpecialWholesale && paymentOptions?.clientType !== 'special_wholesale' && item.quantity >= state.wholesaleConfig.minQuantity) {
-              wouldApplyWholesale = true;
-              const customWholesale = (matchedVar?.manualWholesalePrice !== undefined && matchedVar.manualWholesalePrice > 0)
-                ? matchedVar.manualWholesalePrice
-                : (matchedProd?.wholesalePrice !== undefined && matchedProd.wholesalePrice > 0 ? matchedProd.wholesalePrice : null);
-
-              if (customWholesale != null) {
-                wholesaleP = customWholesale;
-              } else if (state.wholesaleConfig.enabled !== false && state.wholesaleConfig.discountPercentage > 0) {
-                wholesaleP = Math.round(unitPrice * (1 - state.wholesaleConfig.discountPercentage / 100));
-              }
-            }
-
-            const promoActive = Boolean(matchedProd?.promoEnabled && matchedProd.promoPrice && matchedProd.promoPrice > 0);
-            const promoP = promoActive ? matchedProd!.promoPrice! : null;
-
-            if (promoActive && promoP != null) {
-              if (wouldApplyWholesale && wholesaleP != null) {
-                unitPrice = promoP < wholesaleP ? promoP : wholesaleP;
-              } else {
-                unitPrice = promoP < unitPrice ? promoP : unitPrice;
-              }
-            } else if (wouldApplyWholesale && wholesaleP != null) {
-              unitPrice = wholesaleP;
-            }
+            const matchedProd = productIndex !== -1 ? updatedProducts[productIndex] : undefined;
+            // En venta de Punto de Venta / Mostrador, se respeta el precio unitario fijado en el carrito (item.salePrice)
+            let unitPrice = (typeof item.salePrice === 'number' && !isNaN(item.salePrice))
+              ? item.salePrice
+              : (matchedProd?.salePrice || 0);
 
             const itemRevenue = item.quantity * unitPrice;
             const hasPending = paymentOptions ? (paymentOptions.pendingAmount > 0) : false;

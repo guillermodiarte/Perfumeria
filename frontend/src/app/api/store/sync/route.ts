@@ -46,12 +46,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Payload inválido' }, { status: 400 });
     }
 
+    // Preservar y enriquecer campos extendidos de compras (moneda original, tasa de cambio, costo original)
+    let processedPurchases = body.purchases || [];
+    if (Array.isArray(processedPurchases) && processedPurchases.length > 0) {
+      const batches = await prisma.purchaseBatch.findMany({
+        include: { items: true, supplier: true },
+      });
+      const batchMap = new Map();
+      batches.forEach(b => batchMap.set(b.batch_number, b));
+
+      processedPurchases = processedPurchases.map((p: any) => {
+        if (p.batchId && batchMap.has(p.batchId)) {
+          const b = batchMap.get(p.batchId);
+          const item = b.items.find((it: any) =>
+            (it.product_id && it.product_id === p.productId) ||
+            (it.product_name && p.productName && it.product_name.toLowerCase().includes(p.productName.toLowerCase())) ||
+            (p.productName && it.product_name && p.productName.toLowerCase().includes(it.product_name.toLowerCase()))
+          );
+          return {
+            ...p,
+            purchaseCurrency: p.purchaseCurrency || b.currency || 'ARS',
+            exchangeRate: p.exchangeRate !== undefined ? p.exchangeRate : (b.exchange_rate ?? 1),
+            unitCostOriginal: p.unitCostOriginal !== undefined ? p.unitCostOriginal : (item ? item.unit_cost_original : undefined),
+            shippingPerUnitARS: p.shippingPerUnitARS !== undefined ? p.shippingPerUnitARS : (item ? item.shipping_per_unit_ars : undefined),
+            supplierName: p.supplierName || b.supplier?.name || undefined,
+          };
+        }
+        return p;
+      });
+    }
+
     const valueToStore = JSON.stringify({
       products: body.products || [],
       categoriesConfig: body.categoriesConfig || [],
       variantGroupsConfig: body.variantGroupsConfig || [],
       perfumeTypesConfig: body.perfumeTypesConfig || [],
-      purchases: body.purchases || [],
+      purchases: processedPurchases,
       sales: body.sales || [],
       globalMarkupPrc: body.globalMarkupPrc ?? 50,
       wholesaleConfig: body.wholesaleConfig ? {

@@ -150,20 +150,46 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   };
 
   const selectedProduct = products.find(p => p.id === selectedProductId);
-
-  // Sincronizar precio manual sugerido cuando cambia el producto seleccionado
-  useEffect(() => {
-    if (selectedProduct) {
-      setCustomUnitPriceInput(String(selectedProduct.salePrice));
-    } else {
-      setCustomUnitPriceInput('');
-    }
-  }, [selectedProductId, selectedProduct]);
   
   const availableVariants = selectedProduct 
     ? selectedProduct.variants.filter(v => v.stock > 0)
     : [];
 
+  const selectedVariant = availableVariants.find(v => v.id === selectedVariantId);
+
+  // Obtener precio sugerido base según producto, variante y tipo de cliente
+  const getBasePrice = (prod = selectedProduct, variant = selectedVariant, type = clientType) => {
+    if (!prod) return 0;
+    if (type === 'wholesale') {
+      return variant?.manualWholesalePrice || prod.wholesalePrice || variant?.manualSalePrice || prod.salePrice || 0;
+    }
+    return variant?.manualSalePrice || prod.salePrice || 0;
+  };
+
+  // Sincronizar precio sugerido cuando cambia el producto, la variante o el tipo de cliente
+  useEffect(() => {
+    if (selectedProduct) {
+      const v = selectedProduct.variants?.find(item => item.id === selectedVariantId);
+      const pr = getBasePrice(selectedProduct, v, clientType);
+      setCustomUnitPriceInput(pr > 0 ? String(pr) : String(selectedProduct.salePrice || ''));
+    } else {
+      setCustomUnitPriceInput('');
+    }
+  }, [selectedProductId, selectedVariantId, clientType]);
+
+  const currentBasePrice = getBasePrice(selectedProduct, selectedVariant, clientType);
+  const currentNumericPrice = parseFloat(customUnitPriceInput);
+  const isCustomPrice = Boolean(
+    selectedProduct &&
+    customUnitPriceInput.trim() !== '' &&
+    !isNaN(currentNumericPrice) &&
+    currentNumericPrice !== currentBasePrice
+  );
+
+  const resetToDefaultPrice = () => {
+    setCustomUnitPriceInput(String(currentBasePrice));
+  };
+  
   const availableProductsInCategory = products.filter(p => 
     p.categoryId === selectedCategory && p.variants.some(v => v.stock > 0)
   );
@@ -205,10 +231,12 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     
     const displayName = `${selectedProduct.name} - ${variantItem.color} - Talle ${variantItem.size}`;
 
-    // Si es mayorista especial, usar el precio unitario manual si está definido
-    const effectivePrice = (clientType === 'special_wholesale' && customUnitPriceInput.trim() !== '')
-      ? Math.max(0, parseFloat(customUnitPriceInput) || 0)
-      : selectedProduct.salePrice;
+    // Precio unitario: si el usuario editó o ingresó un precio personalizado, se usa ese.
+    // De lo contrario, se usa el precio base sugerido de la variante o producto.
+    const defaultPrice = getBasePrice(selectedProduct, variantItem, clientType);
+    const effectivePrice = (customUnitPriceInput.trim() !== '' && !isNaN(parseFloat(customUnitPriceInput)))
+      ? Math.max(0, parseFloat(customUnitPriceInput))
+      : defaultPrice;
 
     setCart([...cart, {
         productId: selectedProduct.id,
@@ -222,7 +250,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     setSelectedVariantId('');
     setQuantityToAdd(1);
     if (selectedProduct) {
-      setCustomUnitPriceInput(String(selectedProduct.salePrice));
+      setCustomUnitPriceInput(String(getBasePrice(selectedProduct, undefined, clientType)));
     }
   };
 
@@ -540,22 +568,33 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                         <select 
                             className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm disabled:opacity-50"
                             value={selectedVariantId} 
-                            onChange={e => setSelectedVariantId(e.target.value)}
+                            onChange={e => {
+                                const newVarId = e.target.value;
+                                setSelectedVariantId(newVarId);
+                                if (selectedProduct) {
+                                  const v = selectedProduct.variants?.find(item => item.id === newVarId);
+                                  const pr = getBasePrice(selectedProduct, v, clientType);
+                                  setCustomUnitPriceInput(pr > 0 ? String(pr) : String(selectedProduct.salePrice || ''));
+                                }
+                            }}
                             disabled={!selectedProduct || availableVariants.length === 0}
                         >
                             <option value="">-- Selecciona una variante --</option>
-                            {availableVariants.map(v => (
-                                <option key={v.id} value={v.id}>
-                                    {v.color} - Talle {v.size} (Stock: {v.stock}) - ${selectedProduct?.salePrice}
-                                </option>
-                            ))}
+                            {availableVariants.map(v => {
+                                const vPrice = getBasePrice(selectedProduct, v, clientType);
+                                return (
+                                    <option key={v.id} value={v.id}>
+                                        {v.color} - Talle {v.size} (Stock: {v.stock}) - ${vPrice.toLocaleString('es-AR')}
+                                    </option>
+                                );
+                            })}
                         </select>
                         {selectedProduct && availableVariants.length === 0 && (
                             <p className="text-red-500 text-xs mt-1 font-bold">Sin stock disponible para este producto.</p>
                         )}
                     </div>
                     
-                    <div className="w-full md:w-28 shrink-0">
+                    <div className="w-full md:w-24 shrink-0">
                         <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 text-center md:text-left">Cant.</label>
                         <input 
                             type="number" min={1}
@@ -564,32 +603,58 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                         />
                     </div>
 
-                    {/* Precio de Venta Unitario Manual (Solo para Mayorista Especial) */}
-                    {clientType === 'special_wholesale' && (
-                      <div className="w-full md:w-36 shrink-0">
-                        <label className="block text-sm font-bold text-amber-800 dark:text-amber-300 mb-2 text-center md:text-left">
-                          Precio Unit. ($)
-                        </label>
+                    {/* Precio de Venta Unitario Editable SIEMPRE (para precio normal o especial) */}
+                    <div className="w-full md:w-44 shrink-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300">
+                            Precio Unit. ($)
+                          </label>
+                          {isCustomPrice && (
+                            <button
+                              type="button"
+                              onClick={resetToDefaultPrice}
+                              className="text-[11px] font-bold text-primary hover:underline"
+                              title="Restablecer al precio original de lista"
+                            >
+                              Restablecer
+                            </button>
+                          )}
+                        </div>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-amber-600 dark:text-amber-400">$</span>
+                          <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold ${
+                            isCustomPrice ? 'text-amber-600 dark:text-amber-400 font-black' : 'text-slate-400 dark:text-slate-500'
+                          }`}>$</span>
                           <input 
                             type="number"
                             min={0}
                             step="any"
                             placeholder="0"
-                            className="w-full pl-7 pr-3 py-3 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-600 rounded-xl font-black text-amber-950 dark:text-amber-200 text-center shadow-sm outline-none focus:ring-2 focus:ring-amber-500"
+                            disabled={!selectedProduct}
+                            className={`w-full pl-7 pr-3 py-3 border rounded-xl font-black text-center shadow-sm outline-none transition-all disabled:opacity-50 ${
+                              isCustomPrice
+                                ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-400 dark:border-amber-500 text-amber-950 dark:text-amber-200 focus:ring-2 focus:ring-amber-500'
+                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-800 dark:text-white focus:ring-2 focus:ring-primary'
+                            }`}
                             value={customUnitPriceInput}
                             onChange={e => setCustomUnitPriceInput(e.target.value)}
-                            title="Precio unitario asignado manualmente"
+                            title="Precio unitario de venta (modificable para aplicar precio especial al cliente)"
                           />
                         </div>
-                      </div>
-                    )}
+                    </div>
                     
-                    <button onClick={addToCart} className="w-full md:w-auto bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold px-8 py-3 rounded-xl hover:opacity-80 transition shadow-lg shrink-0 flex justify-center items-center gap-2">
+                    <button onClick={addToCart} className="w-full md:w-auto bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold px-7 py-3 rounded-xl hover:opacity-80 transition shadow-lg shrink-0 flex justify-center items-center gap-2">
                         <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span> Añadir
                     </button>
                 </div>
+
+                {isCustomPrice && (
+                  <div className="flex items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-800 dark:text-amber-200 text-xs animate-fadeIn mt-1">
+                    <span className="material-symbols-outlined text-[18px] text-amber-600">price_change</span>
+                    <span>
+                      <strong>Precio especial personalizado:</strong> Se cobrará <strong>${currentNumericPrice.toLocaleString('es-AR')}</strong> en vez de ${currentBasePrice.toLocaleString('es-AR')}.
+                    </span>
+                  </div>
+                )}
             </div>
         </div>
       </div>
@@ -617,33 +682,26 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             </button>
                         </div>
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                            {clientType === 'special_wholesale' ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.5 rounded">
-                                  Precio Unit:
-                                </span>
-                                <div className="relative w-28">
-                                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-600 dark:text-amber-400">$</span>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step="any"
-                                    value={item.salePrice}
-                                    onChange={(e) => {
-                                      const val = Math.max(0, parseFloat(e.target.value) || 0);
-                                      setCart(cart.map((c, i) => i === idx ? { ...c, salePrice: val } : c));
-                                    }}
-                                    className="w-full pl-6 pr-2 py-1 text-xs font-black rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50/60 dark:bg-slate-900 text-amber-950 dark:text-amber-200 text-right outline-none focus:ring-2 focus:ring-amber-500"
-                                    title="Modificar precio unitario asignado manualmente"
-                                  />
-                                </div>
-                                <span className="text-xs text-slate-500 font-bold">x {item.quantity}</span>
-                              </div>
-                            ) : (
-                              <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-900 px-2 py-1 rounded-md">
-                                {item.quantity} x ${item.salePrice}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                                {item.quantity} ×
                               </span>
-                            )}
+                              <div className="relative w-28">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 dark:text-slate-500">$</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  value={item.salePrice}
+                                  onChange={(e) => {
+                                    const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                    setCart(cart.map((c, i) => i === idx ? { ...c, salePrice: val } : c));
+                                  }}
+                                  className="w-full pl-6 pr-2 py-1.5 text-xs font-black rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white text-right outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all shadow-sm"
+                                  title="Editar precio unitario para este cliente"
+                                />
+                              </div>
+                            </div>
                             <span className="font-black text-slate-900 dark:text-white ml-auto">
                               ${(item.quantity * item.salePrice).toLocaleString('es-AR')}
                             </span>
