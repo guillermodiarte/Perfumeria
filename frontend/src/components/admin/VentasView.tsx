@@ -166,28 +166,34 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     return variant?.manualSalePrice || prod.salePrice || 0;
   };
 
-  // Sincronizar precio sugerido cuando cambia el producto, la variante o el tipo de cliente
+  // Sincronizar precio sugerido SOLO cuando se selecciona una variante específica
   useEffect(() => {
-    if (selectedProduct) {
+    if (selectedProduct && selectedVariantId) {
       const v = selectedProduct.variants?.find(item => item.id === selectedVariantId);
-      const pr = getBasePrice(selectedProduct, v, clientType);
-      setCustomUnitPriceInput(pr > 0 ? String(pr) : String(selectedProduct.salePrice || ''));
-    } else {
-      setCustomUnitPriceInput('');
+      if (v) {
+        const pr = getBasePrice(selectedProduct, v, clientType);
+        setCustomUnitPriceInput(pr > 0 ? String(pr) : '');
+        return;
+      }
     }
+    // Si no hay producto o aún no se eligió variante, dejar el campo de precio vacío
+    setCustomUnitPriceInput('');
   }, [selectedProductId, selectedVariantId, clientType]);
 
-  const currentBasePrice = getBasePrice(selectedProduct, selectedVariant, clientType);
+  const currentBasePrice = selectedVariant ? getBasePrice(selectedProduct, selectedVariant, clientType) : 0;
   const currentNumericPrice = parseFloat(customUnitPriceInput);
   const isCustomPrice = Boolean(
     selectedProduct &&
+    selectedVariant &&
     customUnitPriceInput.trim() !== '' &&
     !isNaN(currentNumericPrice) &&
     currentNumericPrice !== currentBasePrice
   );
 
   const resetToDefaultPrice = () => {
-    setCustomUnitPriceInput(String(currentBasePrice));
+    if (selectedVariant) {
+      setCustomUnitPriceInput(String(currentBasePrice));
+    }
   };
   
   const availableProductsInCategory = products.filter(p => 
@@ -622,27 +628,35 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                         </div>
                         <div className="relative">
                           <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold ${
-                            isCustomPrice ? 'text-amber-600 dark:text-amber-400 font-black' : 'text-slate-400 dark:text-slate-500'
+                            !selectedVariant
+                              ? 'text-slate-300 dark:text-slate-600'
+                              : isCustomPrice
+                              ? 'text-amber-600 dark:text-amber-400 font-black'
+                              : 'text-slate-400 dark:text-slate-500'
                           }`}>$</span>
                           <input 
                             type="number"
                             min={0}
                             step="any"
-                            placeholder="0"
-                            disabled={!selectedProduct}
-                            className={`w-full pl-7 pr-3 py-3 border rounded-xl font-black text-center shadow-sm outline-none transition-all disabled:opacity-50 ${
+                            placeholder={selectedVariant ? "0" : "—"}
+                            disabled={!selectedProduct || !selectedVariant}
+                            className={`w-full pl-7 pr-3 py-3 border rounded-xl font-black text-center shadow-sm outline-none transition-all disabled:opacity-50 disabled:bg-slate-100 disabled:dark:bg-slate-800/50 disabled:cursor-not-allowed ${
                               isCustomPrice
                                 ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-400 dark:border-amber-500 text-amber-950 dark:text-amber-200 focus:ring-2 focus:ring-amber-500'
                                 : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-800 dark:text-white focus:ring-2 focus:ring-primary'
                             }`}
                             value={customUnitPriceInput}
                             onChange={e => setCustomUnitPriceInput(e.target.value)}
-                            title="Precio unitario de venta (modificable para aplicar precio especial al cliente)"
+                            title={selectedVariant ? "Precio unitario de venta (modificable para aplicar precio especial al cliente)" : "Selecciona una variante primero para ver y modificar su precio"}
                           />
                         </div>
                     </div>
                     
-                    <button onClick={addToCart} className="w-full md:w-auto bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold px-7 py-3 rounded-xl hover:opacity-80 transition shadow-lg shrink-0 flex justify-center items-center gap-2">
+                    <button 
+                      onClick={addToCart} 
+                      disabled={!selectedProduct || !selectedVariant}
+                      className="w-full md:w-auto bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold px-7 py-3 rounded-xl hover:opacity-80 transition shadow-lg shrink-0 flex justify-center items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
                         <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span> Añadir
                     </button>
                 </div>
