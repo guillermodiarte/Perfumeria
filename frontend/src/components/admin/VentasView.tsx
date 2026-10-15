@@ -28,7 +28,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const [productSearchText, setProductSearchText] = useState('');
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [quantityToAdd, setQuantityToAdd] = useState(1);
-  const [cart, setCart] = useState<{productId: string, variantId: string, name: string, quantity: number, salePrice: number}[]>([]);
+  const [cart, setCart] = useState<{productId: string, variantId: string, name: string, quantity: number, salePrice: number, imageUrl?: string}[]>([]);
 
   // Modal de pago / cuotas
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -183,6 +183,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const currentBasePrice = selectedVariant ? getBasePrice(selectedProduct, selectedVariant, clientType) : 0;
   const currentNumericPrice = parseFloat(customUnitPriceInput);
   const isCustomPrice = Boolean(
+    clientType === 'special_wholesale' &&
     selectedProduct &&
     selectedVariant &&
     customUnitPriceInput.trim() !== '' &&
@@ -196,14 +197,55 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     }
   };
   
-  const availableProductsInCategory = products.filter(p => 
-    p.categoryId === selectedCategory && p.variants.some(v => v.stock > 0)
-  );
+  // Matches a product to a subcategory using the same gender-aware logic
+  // as catalog/page.tsx, so legacy categoryIds (e.g. "Perfumes de Hombre")
+  // never cause products to disappear from the dropdown.
+  const productMatchesCategory = (p: typeof products[number], cat: string): boolean => {
+    const gender = p.targetGender as string | undefined;
+    if (cat === 'Perfumes de Mujer') {
+      return (gender === 'Mujer' || (!gender && p.categoryId === 'Perfumes de Mujer')) && gender !== 'Hombre';
+    }
+    if (cat === 'Perfumes de Hombre') {
+      return (gender === 'Hombre' || (!gender && p.categoryId === 'Perfumes de Hombre')) && gender !== 'Mujer';
+    }
+    if (cat === 'Unisex') {
+      return gender === 'Unisex' || p.categoryId === 'Unisex';
+    }
+    // For "Perfumes" subcategory, also include products whose legacy categoryId
+    // was one of the old gender-specific values (they still have targetGender set)
+    if (cat === 'Perfumes') {
+      return p.categoryId === 'Perfumes' ||
+        p.categoryId === 'Perfumes de Hombre' ||
+        p.categoryId === 'Perfumes de Mujer' ||
+        p.categoryId === 'Unisex';
+    }
+    return p.categoryId === cat;
+  };
+
+  const availableProductsInCategory = products
+    .filter(p => productMatchesCategory(p, selectedCategory) && p.variants.some(v => v.stock > 0))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }));
 
   const currentCategoryGroup = categoriesConfig.find(g => g.grupo === selectedParentCategory);
   const availableSubcategories = currentCategoryGroup ? currentCategoryGroup.opciones : [];
 
   const total = cart.reduce((acc, item) => acc + (item.quantity * item.salePrice), 0);
+
+  const handleClientTypeChange = (newType: 'normal' | 'wholesale' | 'special_wholesale') => {
+    setClientType(newType);
+    if (newType !== 'special_wholesale') {
+      // Si cambia a normal o mayorista, actualizar los precios de los ítems existentes en el carrito según la lista
+      setCart(prevCart => prevCart.map(item => {
+        const prod = products.find(p => p.id === item.productId);
+        const variant = prod?.variants.find(v => v.id === item.variantId);
+        const updatedPrice = getBasePrice(prod, variant, newType);
+        return {
+          ...item,
+          salePrice: updatedPrice > 0 ? updatedPrice : item.salePrice
+        };
+      }));
+    }
+  };
 
   // Autocompletar datos si el nombre seleccionado coincide con un cliente registrado
   const handleClientNameChange = (val: string) => {
@@ -216,7 +258,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       if (matched.phone) setClientPhone(matched.phone);
       if (matched.email) setClientEmail(matched.email);
       const cType = matched.customer_type || (matched.is_special_wholesale ? 'special_wholesale' : matched.is_wholesale ? 'wholesale' : 'normal');
-      setClientType(cType as any);
+      handleClientTypeChange(cType as any);
     }
   };
 
@@ -237,27 +279,32 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     
     const displayName = `${selectedProduct.name} - ${variantItem.color} - Talle ${variantItem.size}`;
 
-    // Precio unitario: si el usuario editó o ingresó un precio personalizado, se usa ese.
-    // De lo contrario, se usa el precio base sugerido de la variante o producto.
+    // Precio unitario: solo se permite precio personalizado manual si el cliente es Mayorista Especial.
+    // Para Normal o Mayorista se usa SIEMPRE el precio de lista configurado.
     const defaultPrice = getBasePrice(selectedProduct, variantItem, clientType);
-    const effectivePrice = (customUnitPriceInput.trim() !== '' && !isNaN(parseFloat(customUnitPriceInput)))
+    const effectivePrice = (clientType === 'special_wholesale' && customUnitPriceInput.trim() !== '' && !isNaN(parseFloat(customUnitPriceInput)))
       ? Math.max(0, parseFloat(customUnitPriceInput))
       : defaultPrice;
+
+    const imageUrl = selectedProduct.imageUrls?.[0] || '';
 
     setCart([...cart, {
         productId: selectedProduct.id,
         variantId: variantItem.id,
         name: displayName,
         quantity: quantityToAdd,
-        salePrice: effectivePrice
+        salePrice: effectivePrice,
+        imageUrl,
     }]);
     
-    // reset selection for next item
+    // Resetear todos los campos de selección de producto para permitir añadir otro producto limpiamente
+    setSelectedParentCategory('');
+    setSelectedCategory('');
+    setSelectedProductId('');
+    setProductSearchText('');
     setSelectedVariantId('');
     setQuantityToAdd(1);
-    if (selectedProduct) {
-      setCustomUnitPriceInput(String(getBasePrice(selectedProduct, undefined, clientType)));
-    }
+    setCustomUnitPriceInput('');
   };
 
   const handleOpenPaymentModal = () => {
@@ -421,7 +468,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
               <div className="inline-flex p-1 bg-white dark:bg-slate-900 rounded-xl gap-1 border border-slate-200 dark:border-slate-700 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => setClientType('normal')}
+                  onClick={() => handleClientTypeChange('normal')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                     clientType === 'normal'
                       ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-sm'
@@ -433,7 +480,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => setClientType('wholesale')}
+                  onClick={() => handleClientTypeChange('wholesale')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                     clientType === 'wholesale'
                       ? 'bg-indigo-600 text-white shadow-sm'
@@ -445,7 +492,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => setClientType('special_wholesale')}
+                  onClick={() => handleClientTypeChange('special_wholesale')}
                   className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
                     clientType === 'special_wholesale'
                       ? 'bg-amber-500 text-slate-950 shadow-sm ring-2 ring-amber-400/40'
@@ -472,8 +519,90 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
             )}
 
             <div className="flex flex-col gap-4 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                
-                {/* Row 1: Categoría Padre y Búsqueda por Texto */}
+
+                {/* Búsqueda por nombre — PRIMERO */}
+                <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Buscar Producto por Nombre</label>
+                    <div className="flex gap-2 items-start">
+                        <div className="relative flex-1">
+                            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+                            <input 
+                                list="ventas-product-names"
+                                placeholder="Escribe para buscar un producto..."
+                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl pl-12 pr-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm outline-none focus:ring-2 focus:ring-primary"
+                                value={productSearchText}
+                                onChange={e => {
+                                    const val = e.target.value;
+                                    setProductSearchText(val);
+                                    const found = products
+                                        .filter(p => p.variants.some(v => v.stock > 0))
+                                        .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+                                        .find(p => p.name.toLowerCase() === val.toLowerCase());
+                                    if (found) {
+                                        // find the group that owns this categoryId (direct match or legacy mapping)
+                                        const normalizedCat = (['Perfumes de Hombre','Perfumes de Mujer','Unisex'].includes(found.categoryId))
+                                            ? 'Perfumes'
+                                            : found.categoryId;
+                                        const group = categoriesConfig.find(g => g.opciones.includes(normalizedCat) || g.opciones.includes(found.categoryId));
+                                        if (group) setSelectedParentCategory(group.grupo);
+                                        setSelectedCategory(normalizedCat || found.categoryId);
+                                        setSelectedProductId(found.id);
+                                        setSelectedVariantId('');
+                                    }
+                                }}
+                            />
+                            <datalist id="ventas-product-names">
+                                {products
+                                    .filter(p => p.variants.some(v => v.stock > 0))
+                                    .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+                                    .map(p => <option key={p.id} value={p.name} />)}
+                            </datalist>
+                        </div>
+                        {/* Botón para limpiar búsqueda y selección */}
+                        {(productSearchText || selectedProductId) && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setProductSearchText('');
+                                    setSelectedParentCategory('');
+                                    setSelectedCategory('');
+                                    setSelectedProductId('');
+                                    setSelectedVariantId('');
+                                    setCustomUnitPriceInput('');
+                                }}
+                                className="shrink-0 flex items-center gap-1 px-3 py-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 transition-colors"
+                                title="Limpiar búsqueda y selección"
+                            >
+                                <span className="material-symbols-outlined text-[20px]">delete</span>
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Miniatura del producto seleccionado vía búsqueda */}
+                    {selectedProduct && (
+                        <div className="flex items-center gap-3 mt-2 p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm animate-fadeIn">
+                            {selectedProduct.imageUrls?.[0] ? (
+                                <img
+                                    src={selectedProduct.imageUrls[0]}
+                                    alt={selectedProduct.name}
+                                    className="w-14 h-14 object-cover rounded-lg shrink-0 border border-slate-200 dark:border-slate-600"
+                                />
+                            ) : (
+                                <div className="w-14 h-14 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
+                                    <span className="material-symbols-outlined text-slate-400 text-2xl">image_not_supported</span>
+                                </div>
+                            )}
+                            <div className="min-w-0">
+                                <p className="font-bold text-sm text-slate-800 dark:text-white leading-tight truncate">{selectedProduct.name}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                    {availableVariants.length} variante{availableVariants.length !== 1 ? 's' : ''} en stock
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Row: Categoría Padre + Subcategoría */}
                 <div className="flex flex-col md:flex-row gap-4">
                     {/* 1. Categoría Padre */}
                     <div className="flex-1 w-full">
@@ -494,38 +623,6 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                         </select>
                     </div>
 
-                    {/* Buscador de Producto por Texto */}
-                    <div className="flex-1 w-full">
-                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">O Buscar Producto por Nombre</label>
-                        <div className="relative">
-                            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-                            <input 
-                                list="ventas-product-names"
-                                placeholder="Escribe para buscar un producto..."
-                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl pl-12 pr-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm outline-none focus:ring-2 focus:ring-primary"
-                                value={productSearchText}
-                                onChange={e => {
-                                    const val = e.target.value;
-                                    setProductSearchText(val);
-                                    const found = products.find(p => p.name.toLowerCase() === val.toLowerCase());
-                                    if (found) {
-                                        const group = categoriesConfig.find(g => g.opciones.includes(found.categoryId));
-                                        if (group) setSelectedParentCategory(group.grupo);
-                                        setSelectedCategory(found.categoryId);
-                                        setSelectedProductId(found.id);
-                                        setSelectedVariantId('');
-                                    }
-                                }}
-                            />
-                            <datalist id="ventas-product-names">
-                                {products.filter(p => p.variants.some(v => v.stock > 0)).map(p => <option key={p.id} value={p.name} />)}
-                            </datalist>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Row 2: Subcategoría y Producto */}
-                <div className="flex flex-col md:flex-row gap-4 mt-2">
                     {/* 2. Subcategoría */}
                     <div className="flex-1 w-full">
                         <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">2. Subcategoría</label>
@@ -543,28 +640,31 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             {availableSubcategories.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                     </div>
+                </div>
 
-                    {/* 3. Producto en Stock */}
-                    <div className="flex-1 w-full">
-                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">3. Producto en Stock</label>
-                        <select 
-                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm disabled:opacity-50"
-                            value={selectedProductId}
-                            onChange={e => {
-                                setSelectedProductId(e.target.value);
-                                setSelectedVariantId('');
-                            }}
-                            disabled={!selectedCategory || availableProductsInCategory.length === 0}
-                        >
-                            <option value="">-- Selecciona un producto --</option>
-                            {availableProductsInCategory.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
-                        {selectedCategory && availableProductsInCategory.length === 0 && (
-                            <p className="text-red-500 text-xs mt-1 font-bold">No hay productos con stock en esta categoría.</p>
-                        )}
-                    </div>
+                {/* 3. Producto en Stock */}
+                <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">3. Producto en Stock</label>
+                    <select 
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm disabled:opacity-50"
+                        value={selectedProductId}
+                        onChange={e => {
+                            setSelectedProductId(e.target.value);
+                            setSelectedVariantId('');
+                            // Also update search text to reflect selected product
+                            const p = products.find(x => x.id === e.target.value);
+                            if (p) setProductSearchText(p.name);
+                        }}
+                        disabled={!selectedCategory || availableProductsInCategory.length === 0}
+                    >
+                        <option value="">-- Selecciona un producto --</option>
+                        {availableProductsInCategory.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                    </select>
+                    {selectedCategory && availableProductsInCategory.length === 0 && (
+                        <p className="text-red-500 text-xs mt-1 font-bold">No hay productos con stock en esta categoría.</p>
+                    )}
                 </div>
 
                 {/* 4. Seleccionar Variante, Cantidad y Precio Manual si aplica */}
@@ -609,13 +709,30 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                         />
                     </div>
 
-                    {/* Precio de Venta Unitario Editable SIEMPRE (para precio normal o especial) */}
+                    {/* Precio de Venta Unitario (Editable solo para Mayorista Especial) */}
                     <div className="w-full md:w-44 shrink-0">
                         <div className="flex items-center justify-between mb-2">
-                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300">
-                            Precio Unit. ($)
+                          <label className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                            <span>Precio Unit. ($)</span>
+                            {clientType !== 'special_wholesale' ? (
+                              <span 
+                                className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/60 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600"
+                                title="Precio de lista automático. Solo se puede editar manualmente con cliente Mayorista Especial."
+                              >
+                                <span className="material-symbols-outlined text-[13px]">lock</span>
+                                Fijo
+                              </span>
+                            ) : (
+                              <span 
+                                className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-700"
+                                title="Modo manual activo: podés ingresar cualquier precio"
+                              >
+                                <span className="material-symbols-outlined text-[13px]">edit</span>
+                                Manual
+                              </span>
+                            )}
                           </label>
-                          {isCustomPrice && (
+                          {isCustomPrice && clientType === 'special_wholesale' && (
                             <button
                               type="button"
                               onClick={resetToDefaultPrice}
@@ -630,7 +747,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                           <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold ${
                             !selectedVariant
                               ? 'text-slate-300 dark:text-slate-600'
-                              : isCustomPrice
+                              : isCustomPrice && clientType === 'special_wholesale'
                               ? 'text-amber-600 dark:text-amber-400 font-black'
                               : 'text-slate-400 dark:text-slate-500'
                           }`}>$</span>
@@ -640,14 +757,25 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             step="any"
                             placeholder={selectedVariant ? "0" : "—"}
                             disabled={!selectedProduct || !selectedVariant}
+                            readOnly={clientType !== 'special_wholesale'}
                             className={`w-full pl-7 pr-3 py-3 border rounded-xl font-black text-center shadow-sm outline-none transition-all disabled:opacity-50 disabled:bg-slate-100 disabled:dark:bg-slate-800/50 disabled:cursor-not-allowed ${
-                              isCustomPrice
-                                ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-400 dark:border-amber-500 text-amber-950 dark:text-amber-200 focus:ring-2 focus:ring-amber-500'
-                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-800 dark:text-white focus:ring-2 focus:ring-primary'
+                              clientType === 'special_wholesale'
+                                ? isCustomPrice
+                                  ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-400 dark:border-amber-500 text-amber-950 dark:text-amber-200 focus:ring-2 focus:ring-amber-500 cursor-text'
+                                  : 'bg-white dark:bg-slate-800 border-amber-300 dark:border-amber-600 text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500 cursor-text'
+                                : 'bg-slate-100 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed select-none'
                             }`}
                             value={customUnitPriceInput}
-                            onChange={e => setCustomUnitPriceInput(e.target.value)}
-                            title={selectedVariant ? "Precio unitario de venta (modificable para aplicar precio especial al cliente)" : "Selecciona una variante primero para ver y modificar su precio"}
+                            onChange={e => {
+                              if (clientType === 'special_wholesale') {
+                                setCustomUnitPriceInput(e.target.value);
+                              }
+                            }}
+                            title={
+                              clientType === 'special_wholesale'
+                                ? "Precio unitario de venta (editable para Mayorista Especial)"
+                                : "Precio de lista fijado automáticamente. Para modificar manualmente, seleccioná Mayorista Especial."
+                            }
                           />
                         </div>
                     </div>
@@ -661,7 +789,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                     </button>
                 </div>
 
-                {isCustomPrice && (
+                {isCustomPrice && clientType === 'special_wholesale' && (
                   <div className="flex items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-800 dark:text-amber-200 text-xs animate-fadeIn mt-1">
                     <span className="material-symbols-outlined text-[18px] text-amber-600">price_change</span>
                     <span>
@@ -688,35 +816,53 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                 </div>
             ) : (
                 cart.map((item, idx) => (
-                    <div key={idx} className="flex flex-col bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
-                        <div className="flex justify-between items-start mb-2">
-                            <p className="font-bold text-sm text-slate-800 dark:text-white leading-tight">{item.name}</p>
-                            <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500 transition-colors">
+                    <div key={idx} className="flex flex-col bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+                        {/* Header: thumbnail + name + remove */}
+                        <div className="flex items-start gap-2.5 mb-2">
+                            {item.imageUrl ? (
+                                <img
+                                    src={item.imageUrl}
+                                    alt={item.name}
+                                    className="w-12 h-12 object-cover rounded-lg shrink-0 border border-slate-200 dark:border-slate-600"
+                                />
+                            ) : (
+                                <div className="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
+                                    <span className="material-symbols-outlined text-slate-400 text-xl">image_not_supported</span>
+                                </div>
+                            )}
+                            <p className="flex-1 font-bold text-xs text-slate-800 dark:text-white leading-tight pt-0.5">{item.name}</p>
+                            <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500 transition-colors shrink-0">
                                 <span className="material-symbols-outlined text-[18px]">close</span>
                             </button>
                         </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">
                                 {item.quantity} ×
                               </span>
-                              <div className="relative w-28">
-                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 dark:text-slate-500">$</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step="any"
-                                  value={item.salePrice}
-                                  onChange={(e) => {
-                                    const val = Math.max(0, parseFloat(e.target.value) || 0);
-                                    setCart(cart.map((c, i) => i === idx ? { ...c, salePrice: val } : c));
-                                  }}
-                                  className="w-full pl-6 pr-2 py-1.5 text-xs font-black rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white text-right outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all shadow-sm"
-                                  title="Editar precio unitario para este cliente"
-                                />
-                              </div>
+                              {clientType === 'special_wholesale' ? (
+                                <div className="relative w-28">
+                                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-500">$</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="any"
+                                    value={item.salePrice}
+                                    onChange={(e) => {
+                                      const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                      setCart(cart.map((c, i) => i === idx ? { ...c, salePrice: val } : c));
+                                    }}
+                                    className="w-full pl-6 pr-2 py-1.5 text-xs font-black rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-950/30 text-amber-950 dark:text-amber-200 text-right outline-none focus:ring-2 focus:ring-amber-500 transition-all shadow-sm"
+                                    title="Editar precio unitario para Mayorista Especial"
+                                  />
+                                </div>
+                              ) : (
+                                <span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 px-2 py-1 rounded-md">
+                                  ${item.salePrice.toLocaleString('es-AR')}
+                                </span>
+                              )}
                             </div>
-                            <span className="font-black text-slate-900 dark:text-white ml-auto">
+                            <span className="font-black text-slate-900 dark:text-white ml-auto text-sm">
                               ${(item.quantity * item.salePrice).toLocaleString('es-AR')}
                             </span>
                         </div>
