@@ -1,13 +1,13 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { SaleRecord } from '@/store/useStockStore';
+import { COMPANY_DEFAULTS } from '@/config/company';
 
-export function generateTicketPDF(ticketId: string, sales: SaleRecord[], print: boolean = true) {
+export function createTicketDoc(ticketId: string, sales: SaleRecord[]): jsPDF | null {
     const ticketSales = sales.filter(s => s.ticketId === ticketId);
-    if (ticketSales.length === 0) return;
+    if (ticketSales.length === 0) return null;
 
-    // Thermal printer format (80mm width, auto height depending on content but we set a big enough max, or just standard 80x200)
-    // We will calculate a dynamic height based on the number of items
+    // Thermal printer format (80mm width, auto height depending on content)
     const baseHeight = 90;
     const itemHeight = 15;
     const docHeight = baseHeight + (ticketSales.length * itemHeight);
@@ -21,10 +21,12 @@ export function generateTicketPDF(ticketId: string, sales: SaleRecord[], print: 
     const clientPhone = ticketSales[0].clientPhone || 'N/A';
     const dateStr = new Date(ticketSales[0].date).toLocaleDateString('es-AR') + ' ' + new Date(ticketSales[0].date).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'});
     
+    const storeTitle = (COMPANY_DEFAULTS?.name || 'CIARA BONITA').toUpperCase();
+
     // Header
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("STOCKFLOW", 40, 10, { align: "center" });
+    doc.text(storeTitle, 40, 10, { align: "center" });
     
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
@@ -99,6 +101,13 @@ export function generateTicketPDF(ticketId: string, sales: SaleRecord[], print: 
     doc.setFont("helvetica", "normal");
     doc.text("¡Gracias por su compra!", 40, currentY + 6, { align: "center" });
 
+    return doc;
+}
+
+export function generateTicketPDF(ticketId: string, sales: SaleRecord[], print: boolean = true) {
+    const doc = createTicketDoc(ticketId, sales);
+    if (!doc) return;
+
     if (print) {
         doc.autoPrint();
         const blob = doc.output("blob");
@@ -108,3 +117,4 @@ export function generateTicketPDF(ticketId: string, sales: SaleRecord[], print: 
         doc.save(`${ticketId}.pdf`);
     }
 }
+

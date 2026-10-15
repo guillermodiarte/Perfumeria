@@ -440,12 +440,16 @@ function CatalogContent() {
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
               {filteredProducts.map((product: any) => {
                 const hasPromoInCatalog = Boolean(product.promoEnabled && product.promoPrice && product.promoPrice > 0);
+                const productTotalStock = (product.variants || []).reduce((acc: number, v: any) => acc + (v.stock || 0), 0);
+                const isOutOfStock = productTotalStock <= 0;
                 return (
                 <Link
                   key={product.id}
                   href={`/product/${product.id}`}
                   className={`group flex flex-col justify-between p-2.5 sm:p-3.5 rounded-2xl border transition-all duration-300 ${
-                    hasPromoInCatalog
+                    isOutOfStock
+                      ? 'bg-red-50/20 dark:bg-red-950/20 border-red-200 dark:border-red-900/40 hover:shadow-xl'
+                      : hasPromoInCatalog
                       ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800 hover:shadow-xl hover:shadow-orange-500/10'
                       : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:shadow-xl hover:shadow-primary/5'
                   }`}
@@ -455,7 +459,7 @@ function CatalogContent() {
                     <div className="relative overflow-hidden rounded-xl aspect-[3/4] bg-slate-50 dark:bg-slate-800 mb-2.5">
                       {product.imageUrls && product.imageUrls.length > 0 ? (
                         <div
-                          className="w-full h-full bg-center bg-cover transition-transform duration-700 group-hover:scale-105"
+                          className={`w-full h-full bg-center bg-cover transition-transform duration-700 group-hover:scale-105 ${isOutOfStock ? 'opacity-85 grayscale-[15%]' : ''}`}
                           style={{
                             backgroundImage: `url("${product.imageUrls[0].startsWith('http') ? product.imageUrls[0] : `${API_URL}${product.imageUrls[0]}`}")`
                           }}
@@ -468,6 +472,12 @@ function CatalogContent() {
 
                       {/* Badges */}
                       <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+                        {isOutOfStock && (
+                          <span className="bg-red-600 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[9px]">block</span>
+                            Agotado
+                          </span>
+                        )}
                         {hasPromoInCatalog && (
                           <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-0.5">
                             <span className="material-symbols-outlined text-[9px]">local_offer</span>

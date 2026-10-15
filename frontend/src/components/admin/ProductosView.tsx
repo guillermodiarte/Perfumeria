@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize, consolidateProductVariants } from '@/store/useStockStore';
 import { API_URL } from '@/utils/api';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
@@ -80,7 +80,7 @@ function Lightbox({ images, startIndex, onClose }: { images: string[]; startInde
 }
 
 /** Product card gallery: shows cover thumbnail + count badge, opens lightbox on click */
-function ProductGallery({ urls, name }: { urls: string[]; name: string }) {
+function ProductGallery({ urls, name, isOutOfStock }: { urls: string[]; name: string; isOutOfStock?: boolean }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const parseUrl = (url: string) => {
@@ -104,11 +104,17 @@ function ProductGallery({ urls, name }: { urls: string[]; name: string }) {
         <img
           src={parsedUrls[0]}
           alt={name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+          className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ${isOutOfStock ? 'opacity-85 grayscale-[15%]' : ''}`}
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).src = '/logo.webp';
           }}
         />
+        {isOutOfStock && (
+          <div className="absolute top-2.5 left-2.5 bg-red-600/95 backdrop-blur-sm text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-md border border-white/20 flex items-center gap-1 z-10 animate-in fade-in zoom-in duration-300">
+            <span className="material-symbols-outlined text-[13px]">block</span>
+            Agotado
+          </div>
+        )}
         {parsedUrls.length > 1 && (
           <div className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur-md text-white px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm border border-white/10 flex items-center gap-1">
             <span className="material-symbols-outlined text-[12px]">collections</span>
@@ -289,6 +295,7 @@ export default function ProductosView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMainCategory, setSelectedMainCategory] = useState<string>('Todo');
   const [selectedSubCategory, setSelectedSubCategory] = useState<string>('Todo');
+  const [stockFilter, setStockFilter] = useState<'all' | 'in_stock' | 'out_of_stock'>('all');
   
   // Modals state
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -360,7 +367,25 @@ export default function ProductosView({
       return 'Otros (Sin Asignar)';
   };
 
+  const outOfStockProductsCount = useMemo(() => {
+    return products.filter(p => (p.variants || []).reduce((acc, v) => acc + (v.stock || 0), 0) <= 0).length;
+  }, [products]);
+
+  const inStockProductsCount = useMemo(() => {
+    return products.filter(p => (p.variants || []).reduce((acc, v) => acc + (v.stock || 0), 0) > 0).length;
+  }, [products]);
+
+  const promoProductCount = useMemo(() => {
+    return products.filter(p => p.promoEnabled && p.promoPrice && p.promoPrice > 0).length;
+  }, [products]);
+
   const filteredProducts = products.filter(p => {
+    const totalStock = (p.variants || []).reduce((acc, v) => acc + (v.stock || 0), 0);
+
+    // Filtro por estado de stock
+    if (stockFilter === 'out_of_stock' && totalStock > 0) return false;
+    if (stockFilter === 'in_stock' && totalStock <= 0) return false;
+
     const matchesSearch = 
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -368,6 +393,11 @@ export default function ProductosView({
       (p.targetGender && p.targetGender.toLowerCase().includes(searchQuery.toLowerCase()));
       
     if (!matchesSearch) return false;
+
+    // Filtro especial desde dropdown: "⚠️ Sin Stock"
+    if (selectedMainCategory.startsWith('⚠️ Sin Stock')) {
+      return totalStock <= 0;
+    }
 
     // Special filter: "En Promoción"
     if (selectedMainCategory === 'En Promoción') {
@@ -396,9 +426,13 @@ export default function ProductosView({
     return matchesMain && matchesSub;
   }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }));
 
-  const promoProductCount = products.filter(p => p.promoEnabled && p.promoPrice && p.promoPrice > 0).length;
-  const mainCategories = ['Todo', 'En Promoción', ...categoriesConfig.map(c => c.grupo)];
-  const subCategories = (selectedMainCategory === 'Todo' || selectedMainCategory === 'En Promoción')
+  const mainCategories = [
+    'Todo',
+    ...(outOfStockProductsCount > 0 ? [`⚠️ Sin Stock (${outOfStockProductsCount})`] : ['⚠️ Sin Stock (0)']),
+    'En Promoción',
+    ...categoriesConfig.map(c => c.grupo)
+  ];
+  const subCategories = (selectedMainCategory === 'Todo' || selectedMainCategory.startsWith('⚠️ Sin Stock') || selectedMainCategory === 'En Promoción')
       ? ['Todo'] 
       : ['Todo', ...(categoriesConfig.find(c => c.grupo === selectedMainCategory)?.opciones || [])];
 
@@ -842,37 +876,144 @@ export default function ProductosView({
       
       {/* Filters Header */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 flex flex-col gap-5">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-                <span className="material-symbols-outlined text-primary text-3xl">inventory_2</span>
-                Inventario de Tienda
-              </h2>
-              <p className="text-slate-500 dark:text-slate-400 mt-1">Busca y filtra productos dinámicamente.</p>
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div>
+                <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+                  <span className="material-symbols-outlined text-primary text-3xl">inventory_2</span>
+                  Inventario de Tienda
+                </h2>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">Busca y filtra productos dinámicamente.</p>
+              </div>
+              {outOfStockProductsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (stockFilter === 'out_of_stock') {
+                      setStockFilter('all');
+                    } else {
+                      setStockFilter('out_of_stock');
+                      if (selectedMainCategory.startsWith('⚠️ Sin Stock')) {
+                        setSelectedMainCategory('Todo');
+                      }
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    stockFilter === 'out_of_stock'
+                      ? 'bg-red-600 text-white shadow-md shadow-red-600/30 ring-2 ring-red-400'
+                      : 'bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40'
+                  }`}
+                  title={stockFilter === 'out_of_stock' ? 'Mostrar todos los productos' : 'Ver productos sin stock'}
+                >
+                  <span className="material-symbols-outlined text-[15px]">block</span>
+                  <span>{outOfStockProductsCount} Sin Stock</span>
+                  {stockFilter === 'out_of_stock' && <span className="material-symbols-outlined text-xs">close</span>}
+                </button>
+              )}
             </div>
-            <div className="relative w-full md:w-96 flex-shrink-0">
-                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-                <input 
-                  type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar Nombre o Subcategoría"
-                  className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all"
-                />
+
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <div className="relative w-full md:w-80 flex-shrink-0">
+                  <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+                  <input 
+                    type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar Nombre o Subcategoría"
+                    className="w-full pl-12 pr-10 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-primary outline-none dark:text-white transition-all text-sm"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 transition-colors p-1"
+                      title="Limpiar búsqueda"
+                    >
+                      <span className="material-symbols-outlined text-base">close</span>
+                    </button>
+                  )}
+              </div>
+              {isSuper && (
+                <button
+                  onClick={handleRepairNames}
+                  disabled={loadingRepair}
+                  title="Actualiza los nombres de todos los productos en el historial de compras"
+                  className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all disabled:opacity-50"
+                >
+                  <span className={`material-symbols-outlined text-[16px] ${loadingRepair ? 'animate-spin' : ''}`}>
+                    {loadingRepair ? 'progress_activity' : 'sync'}
+                  </span>
+                  {loadingRepair ? 'Reparando...' : 'Reparar nombres'}
+                </button>
+              )}
             </div>
-            {isSuper && (
-              <button
-                onClick={handleRepairNames}
-                disabled={loadingRepair}
-                title="Actualiza los nombres de todos los productos en el historial de compras"
-                className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all disabled:opacity-50"
-              >
-                <span className={`material-symbols-outlined text-[16px] ${loadingRepair ? 'animate-spin' : ''}`}>
-                  {loadingRepair ? 'progress_activity' : 'sync'}
-                </span>
-                {loadingRepair ? 'Reparando...' : 'Reparar nombres'}
-              </button>
-            )}
         </div>
 
+        {/* Quick Filter Tabs: Estado de Stock */}
+        <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-100 dark:border-slate-700/50">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wide mr-1 flex items-center gap-1">
+            <span className="material-symbols-outlined text-[14px]">tune</span>
+            Estado de Stock:
+          </span>
+          <button
+            type="button"
+            onClick={() => setStockFilter('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              stockFilter === 'all'
+                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            <span>Todos</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-500/20">{products.length}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStockFilter('in_stock')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              stockFilter === 'in_stock'
+                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/30 ring-2 ring-emerald-400'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[14px]">check_circle</span>
+            <span>Con Stock</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-700/20">{inStockProductsCount}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStockFilter('out_of_stock')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+              stockFilter === 'out_of_stock'
+                ? 'bg-red-600 text-white shadow-md shadow-red-600/30 ring-2 ring-red-400'
+                : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 hover:bg-red-100 border border-red-200 dark:border-red-800'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[15px]">block</span>
+            <span>Sin Stock (Agotados)</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${stockFilter === 'out_of_stock' ? 'bg-red-800 text-white' : 'bg-red-200 dark:bg-red-900/60 text-red-800 dark:text-red-200'}`}>
+              {outOfStockProductsCount}
+            </span>
+          </button>
+
+          {promoProductCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMainCategory(selectedMainCategory === 'En Promoción' ? 'Todo' : 'En Promoción');
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                selectedMainCategory === 'En Promoción'
+                  ? 'bg-orange-500 text-white shadow-sm shadow-orange-500/30 ring-2 ring-orange-400'
+                  : 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 hover:bg-orange-100 border border-orange-200 dark:border-orange-800'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[14px]">local_offer</span>
+              <span>En Promoción</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-700/20">{promoProductCount}</span>
+            </button>
+          )}
+        </div>
 
         {/* Dynamic Selectors */}
         <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-slate-100 dark:border-slate-700/50">
@@ -883,7 +1024,9 @@ export default function ProductosView({
                         value={selectedMainCategory} 
                         onChange={e => setSelectedMainCategory(e.target.value)}
                         className={`w-full appearance-none !bg-none border rounded-xl px-4 pr-10 py-3 font-bold outline-none focus:ring-2 transition-all cursor-pointer ${
-                          selectedMainCategory === 'En Promoción'
+                          selectedMainCategory.startsWith('⚠️ Sin Stock')
+                            ? 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 focus:ring-red-400'
+                            : selectedMainCategory === 'En Promoción'
                             ? 'bg-orange-50 dark:bg-orange-950/40 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 focus:ring-orange-400'
                             : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:ring-primary'
                         }`}
@@ -894,7 +1037,9 @@ export default function ProductosView({
                             </option>
                         ))}
                     </select>
-                    <span className={`material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none ${selectedMainCategory === 'En Promoción' ? 'text-orange-400' : 'text-slate-400'}`}>expand_more</span>
+                    <span className={`material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none ${
+                      selectedMainCategory.startsWith('⚠️ Sin Stock') ? 'text-red-400' : selectedMainCategory === 'En Promoción' ? 'text-orange-400' : 'text-slate-400'
+                    }`}>expand_more</span>
                 </div>
             </div>
             <div className="w-full md:w-1/2">
@@ -903,9 +1048,9 @@ export default function ProductosView({
                     <select 
                         value={selectedSubCategory} 
                         onChange={e => setSelectedSubCategory(e.target.value)}
-                        disabled={selectedMainCategory === 'Todo'}
+                        disabled={selectedMainCategory === 'Todo' || selectedMainCategory.startsWith('⚠️ Sin Stock') || selectedMainCategory === 'En Promoción'}
                         className={`w-full appearance-none !bg-none border rounded-xl px-4 pr-10 py-3 font-bold outline-none transition-all ${
-                            selectedMainCategory === 'Todo' 
+                            (selectedMainCategory === 'Todo' || selectedMainCategory.startsWith('⚠️ Sin Stock') || selectedMainCategory === 'En Promoción')
                             ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 cursor-not-allowed' 
                             : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-primary cursor-pointer'
                         }`}
@@ -922,12 +1067,26 @@ export default function ProductosView({
 
       {filteredProducts.length === 0 ? (
           <div className="text-center py-16 px-6 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm max-w-xl mx-auto my-8">
-              <span className="material-symbols-outlined text-6xl text-slate-300">
-                {products.length === 0 ? 'inventory_2' : 'search_off'}
+              <span className={`material-symbols-outlined text-6xl ${stockFilter === 'out_of_stock' ? 'text-emerald-500' : 'text-slate-300'}`}>
+                {products.length === 0 ? 'inventory_2' : stockFilter === 'out_of_stock' ? 'check_circle' : 'search_off'}
               </span>
               <p className="text-slate-700 dark:text-slate-300 font-bold text-base mt-3">
-                {products.length === 0 ? 'Tu inventario está vacío' : 'No se encontraron productos con estos filtros.'}
+                {products.length === 0 
+                  ? 'Tu inventario está vacío' 
+                  : stockFilter === 'out_of_stock'
+                  ? '¡Excelente! No hay productos agotados con los filtros seleccionados.'
+                  : 'No se encontraron productos con estos filtros.'}
               </p>
+              {stockFilter === 'out_of_stock' && products.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setStockFilter('all')}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs transition-all cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-sm">visibility</span>
+                  Ver todos los productos
+                </button>
+              )}
               {products.length === 0 && (
                 <div className="mt-4 space-y-4">
                   <p className="text-xs text-slate-500 leading-relaxed">
@@ -947,20 +1106,42 @@ export default function ProductosView({
       ) : (
           <div className="animate-in fade-in duration-500">
              <div className="flex items-center justify-between mb-4 px-2">
-                 <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">
-                     Resultados para <span className="text-primary">{selectedSubCategory !== 'Todo' ? selectedSubCategory : selectedMainCategory}</span>
+                 <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2 flex-wrap">
+                     <span>Resultados para <span className="text-primary">{selectedSubCategory !== 'Todo' ? selectedSubCategory : selectedMainCategory}</span></span>
+                     {stockFilter === 'out_of_stock' && (
+                       <span className="text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-red-600 text-white flex items-center gap-1 shadow-sm">
+                         <span className="material-symbols-outlined text-xs">block</span>
+                         Solo Sin Stock
+                       </span>
+                     )}
+                     {stockFilter === 'in_stock' && (
+                       <span className="text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-600 text-white flex items-center gap-1 shadow-sm">
+                         <span className="material-symbols-outlined text-xs">check_circle</span>
+                         Solo Con Stock
+                       </span>
+                     )}
                  </h3>
                  <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{filteredProducts.length} Productos</span>
              </div>
              
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredProducts.map(p => {
-                     const totalStock = p.variants.reduce((acc, v) => acc + v.stock, 0);
+                     const totalStock = p.variants.reduce((acc, v) => acc + (v.stock || 0), 0);
+                     const isOutOfStock = totalStock <= 0;
                      const hasActivePromo = Boolean((p as any).promoEnabled && (p as any).promoPrice && (p as any).promoPrice > 0);
                      return (
-                         <div key={p.id} className={`bg-white dark:bg-slate-800 rounded-2xl border ${hasActivePromo ? "border-orange-500 ring-2 ring-orange-500/20 shadow-md shadow-orange-500/10" : "border-slate-200 dark:border-slate-700"} overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col group relative animate-in fade-in zoom-in-95 duration-500`}>
+                         <div 
+                           key={p.id} 
+                           className={`bg-white dark:bg-slate-800 rounded-2xl border ${
+                             isOutOfStock
+                               ? "border-2 border-red-500 ring-2 ring-red-500/20 bg-red-50/15 dark:bg-red-950/20 shadow-md shadow-red-500/10"
+                               : hasActivePromo 
+                               ? "border-orange-500 ring-2 ring-orange-500/20 shadow-md shadow-orange-500/10" 
+                               : "border-slate-200 dark:border-slate-700"
+                           } overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col group relative animate-in fade-in zoom-in-95 duration-500`}
+                         >
                             {/* Action Buttons */}
-                            <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-white/80 dark:bg-slate-800/80 backdrop-blur rounded-full p-1 border border-slate-100 dark:border-slate-700">
+                            <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 bg-white/80 dark:bg-slate-800/80 backdrop-blur rounded-full p-1 border border-slate-100 dark:border-slate-700">
                                 <button onClick={() => handleEditClick(p)} className="size-8 rounded-full flex items-center justify-center text-slate-500 hover:bg-blue-50 hover:text-blue-500 transition-colors">
                                     <span className="material-symbols-outlined text-sm">edit</span>
                                 </button>
@@ -969,18 +1150,32 @@ export default function ProductosView({
                                 </button>
                             </div>
                             
-                            {/* Promo Banner */}
-                            {hasActivePromo && (
+                            {/* Out of Stock Banner or Promo Banner */}
+                            {isOutOfStock ? (
+                              <div className="bg-red-600 text-white text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 flex items-center justify-between shadow-sm z-10">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="material-symbols-outlined text-[13px]">block</span>
+                                  <span>Agotado — Sin Stock</span>
+                                </div>
+                                <span className="bg-red-800 text-white text-[9px] px-2 py-0.5 rounded font-black tracking-normal">0 Unidades</span>
+                              </div>
+                            ) : hasActivePromo ? (
                               <div className="bg-orange-500 text-white text-[10px] font-black uppercase tracking-wider px-3 py-1.5 flex items-center gap-1.5">
                                 <span className="material-symbols-outlined text-[12px]">local_offer</span>
                                 {(p as any).promoLabel || 'Oferta especial'} — ${((p as any).promoPrice as number).toLocaleString('es-AR')}
                               </div>
-                            )}
+                            ) : null}
                             
-                            <ProductGallery urls={p.imageUrls || []} name={p.name} />
+                            <ProductGallery urls={p.imageUrls || []} name={p.name} isOutOfStock={isOutOfStock} />
                             
                             <div className="p-5 flex-1 flex flex-col">
                                  <div className="flex items-center gap-1.5 mb-1 mr-auto flex-wrap">
+                                     {isOutOfStock && (
+                                       <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-red-600 text-white shadow-sm flex items-center gap-1">
+                                         <span className="material-symbols-outlined text-[11px]">block</span>
+                                         Sin Stock
+                                       </span>
+                                     )}
                                      <span className="text-[10px] font-black text-primary uppercase tracking-wider bg-primary/10 px-2 py-0.5 rounded">
                                          {p.categoryId}
                                      </span>
@@ -1001,7 +1196,9 @@ export default function ProductosView({
                                          </span>
                                      )}
                                  </div>
-                                 <h4 className="text-lg font-black text-slate-900 dark:text-white leading-tight pr-14 mt-1 mb-3">{p.name}</h4>
+                                 <h4 className={`text-lg font-black leading-tight pr-14 mt-1 mb-3 ${isOutOfStock ? 'text-red-700 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
+                                   {p.name}
+                                 </h4>
                                  
                                  {(() => {
                                      const isWholesalePrcActive = wholesaleConfig?.enabled !== false;
@@ -1061,21 +1258,35 @@ export default function ProductosView({
                                  <div className="mt-auto pt-4 flex flex-col">
                                      <div className="flex items-center justify-between mb-3 border-t border-slate-100 dark:border-slate-700 pt-3">
                                          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Stock / Variantes</p>
-                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${totalStock > 0 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}`}>{totalStock > 0 ? `${totalStock} Disp.` : "Agotado"}</span>
+                                         <span className={`px-2.5 py-0.5 rounded text-[10px] font-black ${
+                                           totalStock > 0 
+                                             ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" 
+                                             : "bg-red-600 text-white shadow-sm"
+                                         }`}>
+                                           {totalStock > 0 ? `${totalStock} Disp.` : "Agotado"}
+                                         </span>
                                      </div>
                                      <div className="flex flex-wrap gap-2">
                                          {p.variants.map(v => {
                                              const sizeLabel = v.size?.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "T:") : 
-                                                              v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
-                                                              v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : (v.size || "");
+                                                             v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
+                                                             v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : (v.size || "");
+                                             const isVarOut = (v.stock || 0) <= 0;
                                              return (
-                                             <div key={v.id} className="flex flex-col flex-1 min-w-[65px] bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-center">
+                                             <div 
+                                               key={v.id} 
+                                               className={`flex flex-col flex-1 min-w-[65px] border rounded-lg p-2 text-center transition-all ${
+                                                 isVarOut
+                                                   ? "bg-red-50/70 dark:bg-red-950/30 border-red-300 dark:border-red-900/60"
+                                                   : "bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700"
+                                               }`}
+                                             >
                                                  <div className="flex flex-col justify-center items-center mb-1">
                                                      {(v as any).description && (
                                                          <span className="text-[10px] font-bold text-slate-500 truncate max-w-[80px]" title={(v as any).description}>{(v as any).description}</span>
                                                      )}
                                                      <span 
-                                                         className="text-xs font-black text-slate-700 dark:text-slate-300 cursor-help"
+                                                         className={`text-xs font-black cursor-help ${isVarOut ? "text-red-700 dark:text-red-300" : "text-slate-700 dark:text-slate-300"}`}
                                                          title={(v.size.includes("MER:") || v.size.includes("ARG:") || v.size?.includes("INT:")) ? v.size : undefined}
                                                      >
                                                          {sizeLabel}
@@ -1083,13 +1294,15 @@ export default function ProductosView({
                                                  </div>
                                                  <div className="flex items-center justify-center gap-1 text-[11px] font-bold">
                                                      <span className="text-[10px] text-slate-400 font-medium">Stock:</span>
-                                                     <span className={`text-xs font-black ${v.stock > 0 ? "text-primary dark:text-emerald-400" : "text-red-500"}`}>{v.stock}</span>
+                                                     <span className={`text-xs font-black ${v.stock > 0 ? "text-primary dark:text-emerald-400" : "text-red-600 dark:text-red-400 font-black"}`}>{v.stock}</span>
                                                  </div>
                                              </div>
                                          );
                                          })}
                                          {p.variants.length === 0 && (
-                                             <div className="w-full text-center text-xs text-slate-400 italic py-2">Sin variantes. Usa Ingreso Mercadería.</div>
+                                             <div className="w-full text-center text-xs text-red-500 font-bold py-2 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-900/40">
+                                               Sin variantes ni stock. Usa Ingreso Mercadería.
+                                             </div>
                                          )}
                                      </div>
                                  </div>

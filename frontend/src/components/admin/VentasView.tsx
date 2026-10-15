@@ -1,7 +1,27 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useStockFlowStore } from '@/store/useStockStore';
-import { generateTicketPDF } from '@/utils/generateTicket';
+import { generateTicketPDF, createTicketDoc } from '@/utils/generateTicket';
+
+interface CompletedSaleData {
+  ticketId: string;
+  clientName: string;
+  clientPhone: string;
+  clientEmail: string;
+  date: string;
+  items: Array<{
+    name: string;
+    quantity: number;
+    salePrice: number;
+    imageUrl?: string;
+  }>;
+  total: number;
+  paymentType: 'total' | 'partial' | 'cuotas';
+  paidAmount: number;
+  pendingAmount: number;
+  installmentsCount: number;
+  notes?: string;
+}
 
 interface VentasViewProps {
   showAlert: (msg: string) => void;
@@ -37,6 +57,11 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const [installmentsCount, setInstallmentsCount] = useState<number>(3);
   const [initialDownPayment, setInitialDownPayment] = useState<string>('0');
   const [saleNotes, setSaleNotes] = useState('');
+
+  // Modal de Venta Exitosa y Gestión de Ticket
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [completedSale, setCompletedSale] = useState<CompletedSaleData | null>(null);
+  const [copiedTicket, setCopiedTicket] = useState(false);
 
   // Modal Eliminar Datos / Borrador
   const [showClearSaleModal, setShowClearSaleModal] = useState(false);
@@ -324,6 +349,68 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     setShowPaymentModal(true);
   };
 
+  const formatWhatsAppPhone = (raw: string) => {
+    let cleaned = (raw || '').replace(/\D/g, '');
+    if (!cleaned) return '';
+    if (cleaned.startsWith('0')) cleaned = cleaned.slice(1);
+    if (cleaned.length === 10) return `549${cleaned}`;
+    if (cleaned.length === 11 && cleaned.startsWith('15')) return `549${cleaned.slice(2)}`;
+    if (cleaned.length === 12 && cleaned.startsWith('54') && !cleaned.startsWith('549')) return `549${cleaned.slice(2)}`;
+    if (!cleaned.startsWith('54') && cleaned.length <= 11) return `549${cleaned}`;
+    return cleaned;
+  };
+
+  const handleDownloadTicket = () => {
+    if (!completedSale) return;
+    const doc = createTicketDoc(completedSale.ticketId, useStockFlowStore.getState().sales);
+    if (doc) {
+      doc.save(`Ticket-${completedSale.ticketId}.pdf`);
+    } else {
+      showAlert('No se pudo generar el archivo del ticket.');
+    }
+  };
+
+  const handleOpenTicket = () => {
+    if (!completedSale) return;
+    const doc = createTicketDoc(completedSale.ticketId, useStockFlowStore.getState().sales);
+    if (doc) {
+      const blob = doc.output('blob');
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } else {
+      showAlert('No se pudo abrir el ticket.');
+    }
+  };
+
+  const handleShareWhatsApp = () => {
+    if (!completedSale) return;
+    const phone = formatWhatsAppPhone(completedSale.clientPhone);
+    const itemsText = completedSale.items
+      .map(i => `• ${i.quantity}x ${i.name} — $${(i.salePrice * i.quantity).toLocaleString('es-AR')}`)
+      .join('\n');
+    
+    const paymentText = completedSale.paymentType === 'total' && completedSale.pendingAmount <= 0
+      ? `✅ *Pago Total:* $${completedSale.total.toLocaleString('es-AR')}`
+      : completedSale.paymentType === 'cuotas'
+      ? `📅 *Modalidad:* En ${completedSale.installmentsCount} cuotas\n💵 *Abonado:* $${completedSale.paidAmount.toLocaleString('es-AR')}\n⚠️ *Saldo Pendiente:* $${completedSale.pendingAmount.toLocaleString('es-AR')}`
+      : `💵 *Abonado:* $${completedSale.paidAmount.toLocaleString('es-AR')}\n⚠️ *Saldo Pendiente:* $${completedSale.pendingAmount.toLocaleString('es-AR')}`;
+
+    const message = `¡Hola ${completedSale.clientName || 'Cliente'}! 👋\n` +
+      `Te compartimos el comprobante de tu compra en *Ciara Bonita* ✨\n\n` +
+      `🧾 *Ticket N°:* #${completedSale.ticketId}\n` +
+      `📅 *Fecha:* ${completedSale.date}\n\n` +
+      `🛍️ *Detalle del pedido:*\n${itemsText}\n\n` +
+      `💰 *Total:* $${completedSale.total.toLocaleString('es-AR')}\n` +
+      `${paymentText}\n\n` +
+      `¡Muchas gracias por elegirnos! Quedamos a tu entera disposición. 😊`;
+
+    const waUrl = phone
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    window.open(waUrl, '_blank');
+  };
+
   const handleConfirmSale = () => {
     let finalPaid = total;
     let finalPending = 0;
@@ -346,6 +433,13 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       finalPending = Math.max(0, total - down);
     }
 
+    const savedCart = [...cart];
+    const savedClientName = clientName.trim() || 'Consumidor Final';
+    const savedClientPhone = clientPhone.trim();
+    const savedClientEmail = clientEmail.trim();
+    const savedTotal = total;
+    const savedNotes = saleNotes.trim();
+
     const ticketId = registerSale(clientName, clientPhone, cart, {
       paymentType,
       paidAmount: finalPaid,
@@ -357,15 +451,32 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       clientType: clientType,
     });
 
-    // Generar PDF y abrir para impresión
-    generateTicketPDF(ticketId, useStockFlowStore.getState().sales, true);
+    const now = new Date();
+    const dateFormatted = now.toLocaleDateString('es-AR') + ' ' + now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 
-    const msgSuccess = finalPending > 0
-      ? `Venta en mostrador registrada. Saldo pendiente: $${finalPending.toLocaleString('es-AR')} (guardado en Cobros Pendientes).`
-      : 'Venta procesada con éxito. Cobro total registrado.';
-    
-    showAlert(msgSuccess);
+    setCompletedSale({
+      ticketId,
+      clientName: savedClientName,
+      clientPhone: savedClientPhone,
+      clientEmail: savedClientEmail,
+      date: dateFormatted,
+      items: savedCart.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        salePrice: item.salePrice,
+        imageUrl: item.imageUrl,
+      })),
+      total: savedTotal,
+      paymentType,
+      paidAmount: finalPaid,
+      pendingAmount: finalPending,
+      installmentsCount: paymentType === 'cuotas' ? installmentsCount : 1,
+      notes: savedNotes,
+    });
+
     setShowPaymentModal(false);
+    setShowSuccessModal(true);
+
     try {
       localStorage.removeItem(DRAFT_VENTAS_KEY);
     } catch {}
@@ -1178,6 +1289,206 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                 Sí, eliminar todo
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: VENTA EXITOSA Y COMPARTIR TICKET */}
+      {showSuccessModal && completedSale && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-xl w-full p-6 sm:p-7 space-y-6 animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+            
+            {/* Cabecera Éxito */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3.5">
+                <div className="size-14 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/15 shrink-0">
+                  <span className="material-symbols-outlined text-3xl">check_circle</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                      Venta Registrada
+                    </span>
+                    <span className="text-xs text-slate-400 font-bold">{completedSale.date}</span>
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                    ¡Venta Exitosa!
+                  </h3>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400">
+                      Ticket #{completedSale.ticketId}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(completedSale.ticketId);
+                        setCopiedTicket(true);
+                        setTimeout(() => setCopiedTicket(false), 2000);
+                      }}
+                      className="text-slate-400 hover:text-primary transition-colors text-xs flex items-center gap-0.5 cursor-pointer"
+                      title="Copiar N° de Ticket"
+                    >
+                      <span className="material-symbols-outlined text-sm">{copiedTicket ? 'done' : 'content_copy'}</span>
+                      <span className="text-[10px] font-bold">{copiedTicket ? 'Copiado' : 'Copiar'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSuccessModal(false)}
+                className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                title="Cerrar"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            {/* Contenido con Scroll */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              
+              {/* Resumen Financiero y Cliente */}
+              <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Cliente</span>
+                  <p className="font-black text-slate-800 dark:text-white text-sm truncate">{completedSale.clientName}</p>
+                  {completedSale.clientPhone && (
+                    <p className="text-slate-500 font-medium flex items-center gap-1 mt-0.5">
+                      <span className="material-symbols-outlined text-[12px]">phone</span>
+                      {completedSale.clientPhone}
+                    </p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Cobrado / Venta</span>
+                  <p className="font-black text-primary text-xl leading-tight">
+                    ${completedSale.total.toLocaleString('es-AR')}
+                  </p>
+                  <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider mt-0.5 ${
+                    completedSale.paymentType === 'total' && completedSale.pendingAmount <= 0
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                  }`}>
+                    {completedSale.paymentType === 'total'
+                      ? 'Pago Completo'
+                      : completedSale.paymentType === 'cuotas'
+                      ? `En ${completedSale.installmentsCount} cuotas`
+                      : 'Pago Parcial (Seña)'}
+                  </span>
+                </div>
+
+                {(completedSale.paymentType !== 'total' || completedSale.pendingAmount > 0) && (
+                  <div className="col-span-2 pt-2.5 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="text-slate-500 font-bold">Abonado hoy: </span>
+                      <span className="font-black text-emerald-600 dark:text-emerald-400">${completedSale.paidAmount.toLocaleString('es-AR')}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-bold">Saldo pendiente: </span>
+                      <span className="font-black text-red-600 dark:text-red-400">${completedSale.pendingAmount.toLocaleString('es-AR')}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Detalle de Artículos */}
+              <div>
+                <p className="text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-sm">shopping_bag</span>
+                  Artículos de la Venta ({completedSale.items.reduce((acc, i) => acc + i.quantity, 0)})
+                </p>
+                <div className="space-y-2 max-h-44 overflow-y-auto pr-0.5">
+                  {completedSale.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/80 shadow-sm"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {item.imageUrl ? (
+                          <img
+                            src={item.imageUrl.startsWith('http') ? item.imageUrl : `${apiUrl || ''}${item.imageUrl.startsWith('/') ? '' : '/'}${item.imageUrl}`}
+                            alt={item.name}
+                            className="size-10 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0 bg-white"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.webp'; }}
+                          />
+                        ) : (
+                          <div className="size-10 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0 text-slate-400">
+                            <span className="material-symbols-outlined text-base">fragrance</span>
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-slate-800 dark:text-white truncate">{item.name}</p>
+                          <p className="text-[11px] text-slate-400 font-medium">
+                            {item.quantity} x ${item.salePrice.toLocaleString('es-AR')}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-black text-slate-900 dark:text-white shrink-0 ml-3">
+                        ${(item.quantity * item.salePrice).toLocaleString('es-AR')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Observaciones si las hay */}
+              {completedSale.notes && (
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-xl p-3 text-xs text-amber-900 dark:text-amber-200">
+                  <span className="font-bold flex items-center gap-1 mb-0.5">
+                    <span className="material-symbols-outlined text-[14px]">comment</span>
+                    Notas / Observaciones:
+                  </span>
+                  <p className="font-medium pl-4">{completedSale.notes}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Botones de acción principales */}
+            <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-700">
+              
+              {/* Botón WhatsApp prioritario */}
+              <button
+                type="button"
+                onClick={handleShareWhatsApp}
+                className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-xl">chat</span>
+                Compartir Comprobante por WhatsApp
+              </button>
+
+              {/* Botones secundarios: Descargar y Abrir/Imprimir */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleDownloadTicket}
+                  className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  title="Descargar archivo PDF del ticket"
+                >
+                  <span className="material-symbols-outlined text-base text-primary">download</span>
+                  Descargar Ticket PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenTicket}
+                  className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  title="Abrir o imprimir el ticket en PDF"
+                >
+                  <span className="material-symbols-outlined text-base text-slate-500">open_in_new</span>
+                  Abrir / Imprimir
+                </button>
+              </div>
+
+              {/* Botón Nueva Venta */}
+              <button
+                type="button"
+                onClick={() => setShowSuccessModal(false)}
+                className="w-full py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-sm">add_shopping_cart</span>
+                Iniciar Nueva Venta
+              </button>
+            </div>
+
           </div>
         </div>
       )}
