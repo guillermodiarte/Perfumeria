@@ -295,7 +295,7 @@ export default function ProductosView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMainCategory, setSelectedMainCategory] = useState<string>('Todo');
   const [selectedSubCategory, setSelectedSubCategory] = useState<string>('Todo');
-  const [stockFilter, setStockFilter] = useState<'all' | 'in_stock' | 'out_of_stock'>('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'in_stock' | 'out_of_stock' | 'not_for_public_sale'>('all');
   
   // Modals state
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -384,12 +384,18 @@ export default function ProductosView({
     return products.filter(p => p.promoEnabled && p.promoPrice && p.promoPrice > 0).length;
   }, [products]);
 
+  const notForPublicSaleCount = useMemo(() => {
+    return products.filter(p => Boolean((p as any).notForPublicSale)).length;
+  }, [products]);
+
   const filteredProducts = products.filter(p => {
     const totalStock = (p.variants || []).reduce((acc, v) => acc + (v.stock || 0), 0);
+    const isNotForSale = Boolean((p as any).notForPublicSale);
 
-    // Filtro por estado de stock
+    // Filtro por estado de stock / disponibilidad
     if (stockFilter === 'out_of_stock' && totalStock > 0) return false;
     if (stockFilter === 'in_stock' && totalStock <= 0) return false;
+    if (stockFilter === 'not_for_public_sale' && !isNotForSale) return false;
 
     const matchesSearch = 
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -504,6 +510,18 @@ export default function ProductosView({
         }];
       }
 
+      formCopy.notForPublicSale = Boolean((p as any).notForPublicSale);
+      if (formCopy.notForPublicSale) {
+        formCopy.salePrice = 0;
+        formCopy.wholesalePrice = 0;
+        formCopy.promoEnabled = false;
+        formCopy.variants = (formCopy.variants || []).map((v: any) => ({
+          ...v,
+          manualSalePrice: 0,
+          manualWholesalePrice: '',
+        }));
+      }
+
       formCopy._showDetails = Boolean(p.description || p.showTag || p.showFeatures);
       formCopy.tag = p.tag || 'Alta Demanda';
       formCopy.showTag = Boolean(p.showTag);
@@ -602,6 +620,7 @@ export default function ProductosView({
   /** Formatea las variantes del formulario de edición a formato guardable */
   const buildFormattedVariants = (form: any) => {
     const variantGroup = getVariantGroupForCategory(form.categoryId, categoriesConfig, variantGroupsConfig);
+    const isNotForSale = Boolean(form.notForPublicSale);
     const rawVariants = form.variants.map((item: any) => {
       let finalSize = item.size;
       if (variantGroup && item.sizeIndex !== undefined && variantGroup.options[item.sizeIndex]) {
@@ -610,10 +629,10 @@ export default function ProductosView({
       }
       const desc = item.description || item.color || '';
       const unitCost = (item.unitPurchasePrice !== undefined && item.unitPurchasePrice !== '') ? Number(item.unitPurchasePrice) : (Number(form.purchasePrice) || 0);
-      const salePr = (item.manualSalePrice !== undefined && item.manualSalePrice !== '') ? Number(item.manualSalePrice) : (Number(form.salePrice) || 0);
-      const wholesalePr = (item.manualWholesalePrice !== undefined && item.manualWholesalePrice !== '' && Number(item.manualWholesalePrice) > 0)
+      const salePr = isNotForSale ? 0 : ((item.manualSalePrice !== undefined && item.manualSalePrice !== '') ? Number(item.manualSalePrice) : (Number(form.salePrice) || 0));
+      const wholesalePr = isNotForSale ? undefined : ((item.manualWholesalePrice !== undefined && item.manualWholesalePrice !== '' && Number(item.manualWholesalePrice) > 0)
         ? Number(item.manualWholesalePrice)
-        : undefined;
+        : undefined);
 
       return {
         id: item.id || ('v-' + Math.random().toString(36).substr(2, 9)),
@@ -637,12 +656,21 @@ export default function ProductosView({
     const newName = (form.name || '').trim();
     const nameChanged = newName && newName.toLowerCase() !== oldName.toLowerCase();
 
+    const isNotForSale = Boolean(form.notForPublicSale);
     const validSalePrices = formattedVariants.map((v: any) => v.manualSalePrice).filter((pr: number) => pr > 0);
-    const computedSalePrice = validSalePrices.length > 0 ? Math.min(...validSalePrices) : (Number(form.salePrice) || 0);
+    const computedSalePrice = isNotForSale ? 0 : (validSalePrices.length > 0 ? Math.min(...validSalePrices) : (Number(form.salePrice) || 0));
     const validPurchasePrices = formattedVariants.map((v: any) => v.unitPurchasePrice).filter((pr: number) => pr > 0);
     const computedPurchasePrice = validPurchasePrices.length > 0 ? Math.min(...validPurchasePrices) : (Number(form.purchasePrice) || 0);
     const validWholesalePrices = formattedVariants.map((v: any) => v.manualWholesalePrice).filter((pr: any) => pr !== undefined && pr > 0);
-    const computedWholesalePrice = validWholesalePrices.length > 0 ? Math.min(...validWholesalePrices) : undefined;
+    const computedWholesalePrice = isNotForSale ? undefined : (validWholesalePrices.length > 0 ? Math.min(...validWholesalePrices) : undefined);
+
+    const cleanVariants = isNotForSale
+      ? formattedVariants.map((v: any) => ({
+          ...v,
+          manualSalePrice: 0,
+          manualWholesalePrice: undefined,
+        }))
+      : formattedVariants;
 
     updateProduct(id, {
       name: form.name,
@@ -650,6 +678,7 @@ export default function ProductosView({
       perfumeType: form.perfumeType || '',
       categoryId: form.categoryId,
       targetGender: form.targetGender,
+      notForPublicSale: isNotForSale,
       purchasePrice: computedPurchasePrice,
       salePrice: computedSalePrice,
       wholesalePrice: computedWholesalePrice,
@@ -662,10 +691,10 @@ export default function ProductosView({
       intensity: form.intensity || '',
       family: form.family || '',
       showFeatures: Boolean(form.showFeatures),
-      promoEnabled: Boolean(form.promoEnabled),
-      promoPrice: form.promoEnabled && form.promoPrice ? Number(form.promoPrice) : undefined,
+      promoEnabled: isNotForSale ? false : Boolean(form.promoEnabled),
+      promoPrice: (!isNotForSale && form.promoEnabled && form.promoPrice) ? Number(form.promoPrice) : undefined,
       promoLabel: form.promoLabel || '',
-    } as any, formattedVariants);
+    } as any, cleanVariants);
 
     // Si el nombre cambió, actualizar en cascada en la BD (purchase_batch_items, order_items, catalog)
     if (nameChanged) {
@@ -915,6 +944,31 @@ export default function ProductosView({
                   {stockFilter === 'out_of_stock' && <span className="material-symbols-outlined text-xs">close</span>}
                 </button>
               )}
+              {notForPublicSaleCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (stockFilter === 'not_for_public_sale') {
+                      setStockFilter('all');
+                    } else {
+                      setStockFilter('not_for_public_sale');
+                      if (selectedMainCategory.startsWith('⚠️ Sin Stock')) {
+                        setSelectedMainCategory('Todo');
+                      }
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    stockFilter === 'not_for_public_sale'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-2 ring-purple-400'
+                      : 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/40'
+                  }`}
+                  title={stockFilter === 'not_for_public_sale' ? 'Mostrar todos los productos' : 'Ver productos solo para inventario (sin venta pública)'}
+                >
+                  <span className="material-symbols-outlined text-[15px]">visibility_off</span>
+                  <span>{notForPublicSaleCount} Fuera de Venta</span>
+                  {stockFilter === 'not_for_public_sale' && <span className="material-symbols-outlined text-xs">close</span>}
+                </button>
+              )}
             </div>
 
             <div className="flex items-center gap-3 w-full md:w-auto">
@@ -1000,6 +1054,22 @@ export default function ProductosView({
               {outOfStockProductsCount}
             </span>
           </button>
+
+          {notForPublicSaleCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setStockFilter(stockFilter === 'not_for_public_sale' ? 'all' : 'not_for_public_sale')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                stockFilter === 'not_for_public_sale'
+                  ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30 ring-2 ring-purple-400'
+                  : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 border border-purple-200 dark:border-purple-800'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[14px]">visibility_off</span>
+              <span>Fuera de Venta</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-700/20">{notForPublicSaleCount}</span>
+            </button>
+          )}
 
           {promoProductCount > 0 && (
             <button
@@ -1133,12 +1203,15 @@ export default function ProductosView({
                 {filteredProducts.map(p => {
                      const totalStock = p.variants.reduce((acc, v) => acc + (v.stock || 0), 0);
                      const isOutOfStock = totalStock <= 0;
+                     const isNotForSale = Boolean(p.notForPublicSale);
                      const hasActivePromo = Boolean((p as any).promoEnabled && (p as any).promoPrice && (p as any).promoPrice > 0);
                      return (
                          <div 
                            key={p.id} 
                            className={`bg-white dark:bg-slate-800 rounded-2xl border ${
-                             isOutOfStock
+                             isNotForSale
+                               ? "border-2 border-purple-500 ring-2 ring-purple-500/25 bg-purple-50/20 dark:bg-purple-950/25 shadow-md shadow-purple-500/10"
+                               : isOutOfStock
                                ? "border-2 border-red-500 ring-2 ring-red-500/20 bg-red-50/15 dark:bg-red-950/20 shadow-md shadow-red-500/10"
                                : hasActivePromo 
                                ? "border-orange-500 ring-2 ring-orange-500/20 shadow-md shadow-orange-500/10" 
@@ -1155,8 +1228,16 @@ export default function ProductosView({
                                 </button>
                             </div>
                             
-                            {/* Out of Stock Banner or Promo Banner */}
-                            {isOutOfStock ? (
+                            {/* Fuera de venta / Out of Stock / Promo Banner */}
+                            {isNotForSale ? (
+                              <div className="bg-purple-600 text-white text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 flex items-center justify-between shadow-sm z-10">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="material-symbols-outlined text-[13px]">visibility_off</span>
+                                  <span>No disponible para venta — Solo Inventario</span>
+                                </div>
+                                <span className="bg-purple-800 text-white text-[9px] px-2 py-0.5 rounded font-black tracking-normal">{totalStock} Disp.</span>
+                              </div>
+                            ) : isOutOfStock ? (
                               <div className="bg-red-600 text-white text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 flex items-center justify-between shadow-sm z-10">
                                 <div className="flex items-center gap-1.5">
                                   <span className="material-symbols-outlined text-[13px]">block</span>
@@ -1175,7 +1256,13 @@ export default function ProductosView({
                             
                             <div className="p-5 flex-1 flex flex-col">
                                  <div className="flex items-center gap-1.5 mb-1 mr-auto flex-wrap">
-                                     {isOutOfStock && (
+                                     {isNotForSale && (
+                                       <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-purple-600 text-white shadow-sm flex items-center gap-1">
+                                         <span className="material-symbols-outlined text-[11px]">visibility_off</span>
+                                         Fuera de Venta
+                                       </span>
+                                     )}
+                                     {isOutOfStock && !isNotForSale && (
                                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-red-600 text-white shadow-sm flex items-center gap-1">
                                          <span className="material-symbols-outlined text-[11px]">block</span>
                                          Sin Stock
@@ -1201,11 +1288,21 @@ export default function ProductosView({
                                          </span>
                                      )}
                                  </div>
-                                 <h4 className={`text-lg font-black leading-tight pr-14 mt-1 mb-3 ${isOutOfStock ? 'text-red-700 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
+                                 <h4 className={`text-lg font-black leading-tight pr-14 mt-1 mb-3 ${isNotForSale ? 'text-purple-900 dark:text-purple-300' : isOutOfStock ? 'text-red-700 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
                                    {p.name}
                                  </h4>
                                  
-                                 {(() => {
+                                 {isNotForSale ? (
+                                     <div className="mb-3 p-3 rounded-xl bg-purple-50/90 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60">
+                                         <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 font-bold text-xs">
+                                             <span className="material-symbols-outlined text-sm">visibility_off</span>
+                                             <span>Sin precio de venta</span>
+                                         </div>
+                                         <p className="text-[11px] text-purple-700/80 dark:text-purple-300/80 mt-0.5 font-medium leading-relaxed">
+                                             Producto para inventario interno. No posee precio de venta ni mayorista y no está visible al público.
+                                         </p>
+                                     </div>
+                                 ) : (() => {
                                      const isWholesalePrcActive = wholesaleConfig?.enabled !== false;
                                      const wholesalePrc = wholesaleConfig?.discountPercentage || 0;
                                  
@@ -1826,6 +1923,58 @@ export default function ProductosView({
                 </div>
 
                 <div className="space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2 pb-6">
+                    {/* Interruptor: No disponible para venta al público */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                        editForm.notForPublicSale 
+                            ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-700/60 shadow-sm'
+                            : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700'
+                    }`}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <span className={`material-symbols-outlined text-2xl ${editForm.notForPublicSale ? 'text-purple-600 dark:text-purple-400' : 'text-slate-400'}`}>
+                                    {editForm.notForPublicSale ? 'visibility_off' : 'visibility'}
+                                </span>
+                                <div>
+                                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                                        No disponible para venta al público (Solo Inventario)
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        {editForm.notForPublicSale 
+                                            ? 'El producto se almacena en el inventario pero no se muestra en la tienda online ni tiene precios de venta.' 
+                                            : 'El producto estará visible para los clientes con sus precios de venta normales.'}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const nextVal = !editForm.notForPublicSale;
+                                    setEditForm((prev: any) => ({
+                                        ...prev,
+                                        notForPublicSale: nextVal,
+                                        ...(nextVal ? {
+                                            salePrice: 0,
+                                            wholesalePrice: undefined,
+                                            promoEnabled: false,
+                                            variants: (prev.variants || []).map((v: any) => ({
+                                                ...v,
+                                                manualSalePrice: 0,
+                                                manualWholesalePrice: undefined
+                                            }))
+                                        } : {})
+                                    }));
+                                }}
+                                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                                    editForm.notForPublicSale ? 'bg-purple-600' : 'bg-slate-300 dark:bg-slate-700'
+                                }`}
+                            >
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
+                                    editForm.notForPublicSale ? 'translate-x-5' : 'translate-x-0'
+                                }`} />
+                            </button>
+                        </div>
+                    </div>
+
                     {/* 1. Producto Padre */}
                     <div className="space-y-3">
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">1. Producto Padre</label>
@@ -2191,36 +2340,47 @@ export default function ProductosView({
                                             </div>
                                           );
                                         })()}
-                                        <div className="w-[120px]">
-                                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none truncate">PV Final</label>
-                                            <div className="relative">
-                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-black text-green-600 dark:text-green-400 pointer-events-none">$</span>
-                                                <input 
-                                                    type="number" 
-                                                    step="0.01" 
-                                                    placeholder="0" 
-                                                    className="w-full pl-5 pr-1 text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg py-1 text-sm font-black h-9 text-green-600 dark:text-green-400 focus:ring-2 focus:ring-primary outline-none" 
-                                                    value={variant.manualSalePrice === '' ? '' : (variant.manualSalePrice !== undefined ? variant.manualSalePrice : editForm.salePrice)} 
-                                                    onChange={e => handleVariantChange(vIdx, 'manualSalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
-                                                />
+                                        {editForm.notForPublicSale ? (
+                                            <div className="min-w-[190px] flex-1 px-3 py-2 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-center flex items-center justify-center">
+                                                <span className="text-xs font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                                                    <span className="material-symbols-outlined text-[15px]">visibility_off</span>
+                                                    Sin precios (Fuera de venta)
+                                                </span>
                                             </div>
-                                        </div>
-                                        <div className="w-[120px]">
-                                            <label className="block text-[10px] text-center font-bold text-indigo-500 dark:text-indigo-400 mb-1 leading-none truncate" title="Precio Mayorista (editable manualmente o sugerido por porcentaje)">
-                                                P. Mayorista
-                                            </label>
-                                            <div className="relative">
-                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-black text-indigo-600 dark:text-indigo-400 pointer-events-none">$</span>
-                                                <input 
-                                                    type="number" 
-                                                    step="0.01" 
-                                                    placeholder="0" 
-                                                    className="w-full pl-5 pr-1 text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg py-1 text-sm font-black h-9 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-400 outline-none" 
-                                                    value={variant.manualWholesalePrice === '' ? '' : (variant.manualWholesalePrice !== undefined ? variant.manualWholesalePrice : '')} 
-                                                    onChange={e => handleVariantChange(vIdx, 'manualWholesalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
-                                                />
-                                            </div>
-                                        </div>
+                                        ) : (
+                                            <>
+                                                <div className="w-[120px]">
+                                                    <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none truncate">PV Final</label>
+                                                    <div className="relative">
+                                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-black text-green-600 dark:text-green-400 pointer-events-none">$</span>
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.01" 
+                                                            placeholder="0" 
+                                                            className="w-full pl-5 pr-1 text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg py-1 text-sm font-black h-9 text-green-600 dark:text-green-400 focus:ring-2 focus:ring-primary outline-none" 
+                                                            value={variant.manualSalePrice === '' ? '' : (variant.manualSalePrice !== undefined ? variant.manualSalePrice : editForm.salePrice)} 
+                                                            onChange={e => handleVariantChange(vIdx, 'manualSalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="w-[120px]">
+                                                    <label className="block text-[10px] text-center font-bold text-indigo-500 dark:text-indigo-400 mb-1 leading-none truncate" title="Precio Mayorista (editable manualmente o sugerido por porcentaje)">
+                                                        P. Mayorista
+                                                    </label>
+                                                    <div className="relative">
+                                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-black text-indigo-600 dark:text-indigo-400 pointer-events-none">$</span>
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.01" 
+                                                            placeholder="0" 
+                                                            className="w-full pl-5 pr-1 text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg py-1 text-sm font-black h-9 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-400 outline-none" 
+                                                            value={variant.manualWholesalePrice === '' ? '' : (variant.manualWholesalePrice !== undefined ? variant.manualWholesalePrice : '')} 
+                                                            onChange={e => handleVariantChange(vIdx, 'manualWholesalePrice', e.target.value === '' ? '' : Number(e.target.value))} 
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
                                         <button 
                                             type="button" 
                                             onClick={() => removeVariant(vIdx)} 
@@ -2347,6 +2507,7 @@ export default function ProductosView({
 
                 </div>
 
+                {!editForm.notForPublicSale && (
                 <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-700">
                     <button
                         type="button"
@@ -2420,6 +2581,7 @@ export default function ProductosView({
                         </div>
                     )}
                 </div>
+                )}
 
                 <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-700">
                     <button onClick={handleSaveEdit} className="w-full py-4 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 flex justify-center items-center gap-2 shadow-lg shadow-primary/20 transition-all">

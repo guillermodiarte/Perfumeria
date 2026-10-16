@@ -11,8 +11,9 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [currentSlide, setCurrentSlide] = useState(0);
   const productsStore = useStockFlowStore(s => s.products);
-  const promoProducts = productsStore.filter(p => Boolean(p.promoEnabled && p.promoPrice && p.promoPrice > 0));
-  const latestProducts = [...productsStore].reverse().slice(0, 4);
+  const publicProducts = productsStore.filter(p => !p.notForPublicSale);
+  const promoProducts = publicProducts.filter(p => Boolean(p.promoEnabled && p.promoPrice && p.promoPrice > 0));
+  const latestProducts = [...publicProducts].reverse().slice(0, 4);
 
   useEffect(() => {
     const fetchSettings = async () => {

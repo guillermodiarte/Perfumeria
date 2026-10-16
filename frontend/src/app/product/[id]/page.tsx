@@ -100,7 +100,8 @@ function Lightbox({ images, startIndex, onClose }: { images: string[]; startInde
 
 /* ─── Main Component ────────────────────────────────────────────────── */
 export default function ProductDetailPage({ params }: { params: { id: string } }) {
-  const products = useStockFlowStore(s => s.products);
+  const allProducts = useStockFlowStore(s => s.products);
+  const products = allProducts.filter(p => !p.notForPublicSale);
   const wholesaleConfig = useStockFlowStore(s => s.wholesaleConfig);
   const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
   const addItem = useCartStore(s => s.addItem);

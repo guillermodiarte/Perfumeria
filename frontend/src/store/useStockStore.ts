@@ -245,6 +245,7 @@ export interface Product {
   purchasePrice: number;
   salePrice: number;
   wholesalePrice?: number;      // Precio mayorista base del producto
+  notForPublicSale?: boolean;   // Si es true, producto cargado solo para inventario interno, no disponible para venta al público
   imageUrls?: string[];
   variants: ProductVariant[];
   // Descriptive / marketing fields
@@ -389,6 +390,7 @@ export interface StockFlowState {
       intensity?: string;
       family?: string;
       showFeatures?: boolean;
+      notForPublicSale?: boolean; // Si es true, producto cargado solo para inventario interno, no disponible para venta al público
       salePriceConflict?: 'update' | 'keep' | 'custom'; // decisión del modal
       customSalePrice?: number;
     }[];
@@ -962,6 +964,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               if (item.intensity !== undefined) existingProd.intensity = item.intensity;
               if (item.family !== undefined) existingProd.family = item.family;
               if (item.showFeatures !== undefined) existingProd.showFeatures = item.showFeatures;
+              if (item.notForPublicSale !== undefined) existingProd.notForPublicSale = Boolean(item.notForPublicSale);
               if (item.newProductImageUrls?.length) {
                 const merged = Array.from(new Set([...(existingProd.imageUrls || []), ...item.newProductImageUrls]));
                 existingProd.imageUrls = merged;
@@ -975,9 +978,14 @@ export const useStockFlowStore = create<StockFlowState>()(
               if (varIndex !== -1) {
                 existingProd.variants[varIndex].stock += item.quantity;
                 existingProd.variants[varIndex].unitPurchasePrice = item.totalCostPerUnitARS;
-                existingProd.variants[varIndex].manualSalePrice = item.salePriceConflict !== 'keep'
-                  ? finalSalePrice
-                  : (existingProd.variants[varIndex].manualSalePrice || finalSalePrice);
+                existingProd.variants[varIndex].manualSalePrice = existingProd.notForPublicSale
+                  ? 0
+                  : (item.salePriceConflict !== 'keep'
+                    ? finalSalePrice
+                    : (existingProd.variants[varIndex].manualSalePrice || finalSalePrice));
+                if (existingProd.notForPublicSale) {
+                  existingProd.variants[varIndex].manualWholesalePrice = undefined;
+                }
                 targetVariantId = existingProd.variants[varIndex].id;
               } else {
                 targetVariantId = 'v-' + Math.random().toString(36).substr(2, 9);
@@ -987,14 +995,23 @@ export const useStockFlowStore = create<StockFlowState>()(
                   color: item.color,
                   stock: item.quantity,
                   unitPurchasePrice: item.totalCostPerUnitARS,
-                  manualSalePrice: finalSalePrice,
+                  manualSalePrice: existingProd.notForPublicSale ? 0 : finalSalePrice,
                 });
               }
 
-              // El precio base general del producto en el catálogo refleja el precio accesible desde el cual arranca
-              const allValidSalePrices = existingProd.variants.map(v => v.manualSalePrice).filter((p): p is number => !!p && p > 0);
-              if (allValidSalePrices.length > 0) {
-                existingProd.salePrice = Math.min(...allValidSalePrices);
+              if (existingProd.notForPublicSale) {
+                existingProd.salePrice = 0;
+                existingProd.wholesalePrice = undefined;
+                existingProd.variants.forEach(v => {
+                  v.manualSalePrice = 0;
+                  v.manualWholesalePrice = undefined;
+                });
+              } else {
+                // El precio base general del producto en el catálogo refleja el precio accesible desde el cual arranca
+                const allValidSalePrices = existingProd.variants.map(v => v.manualSalePrice).filter((p): p is number => !!p && p > 0);
+                if (allValidSalePrices.length > 0) {
+                  existingProd.salePrice = Math.min(...allValidSalePrices);
+                }
               }
               const allValidCostPrices = existingProd.variants.map(v => v.unitPurchasePrice).filter((p): p is number => !!p && p > 0);
               if (allValidCostPrices.length > 0) {
@@ -1007,6 +1024,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               targetProductName = item.newProductName?.trim() || item.productName || 'Nuevo Producto';
               targetVariantId = 'v-' + Math.random().toString(36).substr(2, 9);
 
+              const isNotForSale = Boolean(item.notForPublicSale);
               const newProduct: Product = {
                 id: createdId,
                 name: targetProductName,
@@ -1015,7 +1033,8 @@ export const useStockFlowStore = create<StockFlowState>()(
                 categoryId: item.categoryId || 'Perfumes de Mujer',
                 targetGender: item.targetGender || 'Unisex',
                 purchasePrice: item.totalCostPerUnitARS,
-                salePrice: finalSalePrice,
+                salePrice: isNotForSale ? 0 : finalSalePrice,
+                notForPublicSale: isNotForSale,
                 imageUrls: item.newProductImageUrls || [],
                 description: item.description,
                 tag: item.tag,
@@ -1031,7 +1050,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                   color: item.color,
                   stock: item.quantity,
                   unitPurchasePrice: item.totalCostPerUnitARS,
-                  manualSalePrice: finalSalePrice,
+                  manualSalePrice: isNotForSale ? 0 : finalSalePrice,
                 }],
               };
 

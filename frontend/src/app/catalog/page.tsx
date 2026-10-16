@@ -11,7 +11,8 @@ import { useState, useEffect, Suspense, useMemo, useRef } from 'react';
 import { Filter, X, ArrowUpDown, Check, ChevronDown, Sparkles } from 'lucide-react';
 
 function CatalogContent() {
-  const storeProducts = useStockFlowStore(s => s.products);
+  const allProducts = useStockFlowStore(s => s.products);
+  const storeProducts = useMemo(() => allProducts.filter(p => !p.notForPublicSale), [allProducts]);
   const user = useAuthStore(s => s.user);
   const searchParams = useSearchParams();
   const router = useRouter();

@@ -119,6 +119,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     newProductName: '', newProductSku: '', perfumeType: '',
     categoryId: categoriesConfig[0]?.opciones[0] || 'Perfumes de Mujer',
     targetGender: 'Unisex' as const,
+    notForPublicSale: false,
     newProductImageUrls: [] as string[], _uploading: false,
     variants: [createEmptyVariant()],
     description: '', tag: 'Alta Demanda', showTag: false,
@@ -145,6 +146,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     suggestedSalePrice: number; salePrice: number;
     existingProd: any | null; existingVariant: any | null;
     salePriceConflict: 'update' | 'keep' | 'custom' | null; customSalePrice: number;
+    notForPublicSale?: boolean;
   };
   const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([]);
   const [showSummary, setShowSummary] = useState(false);
@@ -755,7 +757,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
   };
 
   // Helper para verificar si una fila de resumen tiene conflicto de precio con el stock previo de esa MISMA variante
-  const isRowConflict = (r: { existingVariant?: any | null; existingProd?: any | null; totalCostPerUnitARS: number }) => {
+  const isRowConflict = (r: { existingVariant?: any | null; existingProd?: any | null; totalCostPerUnitARS: number; notForPublicSale?: boolean }) => {
+    if (r.notForPublicSale) return false;
     if (!r.existingVariant) return false;
     const prevCost = r.existingVariant.unitPurchasePrice ?? (
       r.existingProd?.variants?.length === 1 ? r.existingProd.purchasePrice : 0
@@ -771,6 +774,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     const rows: SummaryRow[] = [];
     products.forEach((prod, pIdx) => {
       const variantGroup = getVariantGroupForCategory(prod.categoryId, categoriesConfig, variantGroupsConfig);
+      const isNotForSale = Boolean((prod as any).notForPublicSale);
       prod.variants.forEach((variant, vIdx) => {
         const unitCostOriginal = Number(variant.unitPurchasePrice) || 0;
         const unitCostARS = unitCostOriginal * effectiveExchangeRate;
@@ -779,7 +783,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         const proportion = totalCompraARS > 0 ? blockCostARS / totalCompraARS : 0;
         const shippingPerUnitARS = qty > 0 ? (shippingCostARS * proportion) / qty : 0;
         const totalCostPerUnitARS = unitCostARS + shippingPerUnitARS;
-        const suggestedSalePrice = globalMarkupPrc > 0 ? Math.round(totalCostPerUnitARS * (1 + globalMarkupPrc / 100)) : 0;
+        const suggestedSalePrice = isNotForSale
+          ? 0
+          : (globalMarkupPrc > 0 ? Math.round(totalCostPerUnitARS * (1 + globalMarkupPrc / 100)) : 0);
 
         let sizeLabel = 'Único';
         if (variantGroup) { const opt = variantGroup.options[variant.sizeIndex || 0]; if (opt) sizeLabel = opt.description ? `${opt.value} - ${opt.description}` : opt.value; }
@@ -804,8 +810,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
             }) || null)
           : null;
 
-        // Solo hay conflicto si la variante YA existía previamente en el producto y su costo cambió
-        const hasConflict = isRowConflict({ existingVariant, existingProd, totalCostPerUnitARS });
+        // Solo hay conflicto si la variante YA existía previamente en el producto y su costo cambió (y está para venta al público)
+        const hasConflict = isNotForSale ? false : isRowConflict({ existingVariant, existingProd, totalCostPerUnitARS, notForPublicSale: isNotForSale });
 
         rows.push({
           pIdx,
@@ -818,11 +824,12 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           shippingPerUnitARS,
           totalCostPerUnitARS,
           suggestedSalePrice,
-          salePrice: suggestedSalePrice,
+          salePrice: isNotForSale ? 0 : suggestedSalePrice,
           existingProd: existingProd || null,
           existingVariant: existingVariant || null,
           salePriceConflict: hasConflict ? null : 'update',
-          customSalePrice: suggestedSalePrice
+          customSalePrice: isNotForSale ? 0 : suggestedSalePrice,
+          notForPublicSale: isNotForSale
         });
       });
     });
@@ -883,8 +890,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         total_cost_ars: totalCompraARS + shippingCostARS,
         items: summaryRows.map(row => {
           const prod = products[row.pIdx];
+          const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
           const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
-          const finalSalePrice = row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice;
+          const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
           return { product_id: prod.productId, variant_id: `v-new`, product_name: row.productName, variant_label: row.variantLabel, quantity: row.quantity, unit_cost_original: row.unitCostOriginal, unit_cost_ars: row.unitCostARS, shipping_per_unit_ars: row.shippingPerUnitARS, total_cost_per_unit_ars: row.totalCostPerUnitARS, sale_price: finalSalePrice };
         }),
       };
@@ -908,9 +916,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         exchangeRate: effectiveExchangeRate,
         items: summaryRows.map(row => {
           const prod = products[row.pIdx];
+          const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
           const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
-          const finalSalePrice = row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice;
-          return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
+          const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
+          return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, notForPublicSale: isNotForSale, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
         }),
       });
 
@@ -1071,7 +1080,14 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           {/* PASO 2: Productos */}
           <div className="space-y-6">
             {products.map((prod, pIdx) => (
-              <div key={prod.productId} className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl relative flex flex-col gap-4">
+              <div 
+                key={prod.productId} 
+                className={`p-4 rounded-xl relative flex flex-col gap-4 border transition-all ${
+                  (prod as any).notForPublicSale
+                    ? 'bg-purple-50/25 dark:bg-purple-950/20 border-purple-300 dark:border-purple-800 ring-2 ring-purple-500/10 shadow-sm'
+                    : 'bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700'
+                }`}
+              >
                 <button onClick={() => removeProduct(pIdx)} className="absolute -top-3 -right-3 bg-red-100 text-red-600 rounded-full size-8 flex items-center justify-center border border-red-200 hover:bg-red-200 z-10 transition-colors">
                   <span className="material-symbols-outlined text-[18px]">close</span>
                 </button>
@@ -1079,7 +1095,33 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                 {/* Selector de producto */}
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                   <div className="col-span-1 md:col-span-5 space-y-2">
-                    <label className="block text-xs font-bold text-slate-500">1. Producto Padre</label>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="block text-xs font-bold text-slate-500">1. Producto Padre</label>
+                      <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors border select-none ${
+                        (prod as any).notForPublicSale
+                          ? 'bg-purple-600 text-white border-purple-700 shadow-sm'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean((prod as any).notForPublicSale)}
+                          onChange={e => updateProduct(pIdx, 'notForPublicSale', e.target.checked)}
+                          className="rounded text-purple-600 focus:ring-purple-500 size-3.5"
+                        />
+                        <span className="material-symbols-outlined text-[15px]">
+                          {(prod as any).notForPublicSale ? 'visibility_off' : 'visibility'}
+                        </span>
+                        <span>{(prod as any).notForPublicSale ? 'Fuera de venta' : 'No para venta al público'}</span>
+                      </label>
+                    </div>
+
+                    {(prod as any).notForPublicSale && (
+                      <div className="px-3 py-1.5 rounded-lg bg-purple-100/80 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-300 text-xs font-medium flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px] text-purple-600 dark:text-purple-400">info</span>
+                        <span>Se cargará al inventario pero <strong>no estará en la tienda</strong> ni requerirá precio de venta.</span>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       <select className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-bold h-10" value={prod.categoryId} onChange={e => updateProduct(pIdx, 'categoryId', e.target.value)}>
                         {categoriesConfig.map(g => (
@@ -1118,6 +1160,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                               updateProduct(pIdx, 'newProductSku', ex.sku);
                               updateProduct(pIdx, 'perfumeType', (ex as any).perfumeType || '');
                               updateProduct(pIdx, 'newProductImageUrls', ex.imageUrls || []);
+                              updateProduct(pIdx, 'notForPublicSale', Boolean((ex as any).notForPublicSale));
                               if (ex.targetGender) updateProduct(pIdx, 'targetGender', ex.targetGender);
                               ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((ex as any)[f] !== undefined) updateProduct(pIdx, f, (ex as any)[f]); });
                               setProductDropdownPIdx(null);
@@ -1157,6 +1200,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                                       updateProduct(pIdx, 'newProductSku', p.sku);
                                       updateProduct(pIdx, 'perfumeType', (p as any).perfumeType || '');
                                       updateProduct(pIdx, 'newProductImageUrls', p.imageUrls || []);
+                                      updateProduct(pIdx, 'notForPublicSale', Boolean((p as any).notForPublicSale));
                                       if (p.targetGender) updateProduct(pIdx, 'targetGender', p.targetGender);
                                       ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((p as any)[f] !== undefined) updateProduct(pIdx, f, (p as any)[f]); });
                                       setProductDropdownPIdx(null);
@@ -1173,8 +1217,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                                 );
                               })}
                             </div>
-                          );
-                        })()}
+                           );
+                         })()}
                       </div>
                       {isPerfumeCategory(prod.categoryId) && (
                         <select
@@ -1647,6 +1691,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         const totalCostARSSummary = totalCompraARS;
         const totalCostFinalSummary = totalCompraARS + shippingCostARS;
         const totalSaleValueSummary = summaryRows.reduce((s, r) => {
+          if (r.notForPublicSale) return s;
           const displaySalePrice = r.salePriceConflict === 'keep' ? (r.existingProd?.salePrice || r.salePrice) : r.salePrice;
           return s + (Number(r.quantity) || 0) * (Number(displaySalePrice) || 0);
         }, 0);
@@ -1721,9 +1766,17 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                       const displaySalePrice = row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePrice;
                       const prevVariantCost = row.existingVariant?.unitPurchasePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.purchasePrice : 0) ?? 0;
                       return (
-                        <tr key={idx} className={hasConflict ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}>
+                        <tr key={idx} className={row.notForPublicSale ? 'bg-purple-50/30 dark:bg-purple-950/15' : hasConflict ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}>
                           <td className="py-2 pr-3">
-                            <p className="font-bold text-slate-800 dark:text-slate-200">{row.productName}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-bold text-slate-800 dark:text-slate-200">{row.productName}</p>
+                              {row.notForPublicSale && (
+                                <span className="text-[10px] bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded-full font-bold inline-flex items-center gap-1">
+                                  <span className="material-symbols-outlined text-[11px]">visibility_off</span>
+                                  Fuera de venta
+                                </span>
+                              )}
+                            </div>
                             <p className="text-slate-400">{row.variantLabel}</p>
                             {hasConflict && (
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -1757,7 +1810,14 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                           <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(row.totalCostPerUnitARS)}</td>
                           <td className="py-2 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(row.totalCostPerUnitARS * row.quantity)}</td>
                           <td className="py-2 text-right">
-                            <input type="number" step="1" min="0" className={`w-28 text-right bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-green-300 dark:border-green-700 text-green-700 dark:text-green-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`} value={displaySalePrice || ''} onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }} disabled={row.salePriceConflict === 'keep'} />
+                            {row.notForPublicSale ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 px-2.5 py-1 rounded-lg">
+                                <span className="material-symbols-outlined text-[13px]">visibility_off</span>
+                                Sin venta
+                              </span>
+                            ) : (
+                              <input type="number" step="1" min="0" className={`w-28 text-right bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-green-300 dark:border-green-700 text-green-700 dark:text-green-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`} value={displaySalePrice || ''} onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }} disabled={row.salePriceConflict === 'keep'} />
+                            )}
                           </td>
                         </tr>
                       );
@@ -1788,28 +1848,45 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                   const displaySalePrice = row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePrice;
                   const prevVariantCost = row.existingVariant?.unitPurchasePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.purchasePrice : 0) ?? 0;
                   return (
-                    <div key={idx} className={`border rounded-2xl p-3.5 space-y-2.5 ${hasConflict ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700'}`}>
+                    <div key={idx} className={`border rounded-2xl p-3.5 space-y-2.5 ${row.notForPublicSale ? 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800' : hasConflict ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700'}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-tight">{row.productName}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-tight">{row.productName}</p>
+                            {row.notForPublicSale && (
+                              <span className="text-[9px] bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 px-1.5 py-0.5 rounded-full font-bold inline-flex items-center gap-0.5">
+                                <span className="material-symbols-outlined text-[10px]">visibility_off</span>
+                                Fuera de venta
+                              </span>
+                            )}
+                          </div>
                           {row.variantLabel && (
                             <p className="text-[11px] text-slate-400 mt-0.5">{row.variantLabel}</p>
                           )}
                         </div>
                         <div className="flex flex-col items-end flex-shrink-0">
-                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-0.5">P. Venta ✏️</span>
-                          <div className="relative">
-                            <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
-                            <input
-                              type="number"
-                              step="1"
-                              min="0"
-                              className={`w-28 pl-5 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
-                              value={displaySalePrice || ''}
-                              onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }}
-                              disabled={row.salePriceConflict === 'keep'}
-                            />
-                          </div>
+                          {row.notForPublicSale ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 px-2 py-1 rounded-lg">
+                              <span className="material-symbols-outlined text-[12px]">visibility_off</span>
+                              Sin venta
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-0.5">P. Venta ✏️</span>
+                              <div className="relative">
+                                <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min="0"
+                                  className={`w-28 pl-5 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
+                                  value={displaySalePrice || ''}
+                                  onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }}
+                                  disabled={row.salePriceConflict === 'keep'}
+                                />
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
 
