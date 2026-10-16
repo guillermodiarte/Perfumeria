@@ -467,6 +467,16 @@ export interface StockFlowState {
     adminNotes?: string;
   }) => void;
   deleteUserOrder: (ticketId: string) => void;
+  deleteSaleAndRestoreStock: (
+    ticketId: string,
+    fallbackItems?: Array<{
+      productId?: string;
+      variantId?: string;
+      productName?: string;
+      variantInfo?: string;
+      quantity: number;
+    }>
+  ) => void;
 
   confirmSale: (saleId: string) => void;
   cancelSale: (saleId: string) => void;
@@ -1459,24 +1469,116 @@ export const useStockFlowStore = create<StockFlowState>()(
         });
       },
 
+      deleteSaleAndRestoreStock: (ticketId, fallbackItems) => {
+        set((state) => {
+          let updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+          const salesForTicket = state.sales.filter(s => s.ticketId === ticketId || s.id === ticketId);
+
+          const itemsToRestore: Array<{
+            productId?: string;
+            variantId?: string;
+            productName?: string;
+            variantInfo?: string;
+            quantity: number;
+          }> = [];
+
+          if (salesForTicket.length > 0) {
+            salesForTicket.forEach(s => {
+              if (s.status !== 'Cancelada') {
+                itemsToRestore.push({
+                  productId: s.productId,
+                  variantId: s.variantId,
+                  productName: s.productName,
+                  variantInfo: `${s.color || ''} ${s.size || ''}`.trim(),
+                  quantity: s.quantity || 1,
+                });
+              }
+            });
+          } else if (fallbackItems && fallbackItems.length > 0) {
+            fallbackItems.forEach(item => {
+              itemsToRestore.push({
+                productId: item.productId,
+                variantId: item.variantId,
+                productName: item.productName,
+                variantInfo: item.variantInfo,
+                quantity: item.quantity || 1,
+              });
+            });
+          }
+
+          itemsToRestore.forEach(item => {
+            let productIndex = -1;
+            if (item.productId) {
+              productIndex = updatedProducts.findIndex(p => p.id === item.productId);
+            }
+            if (productIndex === -1 && item.productName) {
+              const lowerName = item.productName.trim().toLowerCase();
+              productIndex = updatedProducts.findIndex(p => p.name.trim().toLowerCase() === lowerName);
+            }
+
+            if (productIndex !== -1) {
+              const prod = updatedProducts[productIndex];
+              let varIndex = -1;
+              if (item.variantId) {
+                varIndex = prod.variants.findIndex(v => v.id === item.variantId);
+              }
+              if (varIndex === -1 && item.variantInfo) {
+                const info = item.variantInfo.toLowerCase();
+                varIndex = prod.variants.findIndex(v =>
+                  (v.size && info.includes(v.size.toLowerCase())) ||
+                  (v.color && info.includes(v.color.toLowerCase()))
+                );
+              }
+              if (varIndex === -1 && prod.variants.length === 1) {
+                varIndex = 0;
+              }
+
+              if (varIndex !== -1) {
+                prod.variants[varIndex].stock = (Number(prod.variants[varIndex].stock) || 0) + item.quantity;
+              } else if (prod.variants.length > 0) {
+                prod.variants[0].stock = (Number(prod.variants[0].stock) || 0) + item.quantity;
+              }
+            }
+          });
+
+          const updatedSales = state.sales.filter(s => s.ticketId !== ticketId && s.id !== ticketId);
+          return { products: updatedProducts, sales: updatedSales };
+        });
+      },
+
       deleteUserOrder: (ticketId) => {
         set((state) => {
           let updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
-          const salesForTicket = state.sales.filter(s => s.ticketId === ticketId);
-          
+          const salesForTicket = state.sales.filter(s => s.ticketId === ticketId || s.id === ticketId);
+
           salesForTicket.forEach(s => {
             if (s.status !== 'Cancelada') {
-              const productIndex = updatedProducts.findIndex(p => p.id === s.productId);
+              let productIndex = updatedProducts.findIndex(p => p.id === s.productId);
+              if (productIndex === -1 && s.productName) {
+                const lowerName = s.productName.trim().toLowerCase();
+                productIndex = updatedProducts.findIndex(p => p.name.trim().toLowerCase() === lowerName);
+              }
               if (productIndex !== -1) {
-                const varIndex = updatedProducts[productIndex].variants.findIndex(v => v.id === s.variantId);
+                const prod = updatedProducts[productIndex];
+                let varIndex = prod.variants.findIndex(v => v.id === s.variantId);
+                if (varIndex === -1 && (s.size || s.color)) {
+                  varIndex = prod.variants.findIndex(v =>
+                    (s.size && v.size === s.size) || (s.color && v.color === s.color)
+                  );
+                }
+                if (varIndex === -1 && prod.variants.length === 1) {
+                  varIndex = 0;
+                }
                 if (varIndex !== -1) {
-                  updatedProducts[productIndex].variants[varIndex].stock += s.quantity;
+                  prod.variants[varIndex].stock = (Number(prod.variants[varIndex].stock) || 0) + (s.quantity || 1);
+                } else if (prod.variants.length > 0) {
+                  prod.variants[0].stock = (Number(prod.variants[0].stock) || 0) + (s.quantity || 1);
                 }
               }
             }
           });
 
-          const updatedSales = state.sales.filter(s => s.ticketId !== ticketId);
+          const updatedSales = state.sales.filter(s => s.ticketId !== ticketId && s.id !== ticketId);
           return { products: updatedProducts, sales: updatedSales };
         });
       },

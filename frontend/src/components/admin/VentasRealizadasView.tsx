@@ -8,6 +8,7 @@ import { API_URL } from '@/utils/api';
 interface VentasRealizadasViewProps {
   apiKey?: string;
   showAlert?: (msg: string) => void;
+  currentAdminRole?: string;
 }
 
 export interface UnifiedSale {
@@ -23,6 +24,8 @@ export interface UnifiedSale {
   paymentType: string;
   itemsCount: number;
   items: {
+    productId?: string;
+    variantId?: string;
     productName: string;
     variantInfo: string;
     quantity: number;
@@ -33,9 +36,12 @@ export interface UnifiedSale {
   adminNotes?: string;
 }
 
-export default function VentasRealizadasView({ apiKey, showAlert }: VentasRealizadasViewProps) {
+export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRole }: VentasRealizadasViewProps) {
+  const isSuperAdmin = currentAdminRole === 'super_admin';
+
   // --- Zustand store (Mostrador POS sales) ---
   const posSales = useStockFlowStore(s => s.sales);
+  const deleteSaleAndRestoreStock = useStockFlowStore(s => s.deleteSaleAndRestoreStock);
 
   // --- Backend web orders ---
   const [webOrders, setWebOrders] = useState<any[]>([]);
@@ -48,6 +54,8 @@ export default function VentasRealizadasView({ apiKey, showAlert }: VentasRealiz
 
   // --- Modals ---
   const [selectedSaleDetail, setSelectedSaleDetail] = useState<UnifiedSale | null>(null);
+  const [saleToDelete, setSaleToDelete] = useState<UnifiedSale | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const getToken = () => apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') : '');
 
@@ -112,6 +120,8 @@ export default function VentasRealizadasView({ apiKey, showAlert }: VentasRealiz
         paymentType: first.paymentType || 'total',
         itemsCount: records.reduce((acc, r) => acc + (r.quantity || 1), 0),
         items: records.map(r => ({
+          productId: r.productId,
+          variantId: r.variantId,
           productName: r.productName,
           variantInfo: `${r.color || ''} ${r.size ? `Talle ${r.size}` : ''}`.trim(),
           quantity: r.quantity,
@@ -147,6 +157,8 @@ export default function VentasRealizadasView({ apiKey, showAlert }: VentasRealiz
         paymentType: o.payment_type || 'total',
         itemsCount: (o.items || []).reduce((acc: number, i: any) => acc + (i.quantity || 1), 0),
         items: (o.items || []).map((i: any) => ({
+          productId: i.product_id,
+          variantId: i.variant_id,
           productName: i.product_name || 'Producto',
           variantInfo: i.variant_info || '',
           quantity: i.quantity,
@@ -276,6 +288,45 @@ export default function VentasRealizadasView({ apiKey, showAlert }: VentasRealiz
       });
     } catch {
       return isoString;
+    }
+  };
+
+  const handleConfirmDeleteSale = async () => {
+    if (!saleToDelete) return;
+    setIsDeleting(true);
+    try {
+      if (saleToDelete.channel === 'web') {
+        const token = getToken();
+        if (token) {
+          try {
+            await fetch(`${API_URL}/api/orders/admin/${saleToDelete.ticketId}`, {
+              method: 'DELETE',
+              headers: { 'X-API-KEY': token },
+            });
+          } catch (err) {
+            console.warn('Error al eliminar pedido web en backend:', err);
+          }
+        }
+      }
+
+      // Restituir productos al stock y eliminar la venta del registro
+      deleteSaleAndRestoreStock(saleToDelete.ticketId, saleToDelete.items);
+
+      if (saleToDelete.channel === 'web') {
+        await fetchWebOrders();
+      }
+
+      if (showAlert) {
+        showAlert(`✓ Venta #${saleToDelete.ticketId} eliminada correctamente. Los productos han vuelto al stock.`);
+      }
+      setSaleToDelete(null);
+    } catch (e: any) {
+      console.error('Error al eliminar venta:', e);
+      if (showAlert) {
+        showAlert('Error al eliminar la venta. Inténtalo nuevamente.');
+      }
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -573,6 +624,16 @@ export default function VentasRealizadasView({ apiKey, showAlert }: VentasRealiz
                   <span className="material-symbols-outlined text-base">print</span>
                   <span className="hidden sm:inline">Ticket</span>
                 </button>
+
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => setSaleToDelete(sale)}
+                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors tooltip"
+                    title="Eliminar venta y devolver al stock"
+                  >
+                    <span className="material-symbols-outlined text-lg">delete</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -707,19 +768,157 @@ export default function VentasRealizadasView({ apiKey, showAlert }: VentasRealiz
             </div>
 
             {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/50">
+              <div>
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => {
+                      const s = selectedSaleDetail;
+                      setSelectedSaleDetail(null);
+                      setSaleToDelete(s);
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/60 text-red-600 dark:text-red-400 rounded-xl font-bold text-xs transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-base">delete</span>
+                    Eliminar Venta
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedSaleDetail(null)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors"
+                >
+                  Cerrar
+                </button>
+                <button
+                  onClick={() => handlePrintTicket(selectedSaleDetail)}
+                  className="flex items-center gap-2 px-5 py-2 bg-primary text-white font-bold text-xs rounded-xl hover:bg-primary/90 transition-colors shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-base">print</span>
+                  Imprimir Ticket
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Confirmar Eliminación y Reintegración de Stock */}
+      {saleToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full border border-red-200 dark:border-red-900/60 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-2xl">delete_forever</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Eliminar Venta #{saleToDelete.ticketId}
+                  </h3>
+                  <p className="text-[11px] text-red-500 font-bold">
+                    Reintegración inmediata de stock
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => !isDeleting && setSaleToDelete(null)}
+                disabled={isDeleting}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              {/* Sale Info Card */}
+              <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    {saleToDelete.channel === 'mostrador' ? 'Venta Mostrador' : 'Venta Online Web'}
+                  </span>
+                  <span className="font-mono font-bold text-slate-500">{formatDate(saleToDelete.date)}</span>
+                </div>
+                <p className="font-black text-sm text-slate-900 dark:text-white">
+                  {saleToDelete.clientName}
+                </p>
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200/60 dark:border-slate-800 text-xs">
+                  <span className="text-slate-500">Monto total cobrado:</span>
+                  <span className="font-black text-slate-900 dark:text-white text-sm">
+                    ${saleToDelete.total.toLocaleString('es-AR')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Items to return to stock */}
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/30 p-4 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/50">
+                <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-bold text-xs mb-2.5">
+                  <span className="material-symbols-outlined text-base text-emerald-600">inventory_2</span>
+                  <span>Productos que volverán al stock:</span>
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {saleToDelete.items.map((it, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-800/80 rounded-xl border border-emerald-100 dark:border-emerald-900/40 text-xs shadow-xs"
+                    >
+                      <div className="min-w-0 pr-2">
+                        <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {it.productName}
+                        </p>
+                        {it.variantInfo && (
+                          <p className="text-[10px] text-slate-400 truncate">{it.variantInfo}</p>
+                        )}
+                      </div>
+                      <span className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-black rounded-lg text-xs">
+                        <span className="material-symbols-outlined text-sm">arrow_upward</span>
+                        +{it.quantity} {it.quantity === 1 ? 'ud' : 'uds'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Warning note */}
+              <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 rounded-2xl p-3.5 text-xs text-red-700 dark:text-red-300">
+                <span className="material-symbols-outlined text-red-500 text-lg shrink-0 mt-0.5">warning</span>
+                <p className="leading-relaxed">
+                  Esta venta será <strong>eliminada permanentemente</strong> del registro y las cantidades arriba detalladas se <strong>reintegrarán automáticamente al inventario</strong>.
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
             <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-end gap-3 bg-slate-50/50 dark:bg-slate-800/50">
               <button
-                onClick={() => setSelectedSaleDetail(null)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors"
+                type="button"
+                onClick={() => setSaleToDelete(null)}
+                disabled={isDeleting}
+                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors disabled:opacity-50"
               >
-                Cerrar
+                Cancelar
               </button>
               <button
-                onClick={() => handlePrintTicket(selectedSaleDetail)}
-                className="flex items-center gap-2 px-5 py-2 bg-primary text-white font-bold text-xs rounded-xl hover:bg-primary/90 transition-colors shadow-sm"
+                type="button"
+                onClick={handleConfirmDeleteSale}
+                disabled={isDeleting}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl transition-all shadow-md shadow-red-600/20 disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-base">print</span>
-                Imprimir Ticket
+                {isDeleting ? (
+                  <>
+                    <span className="material-symbols-outlined text-base animate-spin">refresh</span>
+                    <span>Eliminando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-base">delete_forever</span>
+                    <span>Confirmar y Devolver Stock</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
