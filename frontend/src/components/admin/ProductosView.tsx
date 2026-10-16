@@ -306,7 +306,7 @@ export default function ProductosView({
 
   // Media library picker state
   const [showMediaLib, setShowMediaLib] = useState(false);
-  const [mediaLibImages, setMediaLibImages] = useState<string[]>([]);
+  const [mediaLibImages, setMediaLibImages] = useState<Array<{ url: string; filename: string; mtime?: number }>>([]);
   const [mediaLibLoading, setMediaLibLoading] = useState(false);
   const [mediaLibSearch, setMediaLibSearch] = useState('');
 
@@ -322,12 +322,17 @@ export default function ProductosView({
       });
       if (res.ok) {
         const data = await res.json();
-        // API returns { files: [{url, filename, category, size}] }
+        // API returns { files: [{url, filename, category, size, mtime}] }
         const files = data.files || [];
-        const urls: string[] = files
-          .map((f: any) => (typeof f === 'string' ? f : f.url || ''))
-          .filter((u: string) => Boolean(u) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(u));
-        setMediaLibImages(urls);
+        const imgs: Array<{ url: string; filename: string; mtime?: number }> = files
+          .map((f: any) => ({
+            url: typeof f === 'string' ? f : f.url || '',
+            filename: typeof f === 'string' ? (f.split('/').pop() || '') : (f.filename || f.url?.split('/').pop() || ''),
+            mtime: typeof f === 'object' ? (f.mtime || 0) : 0,
+          }))
+          .filter((obj: { url: string }) => Boolean(obj.url) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(obj.url))
+          .sort((a: { mtime?: number }, b: { mtime?: number }) => (b.mtime || 0) - (a.mtime || 0));
+        setMediaLibImages(imgs);
       }
     } catch (e) {
       // ignore
@@ -1909,8 +1914,8 @@ export default function ProductosView({
                                         setIsUploading(true);
                                         const uploadedUrls: string[] = [];
                                         const uploadEndpoint = apiUrl
-                                            ? `${apiUrl}/api/admin/product-image?subcategory=${encodeURIComponent(editForm.categoryId || 'General')}`
-                                            : `/api/admin/product-image?subcategory=${encodeURIComponent(editForm.categoryId || 'General')}`;
+                                            ? `${apiUrl}/api/admin/product-image`
+                                            : `/api/admin/product-image`;
 
                                         try {
                                             for (const file of files) {
@@ -1928,7 +1933,7 @@ export default function ProductosView({
                                                     if (res.ok) {
                                                         const data = await res.json();
                                                         uploadedUrls.push(data.url);
-                                                        setMediaLibImages(prev => [data.url, ...prev]); // refresh lib cache
+                                                        setMediaLibImages(prev => [{ url: data.url, filename: data.filename || data.url.split('/').pop() || '', mtime: Date.now() }, ...prev]); // refresh lib cache
                                                     } else {
                                                         const errData = await res.json().catch(() => ({}));
                                                         showAlert(`Error al subir ${file.name}: ${errData.detail || res.statusText}`);
@@ -2064,23 +2069,23 @@ export default function ProductosView({
                                         </div>
                                     ) : (() => {
                                         const filtered = mediaLibSearch.trim()
-                                            ? mediaLibImages.filter(u => u.toLowerCase().includes(mediaLibSearch.toLowerCase()))
+                                            ? mediaLibImages.filter(img => img.url.toLowerCase().includes(mediaLibSearch.toLowerCase()) || img.filename.toLowerCase().includes(mediaLibSearch.toLowerCase()))
                                             : mediaLibImages;
                                         return filtered.length === 0 ? (
                                             <div className="text-center py-6 text-xs text-slate-400">Sin resultados para "{mediaLibSearch}"</div>
                                         ) : (
                                             <div className="grid grid-cols-5 gap-2 sm:grid-cols-7">
-                                                {filtered.map((url, i) => {
-                                                    const fullUrl = url.startsWith('http') ? url : (apiUrl ? `${apiUrl}${url}` : url);
-                                                    const alreadyAdded = (editForm.imageUrls || []).includes(url);
+                                                {filtered.map((img, i) => {
+                                                    const fullUrl = img.url.startsWith('http') ? img.url : (apiUrl ? `${apiUrl}${img.url}` : img.url);
+                                                    const alreadyAdded = (editForm.imageUrls || []).includes(img.url);
                                                     return (
                                                         <button
                                                             key={i}
                                                             type="button"
-                                                            title={url.split('/').pop()}
+                                                            title={img.filename || img.url.split('/').pop()}
                                                             onClick={() => {
                                                                 if (!alreadyAdded) {
-                                                                    setEditForm((prev: any) => ({ ...prev, imageUrls: [...(prev.imageUrls || []), url] }));
+                                                                    setEditForm((prev: any) => ({ ...prev, imageUrls: [...(prev.imageUrls || []), img.url] }));
                                                                 }
                                                             }}
                                                             className={`relative group/lib aspect-square rounded-lg overflow-hidden border-2 transition-all ${

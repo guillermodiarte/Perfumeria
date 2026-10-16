@@ -145,12 +145,25 @@ async def upload_image(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Legacy product folders that should all be shown under 'Productos'
+_LEGACY_PRODUCT_CATS = {"avatares", "bodyspray", "labiales", "perfumes", "productos"}
+
+def normalize_category(raw: str) -> str:
+    """Remap old per-product-type folders to the unified 'Productos' category."""
+    lower = raw.lower()
+    if lower == "" or lower == "otros":
+        return "Otros"
+    if lower in _LEGACY_PRODUCT_CATS or lower.startswith("productos/"):
+        return "Productos"
+    # Capitalise first letter for display consistency
+    return raw[0].upper() + raw[1:] if raw else "Otros"
+
 @app.get("/api/admin/media", dependencies=[Depends(get_current_admin)])
 def get_media_library(request: Request, category: str = None):
     try:
         host_url = str(request.base_url).rstrip("/")
         media_files = []
-        categories_set = set(["Avatares", "Banners", "BodySpray", "Fondos", "Iconos", "Imágenes", "Labiales", "Logo", "Otros", "Perfumes"])
+        categories_set = set(["Banners", "Fondos", "Iconos", "Imágenes", "Logo", "Otros", "Productos"])
         seen_rel = set()
 
         # Collect candidate upload folders
@@ -176,7 +189,8 @@ def get_media_library(request: Request, category: str = None):
                 if rel_dir == ".":
                     rel_dir = ""
 
-                cat_for_dir = rel_dir if rel_dir else "Otros"
+                cat_for_dir = normalize_category(rel_dir if rel_dir else "Otros")
+                # Only add normalized categories to the set (no legacy ones)
                 categories_set.add(cat_for_dir)
 
                 for f in files:
@@ -185,22 +199,34 @@ def get_media_library(request: Request, category: str = None):
                     ext = os.path.splitext(f)[1].lower()
                     if ext in allowed_exts:
                         rel_path = f"{rel_dir}/{f}" if rel_dir else f
-                        if rel_path in seen_rel:
-                            continue
-                        seen_rel.add(rel_path)
-
                         full_path = os.path.join(root, f)
                         size_kb = os.path.getsize(full_path) / 1024
                         mtime = os.path.getmtime(full_path)
+                        try:
+                            ctime = os.path.getctime(full_path)
+                            mtime = max(mtime, ctime)
+                        except Exception:
+                            pass
 
                         item_url = f"{host_url}/uploads/{rel_path}"
+
+                        if rel_path in seen_rel:
+                            # If newer copy encountered, update mtime
+                            for existing in media_files:
+                                if existing.get("filename") == f and existing.get("category") == cat_for_dir:
+                                    if mtime > existing.get("_mtime", 0):
+                                        existing["_mtime"] = mtime
+                                        existing["mtime"] = int(mtime * 1000)
+                            continue
+                        seen_rel.add(rel_path)
 
                         media_files.append({
                             "filename": f,
                             "category": cat_for_dir,
                             "url": item_url,
                             "size": f"{size_kb:.2f} KB",
-                            "_mtime": mtime
+                            "_mtime": mtime,
+                            "mtime": int(mtime * 1000)
                         })
 
         # Sort newest first
@@ -248,16 +274,10 @@ async def upload_media_file(request: Request, file: UploadFile = File(...), cate
 
 # --- Dedicated endpoint for product images → uploads/productos/{subcategory}/ ---
 @app.post("/api/admin/product-image", dependencies=[Depends(get_current_admin)])
-async def upload_product_image(request: Request, file: UploadFile = File(...), subcategory: str = "General"):
-    """Upload a product image to uploads/productos/{subcategory}.
-    The subcategory should be the product's categoryId, e.g. 'Remeras y Musculosas'."""
+async def upload_product_image(request: Request, file: UploadFile = File(...)):
+    """Upload a product image to uploads/Productos/ (single unified folder for all products)."""
     try:
-        # Sanitize: strip path traversal but ALLOW spaces and letters
-        safe_sub = subcategory.strip().replace("..", "").replace("/", "").replace("\\", "")
-        if not safe_sub:
-            safe_sub = "General"
-
-        dest_dir = os.path.join(UPLOAD_DIR, "productos", safe_sub)
+        dest_dir = os.path.join(UPLOAD_DIR, "Productos")
         os.makedirs(dest_dir, exist_ok=True)
 
         # Avoid filename collisions with a short timestamp prefix
@@ -270,12 +290,12 @@ async def upload_product_image(request: Request, file: UploadFile = File(...), s
             shutil.copyfileobj(file.file, fo)
 
         host_url = str(request.base_url).rstrip("/")
-        image_url = f"{host_url}/uploads/productos/{safe_sub}/{safe_name}"
+        image_url = f"{host_url}/uploads/Productos/{safe_name}"
         size_kb = os.path.getsize(file_location) / 1024
 
         return {
             "filename": safe_name,
-            "category": f"productos/{safe_sub}",
+            "category": "Productos",
             "url": image_url,
             "size": f"{size_kb:.2f} KB"
         }

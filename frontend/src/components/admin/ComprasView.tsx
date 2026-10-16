@@ -201,9 +201,11 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
             const url = typeof f === 'string' ? f : f.url || '';
             const filename = typeof f === 'string' ? f.split('/').pop() || '' : f.filename || url.split('/').pop() || '';
             const category = typeof f === 'object' ? f.category : '';
-            return { url, filename, category };
+            const mtime = typeof f === 'object' ? (f.mtime || 0) : 0;
+            return { url, filename, category, mtime };
           })
-          .filter(f => Boolean(f.url) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(f.url));
+          .filter(f => Boolean(f.url) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(f.url))
+          .sort((a: any, b: any) => (b.mtime || 0) - (a.mtime || 0));
         setMediaLibImages(validImgs);
         if (Array.isArray(data.categories)) {
           setMediaLibCategories(data.categories);
@@ -1206,15 +1208,15 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                             if (!token) { showAlert('Sin credenciales de administrador.'); return; }
                             updateProduct(pIdx, '_uploading', true); const uploadedUrls: string[] = [];
                             const uploadEndpoint = apiUrl
-                              ? `${apiUrl}/api/admin/product-image?subcategory=${encodeURIComponent(prod.categoryId || 'General')}`
-                              : `/api/admin/product-image?subcategory=${encodeURIComponent(prod.categoryId || 'General')}`;
+                              ? `${apiUrl}/api/admin/product-image`
+                              : `/api/admin/product-image`;
                             for (const file of files) {
                               const fd = new FormData(); fd.append('file', file);
                               try { const r = await fetch(uploadEndpoint, { method: 'POST', headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }, body: fd }); if (r.ok) { const d = await r.json(); uploadedUrls.push(d.url); } else showAlert(`Error subiendo ${file.name}`); } catch { showAlert(`Error de red`); }
                             }
                             updateProduct(pIdx, 'newProductImageUrls', [...(prod.newProductImageUrls || []), ...uploadedUrls]);
                             setMediaLibImages(prev => [
-                              ...uploadedUrls.map(u => ({ url: u, filename: u.split('/').pop() || '', category: prod.categoryId || 'General' })),
+                              ...uploadedUrls.map(u => ({ url: u, filename: u.split('/').pop() || '', category: 'Productos' })),
                               ...prev
                             ]);
                             updateProduct(pIdx, '_uploading', false); e.target.value = '';

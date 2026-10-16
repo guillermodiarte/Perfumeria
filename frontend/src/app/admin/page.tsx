@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
+import { useStockFlowStore } from '@/store/useStockStore';
 import ProductosView from '@/components/admin/ProductosView';
 import DashboardView from '@/components/admin/DashboardView';
 import SeccionesView from '@/components/admin/SeccionesView';
@@ -100,6 +101,92 @@ export default function AdminDashboard() {
   const [mediaCategories, setMediaCategories] = useState<string[]>([]);
   const [selectedMediaCategory, setSelectedMediaCategory] = useState<string>('');
   const [mediaSearch, setMediaSearch] = useState('');
+  const [mediaUsageFilter, setMediaUsageFilter] = useState<'all' | 'used' | 'unused'>('all');
+
+  const storeProducts = useStockFlowStore(s => s.products);
+  const activeProducts = useMemo(() => {
+    return (storeProducts && storeProducts.length > 0) ? storeProducts : products;
+  }, [storeProducts, products]);
+
+  // Helper to normalize image URLs for accurate matching
+  const normalizeMediaUrl = (p?: string): string => {
+    if (!p) return '';
+    let clean = p.replace(/^https?:\/\/[^\/]+/i, '');
+    clean = clean.replace(/^\/+/, '');
+    clean = clean.replace(/^uploads\//i, '');
+    return clean.toLowerCase().trim();
+  };
+
+  // Map of normalized path and filename to product names using the image
+  const usedImagesMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+
+    for (const prod of activeProducts) {
+      if (!prod.imageUrls || !Array.isArray(prod.imageUrls)) continue;
+      for (const rawUrl of prod.imageUrls) {
+        if (!rawUrl || typeof rawUrl !== 'string') continue;
+        const norm = normalizeMediaUrl(rawUrl);
+        const fname = norm.split('/').pop() || '';
+        const pName = prod.name || 'Producto sin nombre';
+
+        if (norm) {
+          const list = map.get(norm) || [];
+          if (!list.includes(pName)) list.push(pName);
+          map.set(norm, list);
+        }
+        if (fname) {
+          const list = map.get(fname) || [];
+          if (!list.includes(pName)) list.push(pName);
+          map.set(fname, list);
+        }
+      }
+    }
+    return map;
+  }, [activeProducts]);
+
+  const checkImageUsage = (file: { url: string; filename: string }) => {
+    const norm = normalizeMediaUrl(file.url);
+    const fname = (file.filename || '').toLowerCase().trim();
+    const prods = (norm ? usedImagesMap.get(norm) : undefined) || (fname ? usedImagesMap.get(fname) : undefined);
+    return {
+      isUsed: Boolean(prods && prods.length > 0),
+      usedIn: prods || []
+    };
+  };
+
+  const mediaUsageCounts = useMemo(() => {
+    let used = 0;
+    let unused = 0;
+    for (const f of mediaFiles) {
+      if (!f || f.filename?.startsWith('.')) continue;
+      const { isUsed } = checkImageUsage(f);
+      if (isUsed) used++;
+      else unused++;
+    }
+    return { total: used + unused, used, unused };
+  }, [mediaFiles, usedImagesMap]);
+
+  const filteredMediaFiles = useMemo(() => {
+    return mediaFiles
+      .filter(f => !f.filename?.startsWith('.'))
+      .filter(f => {
+        if (mediaSearch.trim()) {
+          const q = mediaSearch.toLowerCase();
+          const matchesName = f.filename?.toLowerCase().includes(q);
+          const matchesCat = (f.category || '').toLowerCase().includes(q);
+          if (!matchesName && !matchesCat) return false;
+        }
+        if (mediaUsageFilter === 'used') {
+          return checkImageUsage(f).isUsed;
+        }
+        if (mediaUsageFilter === 'unused') {
+          return !checkImageUsage(f).isUsed;
+        }
+        return true;
+      })
+      .sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  }, [mediaFiles, mediaSearch, mediaUsageFilter, usedImagesMap]);
+
   const [deleteConfirmParams, setDeleteConfirmParams] = useState<{ category: string, filename: string } | null>(null);
   const [isExportingMedia, setIsExportingMedia] = useState(false);
   const [isImportingMedia, setIsImportingMedia] = useState(false);
@@ -367,8 +454,9 @@ export default function AdminDashboard() {
       });
       if (res.ok) {
         const data = await res.json();
+        const files = (data.files || []).slice().sort((a: any, b: any) => (b.mtime || 0) - (a.mtime || 0));
         setMediaCategories(data.categories);
-        setMediaFiles(data.files);
+        setMediaFiles(files);
       }
     } catch (e) {
       console.error(e);
@@ -1109,35 +1197,117 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Toolbar */}
-                <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
-                  <div className="relative w-full md:w-80">
-                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-                    <input
-                      type="text"
-                      value={mediaSearch}
-                      onChange={e => setMediaSearch(e.target.value)}
-                      placeholder="Buscar archivos..."
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary/20 outline-none text-slate-900 dark:text-white text-sm"
-                    />
+                <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                  <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-1">
+                    {/* Search */}
+                    <div className="relative w-full sm:w-72">
+                      <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+                      <input
+                        type="text"
+                        value={mediaSearch}
+                        onChange={e => setMediaSearch(e.target.value)}
+                        placeholder="Buscar archivos..."
+                        className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary/20 outline-none text-slate-900 dark:text-white text-xs sm:text-sm"
+                      />
+                    </div>
+
+                    {/* Filtro de Uso: Todas / En uso / Sin usar */}
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setMediaUsageFilter('all')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          mediaUsageFilter === 'all'
+                            ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <span>Todas</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">{mediaUsageCounts.total}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaUsageFilter('used')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          mediaUsageFilter === 'used'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                        <span>En uso</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${mediaUsageFilter === 'used' ? 'bg-emerald-700/80 text-white' : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-200'}`}>{mediaUsageCounts.used}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaUsageFilter('unused')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          mediaUsageFilter === 'unused'
+                            ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400'
+                            : 'text-amber-700 dark:text-amber-400 hover:bg-amber-100/60 dark:hover:bg-amber-950/40'
+                        }`}
+                        title="Ver imágenes cargadas que no están asignadas a ningún producto"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">hide_image</span>
+                        <span>Sin usar</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${mediaUsageFilter === 'unused' ? 'bg-amber-800/80 text-white' : 'bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100'}`}>{mediaUsageCounts.unused}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Category Pills */}
-                  <div className="flex overflow-x-auto gap-2 w-full md:w-auto pb-2 md:pb-0 custom-scrollbar">
+                  <div className="flex overflow-x-auto gap-2 max-w-full pb-2 lg:pb-0 custom-scrollbar">
                     <button
                       onClick={() => { setSelectedMediaCategory(''); fetchMedia(''); }}
-                      className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${selectedMediaCategory === '' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${selectedMediaCategory === '' ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
                       Todo
                     </button>
                     {mediaCategories.map(cat => (
                       <button
                         key={cat}
                         onClick={() => { setSelectedMediaCategory(cat); fetchMedia(cat); }}
-                        className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${selectedMediaCategory === cat ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${selectedMediaCategory === cat ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
                         {cat}
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {/* Banner de imágenes sin usar */}
+                {mediaUsageFilter === 'unused' && (
+                  <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 dark:text-amber-200 animate-in fade-in duration-200">
+                    <div className="flex items-center gap-3">
+                      <div className="size-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-md">
+                        <span className="material-symbols-outlined text-2xl">hide_image</span>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-black text-amber-900 dark:text-amber-100">
+                            {mediaUsageCounts.unused === 0 ? 'Sin imágenes huérfanas' : `${mediaUsageCounts.unused} imagen(es) sin usar en productos`}
+                          </h4>
+                          <span className="text-[10px] bg-amber-200 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-bold px-2 py-0.5 rounded-full">
+                            Ordenadas: Más recientes primero
+                          </span>
+                        </div>
+                        <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">
+                          {mediaUsageCounts.unused === 0
+                            ? 'Todas las fotos de la biblioteca se encuentran asignadas al menos a un producto.'
+                            : 'Estas fotos fueron cargadas a la biblioteca pero no están asignadas a ningún producto del catálogo. Podés usarlas al cargar compras o productos, o eliminarlas para liberar almacenamiento.'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    {filteredMediaFiles.length > 0 && (
+                      <button
+                        onClick={() => handleSelectAllMedia(filteredMediaFiles)}
+                        className="shrink-0 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm hover:shadow"
+                      >
+                        <span className="material-symbols-outlined text-base">select_all</span>
+                        Seleccionar todas las sin usar
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Bulk-select toolbar – only visible when items are selected */}
                 {selectedMediaFiles.length > 0 && (
@@ -1169,112 +1339,149 @@ export default function AdminDashboard() {
                 )}
 
                 {/* Select-all row */}
-                {mediaFiles.filter(f => !f.filename.startsWith('.') && f.filename.toLowerCase().includes(mediaSearch.toLowerCase())).length > 0 && (
-                  <div className="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+                {filteredMediaFiles.length > 0 && (
+                  <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                     <button
-                      onClick={() => handleSelectAllMedia(mediaFiles.filter(f => !f.filename.startsWith('.') && f.filename.toLowerCase().includes(mediaSearch.toLowerCase())))}
+                      onClick={() => handleSelectAllMedia(filteredMediaFiles)}
                       className="flex items-center gap-2 hover:text-primary transition-colors font-semibold"
                     >
                       <span className="material-symbols-outlined text-lg">
-                        {mediaFiles.filter(f => !f.filename.startsWith('.') && f.filename.toLowerCase().includes(mediaSearch.toLowerCase())).every(vf => isMediaSelected(vf.category, vf.filename))
+                        {filteredMediaFiles.every(vf => isMediaSelected(vf.category, vf.filename))
                           ? 'check_box'
                           : 'check_box_outline_blank'
                         }
                       </span>
-                      Seleccionar todos
+                      Seleccionar todos ({filteredMediaFiles.length})
                     </button>
+                    <span className="text-[11px] font-medium text-slate-400">
+                      Organizado por fecha de carga: <strong>más recientes primero</strong>
+                    </span>
                   </div>
                 )}
 
                 {/* Grid de Archivos */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                  {mediaFiles.filter(f => !f.filename.startsWith('.') && f.filename.toLowerCase().includes(mediaSearch.toLowerCase())).map((file, idx) => (
-                    <div key={idx} className={`bg-white dark:bg-slate-800 rounded-2xl border overflow-hidden group shadow-sm hover:shadow-md transition-all relative cursor-pointer ${isMediaSelected(file.category, file.filename) ? 'border-primary ring-2 ring-primary/40' : 'border-slate-200 dark:border-slate-700'}`}>
-                      {/* Preview */}
-                      <div className="aspect-square bg-slate-100 dark:bg-slate-900 relative flex items-center justify-center overflow-hidden">
-                        {file.filename.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                          <img src={file.url} alt={file.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                        ) : file.filename.match(/\.(mp4|webm)$/i) ? (
-                          <div className="w-full h-full relative">
-                            <video src={file.url} className="w-full h-full object-cover"></video>
-                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center"><span className="material-symbols-outlined text-white text-4xl drop-shadow-lg">play_circle</span></div>
-                          </div>
-                        ) : (
-                          <span className="material-symbols-outlined text-4xl text-slate-300">draft</span>
-                        )}
+                  {filteredMediaFiles.map((file, idx) => {
+                    const usage = checkImageUsage(file);
+                    return (
+                      <div key={idx} className={`bg-white dark:bg-slate-800 rounded-2xl border overflow-hidden group shadow-sm hover:shadow-md transition-all relative cursor-pointer ${isMediaSelected(file.category, file.filename) ? 'border-primary ring-2 ring-primary/40' : 'border-slate-200 dark:border-slate-700'}`}>
+                        {/* Preview */}
+                        <div className="aspect-square bg-slate-100 dark:bg-slate-900 relative flex items-center justify-center overflow-hidden">
+                          {file.filename.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                            <img src={file.url} alt={file.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                          ) : file.filename.match(/\.(mp4|webm)$/i) ? (
+                            <div className="w-full h-full relative">
+                              <video src={file.url} className="w-full h-full object-cover"></video>
+                              <div className="absolute inset-0 bg-black/20 flex items-center justify-center"><span className="material-symbols-outlined text-white text-4xl drop-shadow-lg">play_circle</span></div>
+                            </div>
+                          ) : (
+                            <span className="material-symbols-outlined text-4xl text-slate-300">draft</span>
+                          )}
 
-                        {/* Checkbox – always visible if selected, appears on hover otherwise */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleSelectMediaFile({ category: file.category, filename: file.filename, url: file.url }); }}
-                          className={`absolute top-2 right-2 z-20 size-7 rounded-full flex items-center justify-center transition-all shadow ${
-                            isMediaSelected(file.category, file.filename)
-                              ? 'bg-primary text-white opacity-100'
-                              : 'bg-white/80 text-slate-600 opacity-0 group-hover:opacity-100'
-                          }`}
-                          title={isMediaSelected(file.category, file.filename) ? 'Deseleccionar' : 'Seleccionar'}
-                        >
-                          <span className="material-symbols-outlined text-sm">
-                            {isMediaSelected(file.category, file.filename) ? 'check' : 'check_box_outline_blank'}
-                          </span>
-                        </button>
+                          {/* Checkbox – always visible if selected, appears on hover otherwise */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleSelectMediaFile({ category: file.category, filename: file.filename, url: file.url }); }}
+                            className={`absolute top-2 right-2 z-20 size-7 rounded-full flex items-center justify-center transition-all shadow ${
+                              isMediaSelected(file.category, file.filename)
+                                ? 'bg-primary text-white opacity-100'
+                                : 'bg-white/80 text-slate-600 opacity-0 group-hover:opacity-100'
+                            }`}
+                            title={isMediaSelected(file.category, file.filename) ? 'Deseleccionar' : 'Seleccionar'}
+                          >
+                            <span className="material-symbols-outlined text-sm">
+                              {isMediaSelected(file.category, file.filename) ? 'check' : 'check_box_outline_blank'}
+                            </span>
+                          </button>
 
-                        {/* Hover Overlay */}
-                        <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 backdrop-blur-sm p-4">
-                          <div className="flex gap-2">
-                            <button onClick={() => { navigator.clipboard.writeText(file.url); showAlert("URL Copiada"); }} className="size-10 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-colors tooltip" title="Copiar URL">
-                              <span className="material-symbols-outlined text-lg">content_copy</span>
-                            </button>
-                            {currentAdminRole === 'super_admin' && (
-                              <button onClick={() => handleDeleteMedia(file.category, file.filename)} className="size-10 rounded-full bg-red-500/80 hover:bg-red-500 text-white flex items-center justify-center transition-colors tooltip" title="Eliminar">
-                                <span className="material-symbols-outlined text-lg">delete</span>
+                          {/* Hover Overlay */}
+                          <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 backdrop-blur-sm p-4 z-10">
+                            <div className="flex gap-2">
+                              <button onClick={() => { navigator.clipboard.writeText(file.url); showAlert("URL Copiada"); }} className="size-10 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-colors tooltip" title="Copiar URL">
+                                <span className="material-symbols-outlined text-lg">content_copy</span>
                               </button>
+                              {currentAdminRole === 'super_admin' && (
+                                <button onClick={() => handleDeleteMedia(file.category, file.filename)} className="size-10 rounded-full bg-red-500/80 hover:bg-red-500 text-white flex items-center justify-center transition-colors tooltip" title="Eliminar">
+                                  <span className="material-symbols-outlined text-lg">delete</span>
+                                </button>
+                              )}
+                            </div>
+                            {currentAdminRole === 'super_admin' && (
+                              <select
+                                className="w-full text-center h-8 rounded-lg bg-white/20 hover:bg-white/40 text-white outline-none cursor-pointer text-xs font-bold appearance-none px-2"
+                                value=""
+                                onChange={(e) => { if (e.target.value) handleMoveMedia(file.category, file.filename, e.target.value); }}
+                              >
+                                <option value="" disabled className="text-black bg-white">Mover a...</option>
+                                {mediaCategories.filter(c => c !== file.category).map(c =>
+                                  <option key={c} value={c} className="text-black bg-white">{c}</option>
+                                )}
+                              </select>
                             )}
                           </div>
-                          {currentAdminRole === 'super_admin' && (
-                            <select
-                              className="w-full text-center h-8 rounded-lg bg-white/20 hover:bg-white/40 text-white outline-none cursor-pointer text-xs font-bold appearance-none px-2"
-                              value=""
-                              onChange={(e) => { if (e.target.value) handleMoveMedia(file.category, file.filename, e.target.value); }}
-                            >
-                              <option value="" disabled className="text-black bg-white">Mover a...</option>
-                              {mediaCategories.filter(c => c !== file.category).map(c =>
-                                <option key={c} value={c} className="text-black bg-white">{c}</option>
-                              )}
-                            </select>
-                          )}
+
+                          {/* Category Badge (Top Left) */}
+                          <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded border border-white/10 text-[10px] font-bold text-white tracking-wide z-10">
+                            {file.category}
+                          </div>
+
+                          {/* Status Badge: En uso vs Sin usar (Bottom Left) */}
+                          <div className="absolute bottom-2 left-2 z-10 pointer-events-auto">
+                            {usage.isUsed ? (
+                              <span
+                                className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-600/90 text-white backdrop-blur-md flex items-center gap-1 shadow"
+                                title={`Usada en ${usage.usedIn.length} producto(s):\n• ${usage.usedIn.join('\n• ')}`}
+                              >
+                                <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                                En uso ({usage.usedIn.length})
+                              </span>
+                            ) : (
+                              <span
+                                className="px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-500/95 text-white backdrop-blur-md flex items-center gap-1 shadow ring-1 ring-amber-300"
+                                title="Sin usar: Esta imagen se subió a biblioteca pero no está asignada a ningún producto"
+                              >
+                                <span className="material-symbols-outlined text-[12px]">hide_image</span>
+                                Sin usar
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Category Badge */}
-                        <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/50 backdrop-blur-md rounded border border-white/10 text-[10px] font-bold text-white tracking-wide">
-                          {file.category}
+                        {/* Footer Details */}
+                        <div className="p-3">
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate" title={file.filename}>{file.filename}</p>
+                          <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                            <span>{file.size}</span>
+                            {file.mtime && (
+                              <span title={`Cargada el ${new Date(file.mtime).toLocaleString('es-AR')}`}>
+                                {new Date(file.mtime).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
+                    );
+                  })}
 
-                      {/* Footer Details */}
-                      <div className="p-3">
-                        <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate" title={file.filename}>{file.filename}</p>
-                        <div className="flex items-center justify-between mt-1">
-                          <span className="text-[10px] text-slate-400 font-medium">{file.size}</span>
-                        </div>
+                  {filteredMediaFiles.length === 0 && !loading && (
+                    <div className="col-span-full py-16 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-6 flex flex-col items-center justify-center">
+                      <div className="size-16 mx-auto bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-400 mb-4">
+                        <span className="material-symbols-outlined text-3xl">
+                          {mediaUsageFilter === 'unused' ? 'check_circle' : 'photo_library'}
+                        </span>
                       </div>
+                      <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">
+                        {mediaUsageFilter === 'unused'
+                          ? '¡Todas las fotos están en uso!'
+                          : mediaSearch.trim()
+                          ? `No hay archivos que coincidan con "${mediaSearch}"`
+                          : 'No hay archivos en esta categoría'}
+                      </h3>
+                      <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">
+                        {mediaUsageFilter === 'unused'
+                          ? 'No hay ninguna imagen cargada que esté sin usar en productos.'
+                          : 'Subí archivos con el botón "Agregar Archivos" o arrástralos aquí.'}
+                      </p>
                     </div>
-                  ))}
-                  {mediaFiles.length === 0 && !loading && (
-                    <label className="col-span-full py-16 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-primary/50 transition-colors cursor-pointer flex flex-col items-center justify-center p-6 group">
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/*,video/*,.pdf"
-                        className="hidden"
-                        disabled={isUploadingMedia}
-                        onChange={handleMediaUpload}
-                      />
-                      <div className="size-16 mx-auto bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors mb-4">
-                        <span className="material-symbols-outlined text-3xl">upload_file</span>
-                      </div>
-                      <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">No hay archivos en esta categoría</h3>
-                      <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Haz clic aquí o pulsa "Agregar Archivos" para seleccionar varias imágenes o arrástralas directamente.</p>
-                    </label>
                   )}
                 </div>
               </div>

@@ -88,7 +88,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
       });
       if (res.ok) {
         const data = await res.json();
-        const files = data.files || [];
+        const files: any[] = (data.files || []).slice().sort((a: any, b: any) => (b.mtime || 0) - (a.mtime || 0));
         const urls: string[] = files
           .map((f: any) => (typeof f === 'string' ? f : f.url || ''))
           .filter((u: string) => Boolean(u) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(u));
@@ -1446,7 +1446,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
       const res = await fetch(`/api/admin/media`, { headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` } });
       if (res.ok) {
         const data = await res.json();
-        const files = data.files || [];
+        const files: any[] = (data.files || []).slice().sort((a: any, b: any) => (b.mtime || 0) - (a.mtime || 0));
         const urls: string[] = files
           .map((f: any) => (typeof f === 'string' ? f : f.url || ''))
           .filter((u: string) => Boolean(u) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(u));
@@ -1740,7 +1740,7 @@ export default function SeccionesView({ apiKey, apiUrl, showAlert }: { apiKey: s
         });
         if (res.ok) {
           const data = await res.json();
-          const files = data.files || [];
+          const files: any[] = (data.files || []).slice().sort((a: any, b: any) => (b.mtime || 0) - (a.mtime || 0));
           const urls: string[] = files
             .map((f: any) => (typeof f === 'string' ? f : f.url || ''))
             .filter((u: string) => Boolean(u) && /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i.test(u));

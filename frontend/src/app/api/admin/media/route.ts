@@ -11,6 +11,17 @@ const ALLOWED_EXTS = new Set([
   '.mp4', '.webm', '.pdf'
 ]);
 
+// Legacy product folders and any path starting with 'productos/' are
+// all remapped to the unified 'Productos' category.
+const LEGACY_PRODUCT_CATS = new Set(['avatares', 'bodyspray', 'labiales', 'perfumes', 'productos']);
+function normalizeCategory(rawCat: string): string {
+  const lower = rawCat.toLowerCase();
+  if (lower === '' || lower === 'otros') return 'Otros'; // root files
+  if (LEGACY_PRODUCT_CATS.has(lower) || lower.startsWith('productos/')) return 'Productos';
+  // Capitalise first letter to keep consistent display
+  return rawCat.charAt(0).toUpperCase() + rawCat.slice(1);
+}
+
 // Helper to recursively walk a directory and gather all files
 function walkDirectory(baseDir: string, currentRelDir = ''): Array<{
   filename: string;
@@ -49,14 +60,16 @@ function walkDirectory(baseDir: string, currentRelDir = ''): Array<{
           try {
             const stat = fs.statSync(fullPath);
             const sizeKb = (stat.size / 1024).toFixed(2);
-            const category = currentRelDir ? currentRelDir.replace(/\\/g, '/') : 'Otros';
+            const rawCategory = currentRelDir ? currentRelDir.replace(/\\/g, '/') : 'Otros';
+            const category = normalizeCategory(rawCategory);
+            const mtimeMs = Math.max(stat.mtimeMs || 0, stat.birthtimeMs || 0, stat.ctimeMs || 0);
             result.push({
               filename: entry.name,
               category,
               relPath: normalizedRelPath,
               url: `/uploads/${normalizedRelPath}`,
               sizeKb: `${sizeKb} KB`,
-              mtimeMs: stat.mtimeMs,
+              mtimeMs,
             });
           } catch {}
         }
@@ -78,7 +91,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const filterCategory = searchParams.get('category');
 
-    const defaultCats = ['Avatares', 'Banners', 'BodySpray', 'Fondos', 'Iconos', 'Imágenes', 'Labiales', 'Logo', 'Otros', 'Perfumes'];
+    const defaultCats = ['Banners', 'Fondos', 'Iconos', 'Imágenes', 'Logo', 'Otros', 'Productos'];
     const primaryUploadDir = getUploadDir();
     for (const cat of defaultCats) {
       const p = path.join(primaryUploadDir, cat);
@@ -86,14 +99,13 @@ export async function GET(req: NextRequest) {
     }
 
     const uploadDirs = getAllUploadDirs();
-    const seenRelPaths = new Set<string>();
-    const allFiles: Array<{
+    const seenMap = new Map<string, {
       filename: string;
       category: string;
       url: string;
       size: string;
-      mtimeMs: number;
-    }> = [];
+      mtime: number;
+    }>();
 
     const categoriesSet = new Set<string>(defaultCats);
 
@@ -101,22 +113,23 @@ export async function GET(req: NextRequest) {
     for (const baseDir of uploadDirs) {
       const dirFiles = walkDirectory(baseDir);
       for (const item of dirFiles) {
-        if (!seenRelPaths.has(item.relPath)) {
-          seenRelPaths.add(item.relPath);
-          categoriesSet.add(item.category);
-          allFiles.push({
+        categoriesSet.add(item.category);
+        const existing = seenMap.get(item.relPath);
+        if (!existing || item.mtimeMs > existing.mtime) {
+          seenMap.set(item.relPath, {
             filename: item.filename,
             category: item.category,
             url: item.url,
             size: item.sizeKb,
-            mtimeMs: item.mtimeMs,
+            mtime: item.mtimeMs,
           });
         }
       }
     }
 
-    // Sort newest first
-    allFiles.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const allFiles = Array.from(seenMap.values());
+    // Sort newest first unconditionally
+    allFiles.sort((a, b) => b.mtime - a.mtime);
 
     const categories = Array.from(categoriesSet).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
@@ -132,11 +145,12 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       categories,
-      files: filteredFiles.map(({ filename, category, url, size }) => ({
+      files: filteredFiles.map(({ filename, category, url, size, mtime }) => ({
         filename,
         category,
         url,
         size,
+        mtime,
       })),
     });
   } catch (error: any) {
