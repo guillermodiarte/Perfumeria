@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useStockFlowStore } from '@/store/useStockStore';
 import { generateTicketPDF, createTicketDoc } from '@/utils/generateTicket';
 
@@ -68,6 +68,17 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const [isDraftLoaded, setIsDraftLoaded] = useState(false);
   const DRAFT_VENTAS_KEY = 'lyg_draft_venta';
 
+  // Estados para borrador compartido en la nube
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [draftUpdatedAt, setDraftUpdatedAt] = useState<string | null>(null);
+  const [draftUpdatedBy, setDraftUpdatedBy] = useState<string | null>(null);
+  const [isSyncingServerDraft, setIsSyncingServerDraft] = useState(false);
+
+  // Helper para obtener token de autenticación
+  const getAuthToken = useCallback(() => {
+    return apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') || localStorage.getItem('admin_api_key') || '' : '');
+  }, [apiKey]);
+
   // Cargar clientes registrados para autocompletado y detección de tipo de cuenta
   useEffect(() => {
     const fetchCustomers = async () => {
@@ -103,55 +114,184 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     clientType !== 'normal'
   );
 
-  // Cargar borrador persistido al montar
-  useEffect(() => {
+  // Consulta el borrador compartido desde el servidor
+  const fetchServerDraft = useCallback(async (isManual = false) => {
     try {
-      const saved = localStorage.getItem(DRAFT_VENTAS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.clientName !== undefined) setClientName(parsed.clientName);
-        if (parsed.clientPhone !== undefined) setClientPhone(parsed.clientPhone);
-        if (parsed.clientEmail !== undefined) setClientEmail(parsed.clientEmail);
-        if (parsed.clientType !== undefined) setClientType(parsed.clientType);
-        if (parsed.customUnitPriceInput !== undefined) setCustomUnitPriceInput(parsed.customUnitPriceInput);
-        if (Array.isArray(parsed.cart)) setCart(parsed.cart);
-        if (parsed.selectedParentCategory !== undefined) setSelectedParentCategory(parsed.selectedParentCategory);
-        if (parsed.selectedCategory !== undefined) setSelectedCategory(parsed.selectedCategory);
-        if (parsed.selectedProductId !== undefined) setSelectedProductId(parsed.selectedProductId);
-        if (parsed.productSearchText !== undefined) setProductSearchText(parsed.productSearchText);
+      if (isManual) setIsSyncingServerDraft(true);
+      const token = getAuthToken();
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/sales/draft` : '/api/admin/sales/draft';
+      const res = await fetch(endpoint, {
+        headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.draft) {
+          const parsed = data.draft;
+          if (parsed.clientName !== undefined) setClientName(parsed.clientName);
+          if (parsed.clientPhone !== undefined) setClientPhone(parsed.clientPhone);
+          if (parsed.clientEmail !== undefined) setClientEmail(parsed.clientEmail);
+          if (parsed.clientType !== undefined) setClientType(parsed.clientType);
+          if (parsed.customUnitPriceInput !== undefined) setCustomUnitPriceInput(parsed.customUnitPriceInput);
+          if (Array.isArray(parsed.cart)) setCart(parsed.cart);
+          if (parsed.selectedParentCategory !== undefined) setSelectedParentCategory(parsed.selectedParentCategory);
+          if (parsed.selectedCategory !== undefined) setSelectedCategory(parsed.selectedCategory);
+          if (parsed.selectedProductId !== undefined) setSelectedProductId(parsed.selectedProductId);
+          if (parsed.productSearchText !== undefined) setProductSearchText(parsed.productSearchText);
+
+          try {
+            localStorage.setItem(DRAFT_VENTAS_KEY, JSON.stringify(parsed));
+          } catch {}
+          if (data.updated_at) setDraftUpdatedAt(data.updated_at);
+          if (data.updated_by) setDraftUpdatedBy(data.updated_by);
+          setCloudSyncStatus('saved');
+          if (isManual) showAlert('✅ Borrador compartido de venta sincronizado correctamente.');
+          return true;
+        } else {
+          return false;
+        }
       }
     } catch (e) {
-      console.error('Error al cargar borrador de venta:', e);
+      console.error('Error al consultar borrador de venta del servidor:', e);
+      if (isManual) showAlert('⚠️ No se pudo conectar al servidor para sincronizar.');
     } finally {
-      setIsDraftLoaded(true);
+      if (isManual) setIsSyncingServerDraft(false);
     }
-  }, []);
+    return false;
+  }, [apiUrl, getAuthToken, showAlert]);
 
-  // Guardar borrador automáticamente al cambiar datos
+  // Guarda el borrador en el servidor
+  const saveServerDraft = useCallback(async (draftData: any) => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/sales/draft` : '/api/admin/sales/draft';
+      setCloudSyncStatus('saving');
+      const res = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': token,
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ draft: draftData })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCloudSyncStatus('saved');
+        if (data.updated_at) setDraftUpdatedAt(data.updated_at);
+        if (data.updated_by) setDraftUpdatedBy(data.updated_by);
+      } else {
+        setCloudSyncStatus('error');
+      }
+    } catch (e) {
+      console.error('Error al guardar borrador de venta en el servidor:', e);
+      setCloudSyncStatus('error');
+    }
+  }, [apiUrl, getAuthToken]);
+
+  // Elimina el borrador del servidor
+  const clearServerDraft = useCallback(async () => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/sales/draft` : '/api/admin/sales/draft';
+      await fetch(endpoint, {
+        method: 'DELETE',
+        headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }
+      });
+    } catch (e) {
+      console.error('Error al eliminar borrador de venta del servidor:', e);
+    }
+  }, [apiUrl, getAuthToken]);
+
+  // Cargar borrador al montar: primero local para respuesta rápida, luego servidor para datos compartidos
+  useEffect(() => {
+    let isMounted = true;
+    const initDraft = async () => {
+      let localDraft: any = null;
+      try {
+        const saved = localStorage.getItem(DRAFT_VENTAS_KEY);
+        if (saved) {
+          localDraft = JSON.parse(saved);
+          if (localDraft.clientName !== undefined) setClientName(localDraft.clientName);
+          if (localDraft.clientPhone !== undefined) setClientPhone(localDraft.clientPhone);
+          if (localDraft.clientEmail !== undefined) setClientEmail(localDraft.clientEmail);
+          if (localDraft.clientType !== undefined) setClientType(localDraft.clientType);
+          if (localDraft.customUnitPriceInput !== undefined) setCustomUnitPriceInput(localDraft.customUnitPriceInput);
+          if (Array.isArray(localDraft.cart)) setCart(localDraft.cart);
+          if (localDraft.selectedParentCategory !== undefined) setSelectedParentCategory(localDraft.selectedParentCategory);
+          if (localDraft.selectedCategory !== undefined) setSelectedCategory(localDraft.selectedCategory);
+          if (localDraft.selectedProductId !== undefined) setSelectedProductId(localDraft.selectedProductId);
+          if (localDraft.productSearchText !== undefined) setProductSearchText(localDraft.productSearchText);
+        }
+      } catch (e) {
+        console.error('Error al cargar borrador local de venta:', e);
+      }
+
+      // Sincronizar con el servidor
+      const foundOnServer = await fetchServerDraft(false);
+
+      // Si no había en el servidor pero sí local, respaldarlo al servidor para que el otro admin lo vea
+      if (!foundOnServer && localDraft && isMounted) {
+        saveServerDraft(localDraft);
+      }
+
+      if (isMounted) {
+        setIsDraftLoaded(true);
+      }
+    };
+
+    initDraft();
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchServerDraft, saveServerDraft]);
+
+  // Guardar borrador automáticamente al cambiar datos con debounce
   useEffect(() => {
     if (!isDraftLoaded) return;
-    try {
-      if (hasDraftData) {
-        const draft = {
-          clientName,
-          clientPhone,
-          clientEmail,
-          clientType,
-          customUnitPriceInput,
-          cart,
-          selectedParentCategory,
-          selectedCategory,
-          selectedProductId,
-          productSearchText,
-        };
-        localStorage.setItem(DRAFT_VENTAS_KEY, JSON.stringify(draft));
-      } else {
-        localStorage.removeItem(DRAFT_VENTAS_KEY);
+    const timer = setTimeout(() => {
+      try {
+        if (hasDraftData) {
+          const draft = {
+            clientName,
+            clientPhone,
+            clientEmail,
+            clientType,
+            customUnitPriceInput,
+            cart,
+            selectedParentCategory,
+            selectedCategory,
+            selectedProductId,
+            productSearchText,
+          };
+          localStorage.setItem(DRAFT_VENTAS_KEY, JSON.stringify(draft));
+          saveServerDraft(draft);
+        } else {
+          localStorage.removeItem(DRAFT_VENTAS_KEY);
+          clearServerDraft();
+          setCloudSyncStatus('idle');
+          setDraftUpdatedAt(null);
+          setDraftUpdatedBy(null);
+        }
+      } catch (e) {
+        console.error('Error al guardar borrador de venta:', e);
       }
-    } catch (e) {
-      console.error('Error al guardar borrador de venta:', e);
-    }
-  }, [isDraftLoaded, hasDraftData, clientName, clientPhone, clientEmail, clientType, customUnitPriceInput, cart, selectedParentCategory, selectedCategory, selectedProductId, productSearchText]);
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [isDraftLoaded, hasDraftData, clientName, clientPhone, clientEmail, clientType, customUnitPriceInput, cart, selectedParentCategory, selectedCategory, selectedProductId, productSearchText, saveServerDraft, clearServerDraft]);
+
+  // Si el usuario vuelve a enfocar la ventana o navegador, comprobar cambios del servidor
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      if (isDraftLoaded) {
+        fetchServerDraft(false);
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+    return () => window.removeEventListener('focus', handleWindowFocus);
+  }, [isDraftLoaded, fetchServerDraft]);
 
   // Limpiar y resetear venta
   const handleClearSale = () => {
@@ -167,9 +307,13 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     setProductSearchText('');
     setSelectedVariantId('');
     setQuantityToAdd(1);
+    setCloudSyncStatus('idle');
+    setDraftUpdatedAt(null);
+    setDraftUpdatedBy(null);
     try {
       localStorage.removeItem(DRAFT_VENTAS_KEY);
     } catch {}
+    clearServerDraft();
     setShowClearSaleModal(false);
     showAlert('🗑️ Datos de la venta eliminados.');
   };
@@ -480,6 +624,10 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     try {
       localStorage.removeItem(DRAFT_VENTAS_KEY);
     } catch {}
+    clearServerDraft();
+    setCloudSyncStatus('idle');
+    setDraftUpdatedAt(null);
+    setDraftUpdatedBy(null);
     setCart([]);
     setClientName('');
     setClientPhone('');
@@ -507,7 +655,28 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
               Vende seleccionando productos y luego sus variantes. El stock se descuenta exacto por talle y color.
             </p>
           </div>
-          <div>
+          <div className="flex flex-wrap items-center gap-2">
+            {cloudSyncStatus === 'saving' && (
+              <span className="text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-100/70 dark:bg-amber-950/40 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 animate-pulse">
+                <span className="material-symbols-outlined text-sm animate-spin">sync</span> Guardando en la nube...
+              </span>
+            )}
+            {hasDraftData && cloudSyncStatus === 'saved' && (
+              <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950/40 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5" title="Este borrador de venta está sincronizado en la base de datos y visible para todos los administradores en cualquier dispositivo">
+                <span className="material-symbols-outlined text-sm">cloud_done</span> Borrador compartido {draftUpdatedBy ? `(${draftUpdatedBy})` : ''}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => fetchServerDraft(true)}
+              disabled={isSyncingServerDraft}
+              title="Consultar si otro administrador actualizó esta venta en otro dispositivo"
+              className="text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-100/80 hover:bg-blue-200/80 dark:bg-blue-900/50 dark:hover:bg-blue-800/60 px-3 py-2 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <span className={`material-symbols-outlined text-sm ${isSyncingServerDraft ? 'animate-spin' : ''}`}>sync</span>
+              {isSyncingServerDraft ? 'Sincronizando...' : 'Sincronizar'}
+            </button>
+
             <button
               type="button"
               onClick={() => setShowClearSaleModal(true)}
