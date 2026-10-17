@@ -359,7 +359,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const selectedVariant = availableVariants.find(v => v.id === selectedVariantId);
 
   // Obtener precio sugerido base según producto, variante y tipo de cliente
-  const getBasePrice = (prod = selectedProduct, variant = selectedVariant, type = clientType) => {
+  const getBasePrice = (prod = selectedProduct, variant: any = selectedVariant, type = clientType) => {
     if (!prod) return 0;
     if (type === 'wholesale') {
       return variant?.manualWholesalePrice || prod.wholesalePrice || variant?.manualSalePrice || prod.salePrice || 0;

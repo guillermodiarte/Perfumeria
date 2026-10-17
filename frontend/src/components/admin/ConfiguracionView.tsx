@@ -1,10 +1,39 @@
 'use client';
 
 import { useStockFlowStore } from '@/store/useStockStore';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { API_URL } from '@/utils/api';
 import CatalogConfig from './CatalogConfig';
 import { COMPANY_DEFAULTS, CompanyInfo } from '@/config/company';
+
+interface AutoBackup {
+  filename: string;
+  size: number;
+  formattedSize: string;
+  createdAt: string;
+  isSafetyBackup: boolean;
+}
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'hace unos segundos';
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `hace ${h}h ${m % 60}min`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} día${d > 1 ? 's' : ''}`;
+}
+
+function localDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 type TabType = 'precios' | 'catalogo' | 'envios' | 'empresa' | 'respaldos';
 
@@ -454,6 +483,122 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
       setLoading(false);
       e.target.value = '';
     }
+  };
+
+  // --- AUTO BACKUPS (SQLite 7-day retention) ---
+  const [autoBackups, setAutoBackups] = useState<AutoBackup[]>([]);
+  const [loadingAuto, setLoadingAuto] = useState(false);
+  const [creatingAuto, setCreatingAuto] = useState(false);
+  const [backupToRestore, setBackupToRestore] = useState<AutoBackup | null>(null);
+  const [backupToDelete, setBackupToDelete] = useState<AutoBackup | null>(null);
+  const [restoringAuto, setRestoringAuto] = useState(false);
+
+  const fetchAutoBackups = useCallback(async () => {
+    setLoadingAuto(true);
+    try {
+      const adminToken = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (adminToken) {
+        headers['X-API-KEY'] = adminToken;
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+      const res = await fetch('/api/backup/auto', { headers });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setAutoBackups(data.backups || []);
+      } else if (data.error) {
+        console.warn('Error al consultar copias automáticas:', data.error);
+      }
+    } catch (err) {
+      console.error('Error al cargar copias automáticas:', err);
+    } finally {
+      setLoadingAuto(false);
+    }
+  }, [apiKey]);
+
+  useEffect(() => {
+    if (activeTab === 'respaldos' && isSuperAdmin) {
+      fetchAutoBackups();
+    }
+  }, [activeTab, isSuperAdmin, fetchAutoBackups]);
+
+  const handleCreateAutoBackup = async () => {
+    setCreatingAuto(true);
+    try {
+      const adminToken = getAuthToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (adminToken) {
+        headers['X-API-KEY'] = adminToken;
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+      const res = await fetch('/api/backup/auto', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'create' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Error (${res.status}) al crear la copia`);
+      showModal('Copia Creada', 'Copia de seguridad SQLite creada correctamente con retención automática de 7 días.', 'success');
+      await fetchAutoBackups();
+    } catch (err: any) {
+      showModal('Error al Crear Copia', err.message || 'Error al crear la copia de seguridad.', 'error');
+    } finally {
+      setCreatingAuto(false);
+    }
+  };
+
+  const handleConfirmRestoreAuto = async () => {
+    if (!backupToRestore) return;
+    setRestoringAuto(true);
+    try {
+      const adminToken = getAuthToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (adminToken) {
+        headers['X-API-KEY'] = adminToken;
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+      const res = await fetch('/api/backup/auto', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'restore', filename: backupToRestore.filename }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Error (${res.status}) al restaurar`);
+      setBackupToRestore(null);
+      showModal('Base de Datos Restaurada', 'La base de datos SQLite se restauró exitosamente. La página se recargará.', 'success');
+      setTimeout(() => window.location.reload(), 2000);
+    } catch (err: any) {
+      showModal('Error al Restaurar', err.message || 'Error al restaurar la copia de seguridad.', 'error');
+      setRestoringAuto(false);
+    }
+  };
+
+  const handleConfirmDeleteAuto = async () => {
+    if (!backupToDelete) return;
+    try {
+      const adminToken = getAuthToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (adminToken) {
+        headers['X-API-KEY'] = adminToken;
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+      const res = await fetch('/api/backup/auto', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'delete', filename: backupToDelete.filename }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Error (${res.status}) al eliminar`);
+      setBackupToDelete(null);
+      showModal('Copia Eliminada', 'La copia de seguridad ha sido eliminada del disco.', 'info');
+      await fetchAutoBackups();
+    } catch (err: any) {
+      showModal('Error al Eliminar', err.message || 'Error al eliminar la copia de seguridad.', 'error');
+    }
+  };
+
+  const handleDownloadAuto = (filename: string) => {
+    window.open(`/api/backup/auto?action=download&filename=${encodeURIComponent(filename)}`, '_blank');
   };
 
   return (
@@ -1477,6 +1622,210 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                   <span className="material-symbols-outlined text-sm">upload</span> Subir .zip
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* ── Copias de Seguridad Automáticas (Retención 7 días) ──────────── */}
+          <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-lg">shield</span>
+                  </div>
+                  <h4 className="font-bold text-slate-800 dark:text-white text-base">
+                    Copias de Seguridad Automáticas
+                  </h4>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                    <span className="material-symbols-outlined text-xs">schedule</span> Retención 7 días
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Copias directas de la base de datos SQLite. Puedes crear una manualmente, restaurar el sistema a cualquier punto o descargar el archivo <code className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px] font-mono">.db</code>.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={fetchAutoBackups}
+                  disabled={loadingAuto}
+                  className="px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  title="Actualizar lista"
+                >
+                  <span className={`material-symbols-outlined text-sm ${loadingAuto ? 'animate-spin' : ''}`}>
+                    refresh
+                  </span>
+                  Actualizar
+                </button>
+                <button
+                  onClick={handleCreateAutoBackup}
+                  disabled={creatingAuto}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                >
+                  <span className={`material-symbols-outlined text-sm ${creatingAuto ? 'animate-spin' : ''}`}>
+                    {creatingAuto ? 'sync' : 'add'}
+                  </span>
+                  {creatingAuto ? 'Creando...' : 'Crear Ahora'}
+                </button>
+              </div>
+            </div>
+
+            {/* Backups List */}
+            {loadingAuto ? (
+              <div className="flex items-center justify-center py-10 text-slate-500 dark:text-slate-400 text-xs">
+                <span className="material-symbols-outlined text-lg animate-spin mr-2">refresh</span>
+                Cargando copias de seguridad...
+              </div>
+            ) : autoBackups.length === 0 ? (
+              <div className="text-center py-10 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-white/40 dark:bg-slate-900/30">
+                <span className="material-symbols-outlined text-3xl text-slate-400 dark:text-slate-600 mx-auto mb-2 block">
+                  history
+                </span>
+                <p className="text-slate-600 dark:text-slate-400 text-xs font-semibold">
+                  No hay copias de seguridad automáticas todavía.
+                </p>
+                <p className="text-slate-400 dark:text-slate-500 text-[11px] mt-1">
+                  Haz clic en &ldquo;Crear Ahora&rdquo; para generar la primera copia de seguridad.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-200 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900/50">
+                {autoBackups.map((backup) => (
+                  <div
+                    key={backup.filename}
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 transition-colors ${
+                      backup.isSafetyBackup
+                        ? 'bg-amber-500/5 hover:bg-amber-500/10 dark:bg-amber-950/20 dark:hover:bg-amber-950/30'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs sm:text-sm font-mono font-medium text-slate-800 dark:text-white truncate max-w-[340px]" title={backup.filename}>
+                          {backup.filename}
+                        </span>
+                        {backup.isSafetyBackup && (
+                          <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0">
+                            Prev. Restauración
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">{localDateTime(backup.createdAt)}</span>
+                        <span className="text-slate-400 dark:text-slate-600 text-xs">·</span>
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500">{relativeTime(backup.createdAt)}</span>
+                        <span className="text-slate-400 dark:text-slate-600 text-xs">·</span>
+                        <span className="text-[11px] font-mono font-bold text-emerald-600 dark:text-emerald-400">{backup.formattedSize}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                      <button
+                        onClick={() => handleDownloadAuto(backup.filename)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        title="Descargar"
+                      >
+                        <span className="material-symbols-outlined text-lg">download</span>
+                      </button>
+                      <button
+                        onClick={() => setBackupToRestore(backup)}
+                        className="p-1.5 rounded-lg text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors"
+                        title="Restaurar esta copia"
+                      >
+                        <span className="material-symbols-outlined text-lg">restore</span>
+                      </button>
+                      <button
+                        onClick={() => setBackupToDelete(backup)}
+                        className="p-1.5 rounded-lg text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                        title="Eliminar"
+                      >
+                        <span className="material-symbols-outlined text-lg">delete</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Las copias más antiguas de 7 días se eliminan automáticamente del disco para optimizar el almacenamiento. Los snapshots de seguridad previos a una restauración se conservan indefinidamente. Para programar el backup diario en producción, configura el cron con <code className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-[10px]">scripts/backup.sh</code>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Restaurar Auto Backup Confirm */}
+      {backupToRestore && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-amber-500/30 text-left">
+            <div className="flex items-center gap-2.5 text-amber-500 mb-3">
+              <span className="material-symbols-outlined text-2xl">restore</span>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white">¿Restaurar esta copia SQLite?</h3>
+            </div>
+            <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm leading-relaxed mb-4">
+              Se creará un snapshot de seguridad del estado actual antes de restaurar. <strong className="text-slate-900 dark:text-white">La base de datos activa será reemplazada</strong> por:
+              <br />
+              <span className="inline-block mt-2 font-mono text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 px-2 py-1 rounded">
+                {backupToRestore.filename}
+              </span>
+              <br />
+              <span className="block mt-2 text-xs text-slate-500 dark:text-slate-400">
+                La página se recargará automáticamente al completarse.
+              </span>
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setBackupToRestore(null)}
+                disabled={restoringAuto}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRestoreAuto}
+                disabled={restoringAuto}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 transition-colors flex items-center gap-1.5"
+              >
+                {restoringAuto && <span className="material-symbols-outlined text-sm animate-spin">refresh</span>}
+                {restoringAuto ? 'Restaurando...' : 'Sí, Restaurar Base de Datos'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Eliminar Auto Backup Confirm */}
+      {backupToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-rose-500/30 text-left">
+            <div className="flex items-center gap-2.5 text-rose-500 mb-3">
+              <span className="material-symbols-outlined text-2xl">delete_forever</span>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white">¿Eliminar copia de seguridad?</h3>
+            </div>
+            <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm leading-relaxed mb-4">
+              Se eliminará permanentemente del disco el archivo:
+              <br />
+              <span className="inline-block mt-2 font-mono text-xs text-rose-700 dark:text-rose-300 bg-rose-500/10 px-2 py-1 rounded break-all">
+                {backupToDelete.filename}
+              </span>
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setBackupToDelete(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteAuto}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition-colors"
+              >
+                Eliminar
+              </button>
             </div>
           </div>
         </div>

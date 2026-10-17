@@ -61,6 +61,8 @@ dev.db.bak*
 *.tmp
 *.dump
 *.sql
+backups/
+**/backups/
 catalog_export*.json
 backend/perfumeria.db
 

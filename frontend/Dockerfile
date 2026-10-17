@@ -1,5 +1,5 @@
 FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat openssl
+RUN apk add --no-cache libc6-compat openssl sqlite curl
 
 FROM base AS deps
 WORKDIR /app
@@ -31,6 +31,9 @@ COPY --from=builder /app/prisma ./prisma
 
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
+
+COPY scripts/backup.sh /app/scripts/backup.sh
+RUN chmod +x /app/scripts/backup.sh
 
 RUN mkdir -p /app/data /app/uploads
 

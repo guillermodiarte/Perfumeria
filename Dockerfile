@@ -16,7 +16,7 @@ RUN npx prisma generate
 RUN npm run build
 
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat openssl
+RUN apk add --no-cache libc6-compat openssl sqlite curl
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -37,9 +37,12 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/node_modules/effect ./node_modules/effect
 
-# Copiar script de inicio
+# Copiar script de inicio y script de backup
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
+
+COPY scripts/backup.sh /app/scripts/backup.sh
+RUN chmod +x /app/scripts/backup.sh
 
 # Carpetas de datos y subidas
 RUN mkdir -p /app/data /app/uploads
