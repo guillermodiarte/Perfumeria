@@ -7,6 +7,7 @@ import { API_URL } from '@/utils/api';
 interface CobrosPendientesViewProps {
   apiKey?: string;
   showAlert?: (msg: string) => void;
+  currentAdminRole?: string;
 }
 
 interface PendingDebtRecord {
@@ -23,13 +24,25 @@ interface PendingDebtRecord {
   installmentsCount: number;
   lastPaidMonth?: string;
   notes?: string;
+  items: Array<{
+    productId?: string;
+    variantId?: string;
+    productName: string;
+    variantInfo: string;
+    quantity: number;
+    price?: number;
+  }>;
+  rawSaleRecords?: any[];
 }
 
-export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendientesViewProps) {
+export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRole }: CobrosPendientesViewProps) {
+  const isSuperAdmin = currentAdminRole === 'super_admin';
+
   // Store de Mostrador
   const posSales = useStockFlowStore(s => s.sales);
   const recordSalePayment = useStockFlowStore(s => s.recordSalePayment);
   const markSaleMonthPaid = useStockFlowStore(s => s.markSaleMonthPaid);
+  const deleteSaleAndRestoreStock = useStockFlowStore(s => s.deleteSaleAndRestoreStock);
 
   // Backend Web Orders
   const [webOrders, setWebOrders] = useState<any[]>([]);
@@ -44,9 +57,30 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
   const [paymentNote, setPaymentNote] = useState<string>('');
   const [processing, setProcessing] = useState(false);
 
+  // Modal Eliminar Deuda (Super Admin)
+  const [debtToDelete, setDebtToDelete] = useState<PendingDebtRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const currentMonth = new Date().toISOString().substring(0, 7); // "YYYY-MM"
 
   const getToken = (): string => apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') ?? '' : '');
+
+  const formatDate = (isoString?: string) => {
+    if (!isoString) return 'Sin fecha';
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return isoString;
+      return d.toLocaleDateString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return isoString;
+    }
+  };
 
   // Cargar pedidos web
   const fetchWebOrders = useCallback(async () => {
@@ -92,11 +126,22 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
           paymentType: s.paymentType || 'cuotas',
           installmentsCount: s.installmentsCount || 1,
           lastPaidMonth: s.lastNotifiedMonth,
-          notes: s.notes || s.adminNotes
+          notes: s.notes || s.adminNotes,
+          items: [],
+          rawSaleRecords: []
         });
       }
       const r = posTicketsMap.get(s.ticketId)!;
       r.total += s.revenue;
+      r.rawSaleRecords?.push(s);
+      r.items.push({
+        productId: s.productId,
+        variantId: s.variantId,
+        productName: s.productName,
+        variantInfo: `${s.color || ''} ${s.size ? `Talle ${s.size}` : ''}`.trim(),
+        quantity: s.quantity || 1,
+        price: s.unitSalePrice || 0
+      });
     });
 
   const posDebts: PendingDebtRecord[] = Array.from(posTicketsMap.values()).filter(r => r.pendingAmount > 0);
@@ -127,7 +172,15 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
         paymentType: (o.payment_type as any) || 'cuotas',
         installmentsCount: o.installments_count || 1,
         lastPaidMonth: o.last_installment_paid_month,
-        notes: o.admin_notes
+        notes: o.admin_notes,
+        items: (o.items || []).map((i: any) => ({
+          productId: i.product_id,
+          variantId: i.variant_id,
+          productName: i.product_name || 'Producto',
+          variantInfo: i.variant_info || '',
+          quantity: i.quantity || 1,
+          price: Number(i.price || 0)
+        }))
       };
     });
 
@@ -242,6 +295,46 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
       } catch {
         showAlert?.('Error de red.');
       }
+    }
+  };
+
+  // Acción: Eliminar cobro pendiente y devolver productos al stock (Super Admin)
+  const handleConfirmDeleteDebt = async () => {
+    if (!debtToDelete) return;
+    setIsDeleting(true);
+    try {
+      if (debtToDelete.source === 'web') {
+        const token = getToken();
+        if (token) {
+          try {
+            await fetch(`${API_URL}/api/orders/admin/${debtToDelete.reference}`, {
+              method: 'DELETE',
+              headers: { 'X-API-KEY': token },
+            });
+          } catch (err) {
+            console.warn('Error al eliminar pedido web en backend:', err);
+          }
+        }
+      }
+
+      // Restituir productos al stock y eliminar la venta del registro
+      deleteSaleAndRestoreStock(debtToDelete.reference, debtToDelete.items);
+
+      if (debtToDelete.source === 'web') {
+        await fetchWebOrders();
+      }
+
+      if (showAlert) {
+        showAlert(`✓ Cobro pendiente #${debtToDelete.reference} eliminado correctamente. Los productos han vuelto al stock.`);
+      }
+      setDebtToDelete(null);
+    } catch (e: any) {
+      console.error('Error al eliminar cobro pendiente:', e);
+      if (showAlert) {
+        showAlert('Error al eliminar el cobro pendiente. Inténtalo nuevamente.');
+      }
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -453,6 +546,17 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
                         <span className="material-symbols-outlined text-base">payments</span>
                         Registrar Cobro
                       </button>
+
+                      {/* Botón Eliminar Cobro Pendiente (Super Admin) */}
+                      {isSuperAdmin && (
+                        <button
+                          onClick={() => setDebtToDelete(d)}
+                          className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors tooltip"
+                          title="Eliminar cobro pendiente y devolver productos al stock"
+                        >
+                          <span className="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -526,22 +630,171 @@ export default function CobrosPendientesView({ apiKey, showAlert }: CobrosPendie
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2.5">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSelectedRecord(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmRecordPayment}
+                  disabled={processing}
+                  className="flex-[2] py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-xs font-bold shadow-md shadow-green-500/20 transition-all"
+                >
+                  Confirmar Cobro
+                </button>
+              </div>
+
+              {isSuperAdmin && (
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const toDelete = selectedRecord;
+                      setSelectedRecord(null);
+                      setDebtToDelete(toDelete);
+                    }}
+                    className="text-[11px] font-bold text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 flex items-center gap-1 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-sm">delete</span>
+                    Eliminar este cobro y devolver stock
+                  </button>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CONFIRMAR ELIMINACIÓN DE COBRO PENDIENTE (SUPER ADMIN ONLY) */}
+      {debtToDelete && isSuperAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-red-200 dark:border-red-900/40 animate-scaleUp">
+            {/* Modal Header */}
+            <div className="p-6 pb-4 bg-gradient-to-r from-red-500/10 via-amber-500/10 to-transparent border-b border-red-100 dark:border-red-950 flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-2xl">warning</span>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  ¿Eliminar cobro pendiente #{debtToDelete.reference}?
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Acción exclusiva de Super Administrador. Se anulará el registro y los productos volverán automáticamente al inventario.
+                </p>
+              </div>
               <button
-                onClick={() => setSelectedRecord(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600"
+                type="button"
+                onClick={() => !isDeleting && setDebtToDelete(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 text-xs space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Cliente:</span>
+                  <span className="font-bold text-slate-800 dark:text-white">{debtToDelete.clientName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Canal / Fecha:</span>
+                  <span>{debtToDelete.source === 'web' ? '🌐 Pedido Web' : '🏪 Mostrador'} · {formatDate(debtToDelete.date)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Venta:</span>
+                  <span className="font-black text-slate-900 dark:text-white text-sm">
+                    ${debtToDelete.total.toLocaleString('es-AR')}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Ya Abonado:</span>
+                  <span className="font-bold text-emerald-600">${debtToDelete.paidAmount.toLocaleString('es-AR')}</span>
+                </div>
+                <div className="flex justify-between text-red-600 dark:text-red-400 font-bold text-sm pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                  <span>Saldo Pendiente (Adeudado):</span>
+                  <span className="font-black">${debtToDelete.pendingAmount.toLocaleString('es-AR')}</span>
+                </div>
+              </div>
+
+              {/* Items to return to stock */}
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/30 p-4 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/50">
+                <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-bold text-xs mb-2.5">
+                  <span className="material-symbols-outlined text-base text-emerald-600">inventory_2</span>
+                  <span>Productos que volverán al stock:</span>
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {debtToDelete.items && debtToDelete.items.length > 0 ? (
+                    debtToDelete.items.map((it, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-800/80 rounded-xl border border-emerald-100 dark:border-emerald-900/40 text-xs shadow-xs"
+                      >
+                        <div className="min-w-0 pr-2">
+                          <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                            {it.productName}
+                          </p>
+                          {it.variantInfo && (
+                            <p className="text-[10px] text-slate-400 truncate">{it.variantInfo}</p>
+                          )}
+                        </div>
+                        <span className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-black rounded-lg text-xs">
+                          <span className="material-symbols-outlined text-sm">arrow_upward</span>
+                          +{it.quantity} {it.quantity === 1 ? 'ud' : 'uds'}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500 italic p-2">
+                      Los ítems asociados a la venta volverán automáticamente al inventario.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Warning note */}
+              <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 rounded-2xl p-3.5 text-xs text-red-700 dark:text-red-300">
+                <span className="material-symbols-outlined text-red-500 text-lg shrink-0 mt-0.5">warning</span>
+                <p className="leading-relaxed">
+                  Este cobro pendiente y su venta asociada serán <strong>eliminados permanentemente</strong> del registro y las cantidades arriba detalladas se <strong>reintegrarán automáticamente al inventario</strong>.
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-end gap-3 bg-slate-50/50 dark:bg-slate-800/50">
+              <button
+                type="button"
+                onClick={() => setDebtToDelete(null)}
+                disabled={isDeleting}
+                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
-                onClick={handleConfirmRecordPayment}
-                disabled={processing}
-                className="flex-[2] py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-xs font-bold shadow-md shadow-green-500/20"
+                type="button"
+                onClick={handleConfirmDeleteDebt}
+                disabled={isDeleting}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl transition-all shadow-md shadow-red-600/20 disabled:opacity-50"
               >
-                Confirmar Cobro
+                {isDeleting ? (
+                  <>
+                    <span className="material-symbols-outlined text-base animate-spin">refresh</span>
+                    <span>Eliminando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-base">delete_forever</span>
+                    <span>Confirmar y Devolver Stock</span>
+                  </>
+                )}
               </button>
             </div>
-
           </div>
         </div>
       )}

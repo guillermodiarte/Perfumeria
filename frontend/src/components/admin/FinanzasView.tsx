@@ -26,7 +26,7 @@ interface TransactionItem {
 
 export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
     const localPurchases = useStockFlowStore(s => s.purchases);
-    const localSales = useStockFlowStore(s => s.sales).filter(s => s.status === 'Pagada');
+    const posSales = useStockFlowStore(s => s.sales);
 
     const [filterType, setFilterType] = useState<'all' | 'Ingreso' | 'Gasto'>('all');
     const [searchQuery, setSearchQuery] = useState('');
@@ -71,12 +71,11 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
         fetchData();
     }, [fetchData]);
 
-    // Combinar datos: Si hay datos en la BD de compras/órdenes, usarlos como fuente de la verdad
+    // Combinar datos de finanzas: Gastos (Lotes DB o Compras locales) + Ingresos (Ventas Mostrador + Pedidos Web)
     const transactions = useMemo<TransactionItem[]>(() => {
-        const hasDbData = dbBatches.length > 0 || dbOrders.length > 0;
-
-        if (hasDbData) {
-            const expenseTransactions: TransactionItem[] = dbBatches.flatMap((b: any) => {
+        // 1. GASTOS (Compras / Lotes)
+        const expenseTransactions: TransactionItem[] = dbBatches.length > 0
+            ? dbBatches.flatMap((b: any) => {
                 const batchDate = b.purchase_date || b.created_at || new Date().toISOString();
                 if (Array.isArray(b.items) && b.items.length > 0) {
                     return b.items.map((it: any) => {
@@ -108,33 +107,8 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                         extra: b.supplier_name ? `Proveedor: ${b.supplier_name}` : 'Ingreso a stock'
                     }];
                 }
-            });
-
-            const incomeTransactions: TransactionItem[] = dbOrders
-                .filter((o: any) => o.payment_status === 'approved' || o.payment_status === 'paid' || o.order_status === 'delivered' || o.order_status === 'completed')
-                .map((o: any) => {
-                    const client = o.customer_name || (o.customer ? `${o.customer.first_name} ${o.customer.last_name}` : 'Consumidor Final');
-                    return {
-                        id: `order-${o.id || o.order_number}`,
-                        date: o.created_at || new Date().toISOString(),
-                        type: 'Ingreso' as const,
-                        amount: Number(o.total_ars || o.total || 0),
-                        productName: `Pedido #${o.order_number}`,
-                        quantity: Array.isArray(o.items) ? o.items.reduce((s: number, i: any) => s + (i.quantity || 1), 0) : 1,
-                        variant: '',
-                        description: `Venta Pedido #${o.order_number} a ${client}`,
-                        extra: client
-                    };
-                });
-
-            return [...expenseTransactions, ...incomeTransactions].sort(
-                (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-            );
-        }
-
-        // Fallback a localStorage si la BD está vacía o no responde
-        return [
-            ...localPurchases.map(p => {
+            })
+            : localPurchases.map(p => {
                 const variantParts = [p.color, p.size].filter(Boolean);
                 const variantText = variantParts.length > 0 ? ` (${variantParts.join(' - ')})` : '';
                 return {
@@ -148,25 +122,123 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                     description: `Compra de ${p.quantity}x ${p.productName}${variantText}`,
                     extra: 'Ingreso a stock'
                 };
-            }),
-            ...localSales.map(s => {
-                const variantParts = [s.color, s.size].filter(Boolean);
-                const variantText = variantParts.length > 0 ? ` (${variantParts.join(' - ')})` : '';
-                const client = s.clientName ? ` a ${s.clientName}` : '';
-                return {
-                    id: `local-sale-${s.id || Math.random()}`,
-                    date: s.date,
+            });
+
+        // 2. INGRESOS: Ventas Mostrador (del store POS)
+        const posTicketsMap = new Map<string, typeof posSales>();
+        posSales.forEach(s => {
+            if (s.ticketId && s.ticketId.startsWith('WEB-')) return;
+            const tId = s.ticketId || `TICK-${s.id}`;
+            if (!posTicketsMap.has(tId)) {
+                posTicketsMap.set(tId, []);
+            }
+            posTicketsMap.get(tId)!.push(s);
+        });
+
+        const posIncomeTransactions: TransactionItem[] = [];
+        posTicketsMap.forEach((records, tId) => {
+            const first = records[0];
+            if (first.status === 'Cancelada') return;
+
+            const totalRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
+            const paid = records.reduce((acc, r) => acc + (r.paidAmount ?? (r.status === 'Pagada' ? r.revenue : 0)), 0);
+            const remaining = records.reduce((acc, r) => acc + (r.remainingAmount ?? (r.status === 'Pagada' ? 0 : r.revenue)), 0);
+
+            // Si la venta está pagada o tiene saldo cobrado efectivamente:
+            const effectiveAmount = (first.status === 'Pagada' || remaining <= 0)
+                ? totalRev
+                : Math.min(totalRev, paid || totalRev);
+
+            if (effectiveAmount <= 0) return;
+
+            const totalQty = records.reduce((acc, r) => acc + (r.quantity || 1), 0);
+            const clientName = first.clientName || 'Consumidor Final';
+            const productsSummary = records.map(r => `${r.quantity}x ${r.productName}`).join(' • ');
+
+            posIncomeTransactions.push({
+                id: `pos-${tId}`,
+                date: first.date || new Date().toISOString(),
+                type: 'Ingreso' as const,
+                amount: effectiveAmount,
+                productName: productsSummary || `Ticket #${tId}`,
+                quantity: totalQty,
+                variant: '',
+                description: `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName}`,
+                extra: `${clientName} • Mostrador`
+            });
+        });
+
+        // 3. INGRESOS: Pedidos Web (de la base de datos o fallback)
+        const webIncomeTransactions: TransactionItem[] = [];
+        if (dbOrders.length > 0) {
+            dbOrders
+                .filter((o: any) => {
+                    const st = (o.status || '').toLowerCase();
+                    if (st.includes('cancel') || st.includes('rechaz')) return false;
+
+                    const tot = Number(o.total || 0);
+                    const paid = Number(o.paid_amount || 0);
+                    const paySt = (o.payment_status || '').toLowerCase();
+
+                    return paySt === 'full' || (paid >= tot && tot > 0) || (paid > 0) || (st === 'entregado' && paySt !== 'pending') || (st === 'completado');
+                })
+                .forEach((o: any) => {
+                    const client = o.customer?.name || o.customer_name || 'Cliente Web';
+                    const tot = Number(o.total || 0);
+                    const paid = Number(o.paid_amount || 0);
+                    const effectiveAmount = paid > 0 ? paid : tot;
+                    const totalQty = Array.isArray(o.items) ? o.items.reduce((s: number, i: any) => s + (i.quantity || 1), 0) : 1;
+                    const productsSummary = Array.isArray(o.items) ? o.items.map((i: any) => `${i.quantity}x ${i.product_name || 'Producto'}`).join(' • ') : '';
+
+                    webIncomeTransactions.push({
+                        id: `web-order-${o.id || o.order_number}`,
+                        date: o.created_at || new Date().toISOString(),
+                        type: 'Ingreso' as const,
+                        amount: effectiveAmount,
+                        productName: productsSummary || `Pedido #${o.order_number}`,
+                        quantity: totalQty,
+                        variant: '',
+                        description: `Venta Web #${o.order_number} (${totalQty} uds) a ${client}`,
+                        extra: `${client} • Tienda Web`
+                    });
+                });
+        } else {
+            // Fallback a ventas web guardadas en posSales si no hay conexión al backend
+            const fallbackWebTickets = new Map<string, typeof posSales>();
+            posSales.forEach(s => {
+                if (!s.ticketId || !s.ticketId.startsWith('WEB-')) return;
+                if (!fallbackWebTickets.has(s.ticketId)) {
+                    fallbackWebTickets.set(s.ticketId, []);
+                }
+                fallbackWebTickets.get(s.ticketId)!.push(s);
+            });
+
+            fallbackWebTickets.forEach((records, tId) => {
+                const first = records[0];
+                if (first.status === 'Cancelada') return;
+                const totalRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
+                const totalQty = records.reduce((acc, r) => acc + (r.quantity || 1), 0);
+                const clientName = first.clientName || 'Cliente Web';
+                const productsSummary = records.map(r => `${r.quantity}x ${r.productName}`).join(' • ');
+
+                webIncomeTransactions.push({
+                    id: `local-web-${tId}`,
+                    date: first.date || new Date().toISOString(),
                     type: 'Ingreso' as const,
-                    amount: s.revenue,
-                    productName: s.productName,
-                    quantity: s.quantity,
-                    variant: variantParts.join(' • '),
-                    description: `Venta de ${s.quantity}x ${s.productName}${variantText}${client}`,
-                    extra: s.clientName || 'Consumidor Final'
-                };
-            })
-        ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [dbBatches, dbOrders, localPurchases, localSales]);
+                    amount: totalRev,
+                    productName: productsSummary || `Pedido #${tId}`,
+                    quantity: totalQty,
+                    variant: '',
+                    description: `Venta Web #${tId} (${totalQty} uds) a ${clientName}`,
+                    extra: `${clientName} • Tienda Web`
+                });
+            });
+        }
+
+        return [...expenseTransactions, ...posIncomeTransactions, ...webIncomeTransactions].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+    }, [dbBatches, dbOrders, posSales, localPurchases]);
 
     const totalExpenses = useMemo(() => {
         return transactions.filter(t => t.type === 'Gasto').reduce((acc, t) => acc + t.amount, 0);
