@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useStockFlowStore } from '@/store/useStockStore';
 import { generateTicketPDF, createTicketDoc } from '@/utils/generateTicket';
 
@@ -318,11 +318,43 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     showAlert('🗑️ Datos de la venta eliminados.');
   };
 
+  // Obtener cantidad de una variante específica que ya está en el carrito
+  const getCartQuantityForVariant = useCallback((productId: string, variantId: string) => {
+    return cart
+      .filter(item => item.productId === productId && item.variantId === variantId)
+      .reduce((acc, item) => acc + (item.quantity || 0), 0);
+  }, [cart]);
+
+  // Stock restante de una variante específica descontando lo que ya está en el carrito
+  const getVariantRemainingStock = useCallback((productId: string, variant: { id: string; stock: number }) => {
+    const inCart = getCartQuantityForVariant(productId, variant.id);
+    return Math.max(0, (variant.stock || 0) - inCart);
+  }, [getCartQuantityForVariant]);
+
+  // Stock total restante de un producto (suma de sus variantes) descontando lo que está en el carrito
+  const getProductRemainingStock = useCallback((p: typeof products[number]) => {
+    return (p.variants || []).reduce((acc, v) => {
+      return acc + getVariantRemainingStock(p.id, v);
+    }, 0);
+  }, [getVariantRemainingStock]);
+
   const selectedProduct = products.find(p => p.id === selectedProductId);
   
-  const availableVariants = selectedProduct 
-    ? selectedProduct.variants.filter(v => v.stock > 0)
-    : [];
+  // Variantes del producto seleccionado con cálculo de stock restante en tiempo real
+  const availableVariants = useMemo(() => {
+    if (!selectedProduct) return [];
+    return (selectedProduct.variants || [])
+      .filter(v => (v.stock || 0) > 0)
+      .map(v => {
+        const inCart = getCartQuantityForVariant(selectedProduct.id, v.id);
+        const remainingStock = Math.max(0, (v.stock || 0) - inCart);
+        return {
+          ...v,
+          inCart,
+          remainingStock,
+        };
+      });
+  }, [selectedProduct, getCartQuantityForVariant]);
 
   const selectedVariant = availableVariants.find(v => v.id === selectedVariantId);
 
@@ -441,8 +473,16 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
         showAlert("Selecciona una variante.");
         return;
     }
-    if (variantItem.stock < quantityToAdd) {
-        showAlert("Stock insuficiente para agregar al carrito.");
+    if (quantityToAdd <= 0) {
+        showAlert("Ingresa una cantidad mayor a 0.");
+        return;
+    }
+    if (variantItem.remainingStock < quantityToAdd) {
+        if (variantItem.remainingStock <= 0) {
+            showAlert(`El producto "${selectedProduct.name} - ${variantItem.color} ${variantItem.size}" ya no tiene stock disponible (ya agregaste ${variantItem.inCart} al carrito).`);
+        } else {
+            showAlert(`Stock insuficiente. Solo quedan ${variantItem.remainingStock} unidad${variantItem.remainingStock === 1 ? '' : 'es'} disponible${variantItem.remainingStock === 1 ? '' : 's'} (ya agregaste ${variantItem.inCart} al carrito).`);
+        }
         return;
     }
     
@@ -457,14 +497,30 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
 
     const imageUrl = selectedProduct.imageUrls?.[0] || '';
 
-    setCart([...cart, {
+    // Si ya existe en el carrito con el mismo precio unitario, sumamos cantidad para no duplicar filas
+    const existingIndex = cart.findIndex(it => 
+      it.productId === selectedProduct.id && 
+      it.variantId === variantItem.id && 
+      it.salePrice === effectivePrice
+    );
+
+    if (existingIndex !== -1) {
+      const updated = [...cart];
+      updated[existingIndex] = {
+        ...updated[existingIndex],
+        quantity: updated[existingIndex].quantity + quantityToAdd,
+      };
+      setCart(updated);
+    } else {
+      setCart([...cart, {
         productId: selectedProduct.id,
         variantId: variantItem.id,
         name: displayName,
         quantity: quantityToAdd,
         salePrice: effectivePrice,
         imageUrl,
-    }]);
+      }]);
+    }
     
     // Resetear todos los campos de selección de producto para permitir añadir otro producto limpiamente
     setSelectedParentCategory('');
@@ -474,6 +530,32 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     setSelectedVariantId('');
     setQuantityToAdd(1);
     setCustomUnitPriceInput('');
+  };
+
+  const handleUpdateCartQuantity = (idx: number, delta: number) => {
+    const item = cart[idx];
+    if (!item) return;
+
+    if (delta > 0) {
+      const prod = products.find(p => p.id === item.productId);
+      const variant = prod?.variants.find(v => v.id === item.variantId);
+      const totalStock = variant?.stock || 0;
+      const totalInCartForVariant = cart
+        .filter(c => c.productId === item.productId && c.variantId === item.variantId)
+        .reduce((sum, c) => sum + (c.quantity || 0), 0);
+
+      if (totalInCartForVariant + delta > totalStock) {
+        showAlert(`No podés agregar más. El stock máximo disponible de esta variante es ${totalStock} unidad${totalStock === 1 ? '' : 'es'}.`);
+        return;
+      }
+    }
+
+    const newQty = item.quantity + delta;
+    if (newQty <= 0) {
+      setCart(cart.filter((_, i) => i !== idx));
+    } else {
+      setCart(cart.map((c, i) => i === idx ? { ...c, quantity: newQty } : c));
+    }
   };
 
   const handleOpenPaymentModal = () => {
@@ -875,7 +957,12 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             <div className="min-w-0">
                                 <p className="font-bold text-sm text-slate-800 dark:text-white leading-tight truncate">{selectedProduct.name}</p>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                    {availableVariants.length} variante{availableVariants.length !== 1 ? 's' : ''} en stock
+                                    <strong className="text-primary font-bold">{getProductRemainingStock(selectedProduct)}</strong> unidad(es) disponible(s) para venta
+                                    {availableVariants.some(v => v.inCart > 0) && (
+                                        <span className="text-amber-600 dark:text-amber-400 font-medium ml-1">
+                                            (algunas ya en carrito)
+                                        </span>
+                                    )}
                                 </p>
                             </div>
                         </div>
@@ -938,9 +1025,14 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                         disabled={!selectedCategory || availableProductsInCategory.length === 0}
                     >
                         <option value="">-- Selecciona un producto --</option>
-                        {availableProductsInCategory.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
+                        {availableProductsInCategory.map(p => {
+                            const remStock = getProductRemainingStock(p);
+                            return (
+                                <option key={p.id} value={p.id} disabled={remStock <= 0}>
+                                    {p.name} {remStock > 0 ? `(${remStock} disp)` : '(SIN STOCK EN VENTA)'}
+                                </option>
+                            );
+                        })}
                     </select>
                     {selectedCategory && availableProductsInCategory.length === 0 && (
                         <p className="text-red-500 text-xs mt-1 font-bold">No hay productos con stock en esta categoría.</p>
@@ -968,13 +1060,19 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             <option value="">-- Selecciona una variante --</option>
                             {availableVariants.map(v => {
                                 const vPrice = getBasePrice(selectedProduct, v, clientType);
+                                const isOutOfStock = v.remainingStock <= 0;
                                 return (
-                                    <option key={v.id} value={v.id}>
-                                        {v.color} - Talle {v.size} (Stock: {v.stock}) - ${vPrice.toLocaleString('es-AR')}
+                                    <option key={v.id} value={v.id} disabled={isOutOfStock}>
+                                        {v.color} - Talle {v.size} {isOutOfStock ? `(Agotado en venta - ${v.inCart} en carrito)` : `(Stock disp: ${v.remainingStock}${v.inCart > 0 ? ` de ${v.stock}` : ''})`} - ${vPrice.toLocaleString('es-AR')}
                                     </option>
                                 );
                             })}
                         </select>
+                        {selectedProduct && availableVariants.length > 0 && availableVariants.every(v => v.remainingStock <= 0) && (
+                            <p className="text-amber-600 dark:text-amber-400 text-xs mt-1 font-bold">
+                                Todo el stock de este producto ya está cargado en la venta.
+                            </p>
+                        )}
                         {selectedProduct && availableVariants.length === 0 && (
                             <p className="text-red-500 text-xs mt-1 font-bold">Sin stock disponible para este producto.</p>
                         )}
@@ -983,9 +1081,13 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                     <div className="w-full md:w-24 shrink-0">
                         <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 text-center md:text-left">Cant.</label>
                         <input 
-                            type="number" min={1}
-                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-black text-center text-slate-800 dark:text-white shadow-sm"
-                            value={quantityToAdd} onChange={e => setQuantityToAdd(Number(e.target.value))}
+                            type="number" 
+                            min={1}
+                            max={selectedVariant ? selectedVariant.remainingStock : undefined}
+                            disabled={!selectedVariant || selectedVariant.remainingStock <= 0}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-black text-center text-slate-800 dark:text-white shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                            value={quantityToAdd} 
+                            onChange={e => setQuantityToAdd(Number(e.target.value))}
                         />
                     </div>
 
@@ -1062,10 +1164,11 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                     
                     <button 
                       onClick={addToCart} 
-                      disabled={!selectedProduct || !selectedVariant}
+                      disabled={!selectedProduct || !selectedVariant || selectedVariant.remainingStock <= 0 || quantityToAdd > selectedVariant.remainingStock}
                       className="w-full md:w-auto bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold px-7 py-3 rounded-xl hover:opacity-80 transition shadow-lg shrink-0 flex justify-center items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
-                        <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span> Añadir
+                        <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span>
+                        {selectedVariant && selectedVariant.remainingStock <= 0 ? 'Sin stock' : 'Añadir'}
                     </button>
                 </div>
 
@@ -1116,10 +1219,29 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             </button>
                         </div>
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">
-                                {item.quantity} ×
-                              </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 rounded-lg p-0.5 border border-slate-200 dark:border-slate-600">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateCartQuantity(idx, -1)}
+                                  className="w-6 h-6 flex items-center justify-center rounded-md bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition font-bold text-xs shadow-sm cursor-pointer"
+                                  title="Disminuir cantidad"
+                                >
+                                  -
+                                </button>
+                                <span className="text-xs font-black text-slate-800 dark:text-white px-1.5 min-w-[20px] text-center">
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateCartQuantity(idx, 1)}
+                                  className="w-6 h-6 flex items-center justify-center rounded-md bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition font-bold text-xs shadow-sm cursor-pointer"
+                                  title="Aumentar cantidad (respetando stock disponible)"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              <span className="text-xs text-slate-400 font-bold">×</span>
                               {clientType === 'special_wholesale' ? (
                                 <div className="relative w-28">
                                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-500">$</span>
