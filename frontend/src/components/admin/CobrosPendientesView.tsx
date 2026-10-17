@@ -270,33 +270,6 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
     }
   };
 
-  // Marcar mes cobrado (sin monto adicional o ya cobrado)
-  const handleMarkMonthPaid = async (debt: PendingDebtRecord) => {
-    if (debt.source === 'mostrador') {
-      markSaleMonthPaid(debt.reference, currentMonth);
-      showAlert?.(`✓ Mes ${currentMonth} marcado como cobrado para ${debt.clientName}.`);
-    } else {
-      const token = getToken();
-      try {
-        const res = await fetch(`${API_URL}/api/orders/admin/${debt.reference}/status`, {
-          method: 'PATCH',
-          headers: {
-            'X-API-KEY': token,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            last_installment_paid_month: currentMonth
-          })
-        });
-        if (res.ok) {
-          showAlert?.(`✓ Mes ${currentMonth} marcado como cobrado para ${debt.clientName}.`);
-          fetchWebOrders();
-        }
-      } catch {
-        showAlert?.('Error de red.');
-      }
-    }
-  };
 
   // Acción: Eliminar cobro pendiente y devolver productos al stock (Super Admin)
   const handleConfirmDeleteDebt = async () => {
@@ -368,7 +341,7 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
               Recordatorio mensual de cobros ({currentMonth})
             </p>
             <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-              Tenés <strong className="text-amber-700 dark:text-amber-300">{cuotasPendientesEsteMes} cliente(s)</strong> con cuotas o saldos pendientes de cobrar este mes. Al registrar el pago o marcar como cobrado, la notificación se apagará hasta el mes que viene.
+              Tenés <strong className="text-amber-700 dark:text-amber-300">{cuotasPendientesEsteMes} cliente(s)</strong> con saldos pendientes de cobrar este mes. Al registrar el cobro correspondiente, la notificación se apagará hasta el mes que viene en caso de que continúe quedando deuda.
             </p>
           </div>
         </div>
@@ -451,12 +424,12 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
             return (
               <div
                 key={d.id}
-                className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm hover:border-slate-300 dark:hover:border-slate-600 transition-all"
+                className="bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-slate-700 shadow-sm hover:border-slate-300 dark:hover:border-slate-600 transition-all"
               >
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                   
-                  {/* Izquierda */}
-                  <div className="flex items-start gap-3.5">
+                  {/* Izquierda: Info de Cliente y Venta */}
+                  <div className="flex items-start gap-3.5 min-w-0">
                     <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
                       d.source === 'web' ? 'bg-blue-100 dark:bg-blue-950 text-blue-600' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600'
                     }`}>
@@ -465,7 +438,7 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                       </span>
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
                           {d.clientName}
@@ -490,18 +463,17 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                             Cobrado este mes
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 animate-pulse">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 animate-pulse flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px]">schedule</span>
                             Pendiente cobrar este mes
                           </span>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        <span>Tel: {d.clientPhone}</span>
-                        <span>Total Venta: ${d.total.toLocaleString('es-AR')}</span>
-                        <span>Abonado hasta hoy: ${d.paidAmount.toLocaleString('es-AR')}</span>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        <span>Tel: <strong className="text-slate-700 dark:text-slate-300">{d.clientPhone}</strong></span>
                         {d.installmentsCount > 1 && (
-                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                          <span className="text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-lg text-[11px]">
                             {d.installmentsCount} cuotas (~${approxCuota.toLocaleString('es-AR')} c/u)
                           </span>
                         )}
@@ -513,35 +485,48 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                     </div>
                   </div>
 
-                  {/* Deuda y Acciones */}
-                  <div className="flex items-center justify-between lg:justify-end gap-6 border-t lg:border-t-0 pt-3 lg:pt-0 border-slate-100 dark:border-slate-700">
-                    <div className="text-left lg:text-right">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Saldo Pendiente</p>
-                      <p className="text-xl font-black text-red-600 dark:text-red-400">
-                        ${d.pendingAmount.toLocaleString('es-AR')}
-                      </p>
+                  {/* Derecha: Desglose financiero (Total Venta, Abonado, Adeuda) y Botones */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between xl:justify-end gap-3 sm:gap-4 border-t xl:border-t-0 pt-3 xl:pt-0 border-slate-100 dark:border-slate-700">
+                    
+                    {/* Grid de los 3 montos claramente destacados */}
+                    <div className="grid grid-cols-3 gap-2 shrink-0">
+                      
+                      {/* 1. Total Venta */}
+                      <div className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-750/70 border border-slate-200 dark:border-slate-700 text-center min-w-[95px] sm:min-w-[110px]">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Venta</p>
+                        <p className="text-xs sm:text-sm font-extrabold text-slate-800 dark:text-white mt-0.5 font-mono">
+                          ${d.total.toLocaleString('es-AR')}
+                        </p>
+                      </div>
+
+                      {/* 2. Cuánto pagó */}
+                      <div className="px-3 py-2 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 text-center min-w-[95px] sm:min-w-[110px]">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Abonado</p>
+                        <p className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5 font-mono">
+                          ${d.paidAmount.toLocaleString('es-AR')}
+                        </p>
+                      </div>
+
+                      {/* 3. Cuánto adeuda */}
+                      <div className="px-3 py-2 rounded-xl bg-red-50/90 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-center min-w-[95px] sm:min-w-[110px]">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Adeuda</p>
+                        <p className="text-xs sm:text-sm sm:text-base font-black text-red-600 dark:text-red-400 mt-0.5 font-mono">
+                          ${d.pendingAmount.toLocaleString('es-AR')}
+                        </p>
+                      </div>
+
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {/* Botón Silenciar / Marcar Mes Cobrado */}
-                      {!isPaidThisMonth && (
-                        <button
-                          onClick={() => handleMarkMonthPaid(d)}
-                          title="Marcar como cobrado en este mes para silenciar recordatorio"
-                          className="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-colors"
-                        >
-                          Marcar Mes
-                        </button>
-                      )}
-
-                      {/* Botón Registrar Pago / Abono */}
+                    {/* Acciones: Registrar Cobro y Eliminar */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Botón Registrar Cobro */}
                       <button
                         onClick={() => {
                           setSelectedRecord(d);
                           setPaymentAmount('');
                           setPaymentNote('');
                         }}
-                        className="px-3.5 py-2 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-green-500/20 transition-all"
+                        className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all active:scale-95"
                       >
                         <span className="material-symbols-outlined text-base">payments</span>
                         Registrar Cobro
@@ -551,13 +536,14 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                       {isSuperAdmin && (
                         <button
                           onClick={() => setDebtToDelete(d)}
-                          className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors tooltip"
+                          className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors tooltip"
                           title="Eliminar cobro pendiente y devolver productos al stock"
                         >
                           <span className="material-symbols-outlined text-lg">delete</span>
                         </button>
                       )}
                     </div>
+
                   </div>
 
                 </div>

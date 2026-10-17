@@ -1247,6 +1247,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               installmentMonthlyAmount: (paymentOptions && paymentOptions.installmentsCount && paymentOptions.installmentsCount > 0)
                 ? Math.round((paymentOptions.pendingAmount / paymentOptions.installmentsCount) * 100) / 100
                 : 0,
+              lastNotifiedMonth: paymentOptions && paymentOptions.paidAmount > 0 ? new Date().toISOString().substring(0, 7) : undefined,
               notes: paymentOptions?.notes || ''
             });
           });
@@ -1260,6 +1261,7 @@ export const useStockFlowStore = create<StockFlowState>()(
       },
 
       recordSalePayment: (ticketId, amount, note) => {
+        const currentMonth = new Date().toISOString().substring(0, 7);
         set((state) => {
           const updatedSales = state.sales.map(s => {
             if (s.ticketId !== ticketId) return s;
@@ -1273,6 +1275,7 @@ export const useStockFlowStore = create<StockFlowState>()(
               paidAmount: newPaid,
               pendingAmount: newPending,
               remainingAmount: newPending,
+              lastNotifiedMonth: currentMonth,
               status: (isFullyPaid ? 'Pagada' : 'Pendiente') as SaleRecord['status'],
               paymentStatus: (isFullyPaid ? 'full' : 'partial') as SaleRecord['paymentStatus'],
               adminNotes: note ? (s.adminNotes ? `${s.adminNotes} | ${note}` : note) : s.adminNotes

@@ -68,22 +68,32 @@ export default function NotificationBell({ apiKey, onNavigateView }: Notificatio
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Calcular cuotas de mostrador pendientes este mes
+  // Calcular ventas de mostrador con saldo adeudado pendientes este mes (agrupadas por ticketId)
   const currentMonthStr = new Date().toISOString().substring(0, 7);
-  const posInstallmentsPending = sales.filter(s => {
+  const posPendingTicketsMap = new Map<string, { clientName: string; pending: number }>();
+  sales.forEach(s => {
     const pending = s.pendingAmount ?? s.remainingAmount ?? 0;
-    return (
+    if (
       s.status !== 'Cancelada' &&
       pending > 0 &&
-      (s.paymentType === 'cuotas' || (s.paymentType === 'partial' && pending > 0)) &&
-      s.lastNotifiedMonth !== currentMonthStr
-    );
+      s.lastNotifiedMonth !== currentMonthStr &&
+      !s.ticketId.startsWith('WEB-')
+    ) {
+      if (!posPendingTicketsMap.has(s.ticketId)) {
+        posPendingTicketsMap.set(s.ticketId, {
+          clientName: s.clientName || 'Cliente',
+          pending
+        });
+      }
+    }
   });
+
+  const posInstallmentsPendingCount = posPendingTicketsMap.size;
 
   const totalNotifications = 
     backendSummary.pending_web_orders_count + 
     backendSummary.installments_pending_count + 
-    posInstallmentsPending.length +
+    posInstallmentsPendingCount +
     backendSummary.pending_customers_count;
 
   return (
@@ -170,7 +180,7 @@ export default function NotificationBell({ apiKey, onNavigateView }: Notificatio
             )}
 
             {/* Aviso 3: Cuotas del Mes (Mostrador) */}
-            {posInstallmentsPending.length > 0 && (
+            {posInstallmentsPendingCount > 0 && (
               <div 
                 onClick={() => { onNavigateView('cobros_pendientes'); setIsOpen(false); }}
                 className="p-3.5 hover:bg-slate-50 dark:hover:bg-slate-750 cursor-pointer transition-colors flex items-start gap-3 group bg-indigo-50/30 dark:bg-indigo-950/10"
@@ -180,7 +190,7 @@ export default function NotificationBell({ apiKey, onNavigateView }: Notificatio
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-indigo-900 dark:text-indigo-200">
-                    {posInstallmentsPending.length} cuota(s) de mostrador a cobrar
+                    {posInstallmentsPendingCount} cobro(s) de mostrador a realizar este mes
                   </p>
                   <p className="text-slate-500 dark:text-slate-400 mt-0.5">
                     Ventas físicas con cuotas o saldos pendientes para este mes.
