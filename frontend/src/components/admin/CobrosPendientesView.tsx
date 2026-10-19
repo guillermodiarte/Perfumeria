@@ -33,6 +33,10 @@ interface PendingDebtRecord {
     price?: number;
   }>;
   rawSaleRecords?: any[];
+  shippingCost?: number;
+  shippingType?: string;
+  shippingInvoiceUrl?: string;
+  shippingTrackingNumber?: string;
 }
 
 export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRole }: CobrosPendientesViewProps) {
@@ -120,7 +124,7 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
           clientName: s.clientName || 'Consumidor Final',
           clientPhone: s.clientPhone || 'S/D',
           date: s.date,
-          total: 0,
+          total: s.shippingCost || 0,
           paidAmount: s.paidAmount ?? 0,
           pendingAmount: pending,
           paymentType: s.paymentType || 'cuotas',
@@ -128,7 +132,11 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
           lastPaidMonth: s.lastNotifiedMonth,
           notes: s.notes || s.adminNotes,
           items: [],
-          rawSaleRecords: []
+          rawSaleRecords: [],
+          shippingCost: s.shippingCost || 0,
+          shippingType: s.shippingType,
+          shippingInvoiceUrl: s.shippingInvoiceUrl,
+          shippingTrackingNumber: s.shippingTrackingNumber,
         });
       }
       const r = posTicketsMap.get(s.ticketId)!;
@@ -180,7 +188,11 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
           variantInfo: i.variant_info || '',
           quantity: i.quantity || 1,
           price: Number(i.price || 0)
-        }))
+        })),
+        shippingCost: parseFloat(o.shipping_cost || 0),
+        shippingType: o.shipping_type,
+        shippingInvoiceUrl: o.shipping_invoice_url,
+        shippingTrackingNumber: o.shipping_tracking_number,
       };
     });
 
@@ -455,6 +467,26 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                         }`}>
                           {d.source === 'web' ? 'Pedido Online' : 'Venta Mostrador'}
                         </span>
+
+                        {Boolean(d.shippingCost && d.shippingCost > 0) && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px]">local_shipping</span>
+                            Envío (${d.shippingCost?.toLocaleString('es-AR')})
+                          </span>
+                        )}
+
+                        {d.shippingInvoiceUrl && (
+                          <a
+                            href={d.shippingInvoiceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-orange-800 hover:bg-orange-100 dark:bg-orange-950/60 dark:text-orange-200 border border-orange-200 dark:border-orange-800 flex items-center gap-1 transition-all"
+                            title="Ver Factura de Envío"
+                          >
+                            <span className="material-symbols-outlined text-[12px]">receipt_long</span>
+                            Factura
+                          </a>
+                        )}
 
                         {/* Estado del Mes */}
                         {isPaidThisMonth ? (

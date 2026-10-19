@@ -227,7 +227,7 @@ export default function DashboardView({ setActiveView, apiKey, pendingUserCount 
           source: 'mostrador' as const,
           clientName: s.clientName || 'Cliente Mostrador',
           clientPhone: s.clientPhone || '',
-          total: 0,
+          total: s.shippingCost || 0,
           pendingAmount: pending,
           date: s.date,
           installmentsCount: s.installmentsCount || 1,

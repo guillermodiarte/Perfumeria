@@ -34,6 +34,10 @@ export interface UnifiedSale {
   }[];
   rawSaleRecords?: SaleRecord[];
   adminNotes?: string;
+  shippingCost?: number;
+  shippingType?: string;
+  shippingInvoiceUrl?: string;
+  shippingTrackingNumber?: string;
 }
 
 export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRole }: VentasRealizadasViewProps) {
@@ -100,9 +104,12 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
 
     posTicketsMap.forEach((records, tId) => {
       const first = records[0];
-      const totalRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
-      const paid = records.reduce((acc, r) => acc + (r.paidAmount ?? (r.status === 'Pagada' ? r.revenue : 0)), 0);
-      const remaining = records.reduce((acc, r) => acc + (r.remainingAmount ?? (r.status === 'Pagada' ? 0 : r.revenue)), 0);
+      const itemsRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
+      const shippingCost = first.shippingCost || 0;
+      const totalRev = itemsRev + shippingCost;
+      const explicitPending = first.pendingAmount ?? first.remainingAmount;
+      const remaining = (first.status === 'Pagada') ? 0 : (explicitPending !== undefined ? Number(explicitPending) : 0);
+      const paid = (first.status === 'Pagada') ? totalRev : (first.paidAmount !== undefined ? Number(first.paidAmount) : Math.max(0, totalRev - remaining));
 
       // Criterio: YA COBRADA en su totalidad (saldo pendiente <= 0 o estatus Pagada)
       const isPaid = (first.status === 'Pagada') || (remaining <= 0 && totalRev > 0) || (paid >= totalRev && totalRev > 0);
@@ -129,6 +136,10 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
         })),
         rawSaleRecords: records,
         adminNotes: first.notes || first.adminNotes || '',
+        shippingCost: shippingCost,
+        shippingType: first.shippingType,
+        shippingInvoiceUrl: first.shippingInvoiceUrl,
+        shippingTrackingNumber: first.shippingTrackingNumber,
       });
     });
 
@@ -166,6 +177,10 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
           imageUrl: i.image_url,
         })),
         adminNotes: o.admin_notes || '',
+        shippingCost: Number(o.shipping_cost || 0),
+        shippingType: o.shipping_type,
+        shippingInvoiceUrl: o.shipping_invoice_url,
+        shippingTrackingNumber: o.shipping_tracking_number,
       });
     });
 
@@ -250,7 +265,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
       if (sale.channel === 'mostrador' && sale.rawSaleRecords) {
         generateTicketPDF(sale.ticketId, sale.rawSaleRecords, true);
       } else {
-        const pseudoRecords: SaleRecord[] = sale.items.map(item => ({
+        const pseudoRecords: SaleRecord[] = sale.items.map((item, idx) => ({
           id: sale.id,
           ticketId: sale.ticketId,
           productId: '',
@@ -265,6 +280,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
           clientName: sale.clientName,
           clientPhone: sale.clientPhone,
           status: 'Pagada',
+          shippingCost: idx === 0 ? sale.shippingCost : 0,
         }));
         generateTicketPDF(sale.ticketId, pseudoRecords, true);
       }
@@ -581,6 +597,25 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
                     <span className="material-symbols-outlined text-[12px]">check_circle</span>
                     Cobrada
                   </span>
+                  {Boolean(sale.shippingCost && sale.shippingCost > 0) && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400 border border-orange-200 dark:border-orange-800/50 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[12px]">local_shipping</span>
+                      Envío (${sale.shippingCost?.toLocaleString('es-AR')})
+                    </span>
+                  )}
+                  {sale.shippingInvoiceUrl && (
+                    <a
+                      href={sale.shippingInvoiceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-100 text-orange-800 hover:bg-orange-200 dark:bg-orange-900/60 dark:text-orange-200 border border-orange-300 dark:border-orange-700 flex items-center gap-1 transition-all"
+                      title="Ver Factura de Envío adjunta"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">receipt_long</span>
+                      Factura Envío
+                    </a>
+                  )}
                 </div>
 
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-3">
@@ -753,13 +788,52 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
                 </div>
               )}
 
+              {/* Shipping Details */}
+              {(Boolean(selectedSaleDetail.shippingCost && selectedSaleDetail.shippingCost > 0) || Boolean(selectedSaleDetail.shippingInvoiceUrl)) && (
+                <div className="bg-orange-50 dark:bg-orange-950/30 p-4 rounded-2xl border border-orange-200 dark:border-orange-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-orange-500/10 text-orange-600 flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-xl">local_shipping</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-orange-800 dark:text-orange-400 uppercase tracking-wider block">
+                        Envío / Despacho
+                      </span>
+                      <p className="font-black text-sm text-slate-900 dark:text-white">
+                        ${(selectedSaleDetail.shippingCost || 0).toLocaleString('es-AR')}
+                      </p>
+                      {selectedSaleDetail.shippingTrackingNumber && (
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Guía / Empresa: <span className="font-semibold text-slate-700 dark:text-slate-300">{selectedSaleDetail.shippingTrackingNumber}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {selectedSaleDetail.shippingInvoiceUrl && (
+                    <a
+                      href={selectedSaleDetail.shippingInvoiceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all self-start sm:self-center"
+                    >
+                      <span className="material-symbols-outlined text-base">receipt_long</span>
+                      Ver Factura de Envío
+                    </a>
+                  )}
+                </div>
+              )}
+
               {/* Total Box */}
               <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block">
                     Total Cobrado
                   </span>
-                  <span className="text-xs text-emerald-600 dark:text-emerald-300">Pago Completado</span>
+                  <span className="text-xs text-emerald-600 dark:text-emerald-300">
+                    {selectedSaleDetail.shippingCost && selectedSaleDetail.shippingCost > 0
+                      ? `Incluye $${selectedSaleDetail.shippingCost.toLocaleString('es-AR')} de envío`
+                      : 'Pago Completado'}
+                  </span>
                 </div>
                 <div className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
                   ${selectedSaleDetail.total.toLocaleString('es-AR')}

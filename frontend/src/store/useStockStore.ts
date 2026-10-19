@@ -314,6 +314,10 @@ export interface SaleRecord {
   notes?: string;
   productImageUrl?: string;
   confirmationDate?: string;
+  shippingCost?: number;
+  shippingType?: 'delivery' | 'pickup' | string;
+  shippingInvoiceUrl?: string;
+  shippingTrackingNumber?: string;
 }
 
 export interface StockFlowState {
@@ -439,6 +443,10 @@ export interface StockFlowState {
       clientEmail?: string;
       isSpecialWholesale?: boolean;
       clientType?: string;
+      shippingCost?: number;
+      shippingType?: string;
+      shippingInvoiceUrl?: string;
+      shippingTrackingNumber?: string;
     }
   ) => string;
 
@@ -1248,7 +1256,11 @@ export const useStockFlowStore = create<StockFlowState>()(
                 ? Math.round((paymentOptions.pendingAmount / paymentOptions.installmentsCount) * 100) / 100
                 : 0,
               lastNotifiedMonth: paymentOptions && paymentOptions.paidAmount > 0 ? new Date().toISOString().substring(0, 7) : undefined,
-              notes: paymentOptions?.notes || ''
+              notes: paymentOptions?.notes || '',
+              shippingCost: paymentOptions?.shippingCost || 0,
+              shippingType: paymentOptions?.shippingType,
+              shippingInvoiceUrl: paymentOptions?.shippingInvoiceUrl,
+              shippingTrackingNumber: paymentOptions?.shippingTrackingNumber
             });
           });
 

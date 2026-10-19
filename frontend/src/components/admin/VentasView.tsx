@@ -21,6 +21,10 @@ interface CompletedSaleData {
   pendingAmount: number;
   installmentsCount: number;
   notes?: string;
+  shippingCost?: number;
+  shippingType?: string;
+  shippingInvoiceUrl?: string;
+  shippingTrackingNumber?: string;
 }
 
 interface VentasViewProps {
@@ -57,6 +61,14 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const [installmentsCount, setInstallmentsCount] = useState<number>(3);
   const [initialDownPayment, setInitialDownPayment] = useState<string>('0');
   const [saleNotes, setSaleNotes] = useState('');
+
+  // Opciones de Envío en Mostrador
+  const [hasShipping, setHasShipping] = useState(false);
+  const [shippingCostInput, setShippingCostInput] = useState('');
+  const [shippingInvoiceFile, setShippingInvoiceFile] = useState<File | null>(null);
+  const [shippingInvoiceUrl, setShippingInvoiceUrl] = useState('');
+  const [shippingTrackingInput, setShippingTrackingInput] = useState('');
+  const [isSubmittingSale, setIsSubmittingSale] = useState(false);
 
   // Modal de Venta Exitosa y Gestión de Ticket
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -111,7 +123,11 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     selectedCategory !== '' ||
     selectedProductId !== '' ||
     productSearchText.trim() !== '' ||
-    clientType !== 'normal'
+    clientType !== 'normal' ||
+    hasShipping ||
+    shippingCostInput.trim() !== '' ||
+    shippingInvoiceUrl.trim() !== '' ||
+    shippingTrackingInput.trim() !== ''
   );
 
   // Consulta el borrador compartido desde el servidor
@@ -137,6 +153,10 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
           if (parsed.selectedCategory !== undefined) setSelectedCategory(parsed.selectedCategory);
           if (parsed.selectedProductId !== undefined) setSelectedProductId(parsed.selectedProductId);
           if (parsed.productSearchText !== undefined) setProductSearchText(parsed.productSearchText);
+          if (parsed.hasShipping !== undefined) setHasShipping(Boolean(parsed.hasShipping));
+          if (parsed.shippingCostInput !== undefined) setShippingCostInput(parsed.shippingCostInput);
+          if (parsed.shippingInvoiceUrl !== undefined) setShippingInvoiceUrl(parsed.shippingInvoiceUrl);
+          if (parsed.shippingTrackingInput !== undefined) setShippingTrackingInput(parsed.shippingTrackingInput);
 
           try {
             localStorage.setItem(DRAFT_VENTAS_KEY, JSON.stringify(parsed));
@@ -223,6 +243,10 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
           if (localDraft.selectedCategory !== undefined) setSelectedCategory(localDraft.selectedCategory);
           if (localDraft.selectedProductId !== undefined) setSelectedProductId(localDraft.selectedProductId);
           if (localDraft.productSearchText !== undefined) setProductSearchText(localDraft.productSearchText);
+          if (localDraft.hasShipping !== undefined) setHasShipping(Boolean(localDraft.hasShipping));
+          if (localDraft.shippingCostInput !== undefined) setShippingCostInput(localDraft.shippingCostInput);
+          if (localDraft.shippingInvoiceUrl !== undefined) setShippingInvoiceUrl(localDraft.shippingInvoiceUrl);
+          if (localDraft.shippingTrackingInput !== undefined) setShippingTrackingInput(localDraft.shippingTrackingInput);
         }
       } catch (e) {
         console.error('Error al cargar borrador local de venta:', e);
@@ -264,6 +288,10 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
             selectedCategory,
             selectedProductId,
             productSearchText,
+            hasShipping,
+            shippingCostInput,
+            shippingInvoiceUrl,
+            shippingTrackingInput,
           };
           localStorage.setItem(DRAFT_VENTAS_KEY, JSON.stringify(draft));
           saveServerDraft(draft);
@@ -280,7 +308,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     }, 800);
 
     return () => clearTimeout(timer);
-  }, [isDraftLoaded, hasDraftData, clientName, clientPhone, clientEmail, clientType, customUnitPriceInput, cart, selectedParentCategory, selectedCategory, selectedProductId, productSearchText, saveServerDraft, clearServerDraft]);
+  }, [isDraftLoaded, hasDraftData, clientName, clientPhone, clientEmail, clientType, customUnitPriceInput, cart, selectedParentCategory, selectedCategory, selectedProductId, productSearchText, hasShipping, shippingCostInput, shippingInvoiceUrl, shippingTrackingInput, saveServerDraft, clearServerDraft]);
 
   // Si el usuario vuelve a enfocar la ventana o navegador, comprobar cambios del servidor
   useEffect(() => {
@@ -307,6 +335,11 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     setProductSearchText('');
     setSelectedVariantId('');
     setQuantityToAdd(1);
+    setHasShipping(false);
+    setShippingCostInput('');
+    setShippingInvoiceFile(null);
+    setShippingInvoiceUrl('');
+    setShippingTrackingInput('');
     setCloudSyncStatus('idle');
     setDraftUpdatedAt(null);
     setDraftUpdatedBy(null);
@@ -430,7 +463,19 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const currentCategoryGroup = categoriesConfig.find(g => g.grupo === selectedParentCategory);
   const availableSubcategories = currentCategoryGroup ? currentCategoryGroup.opciones : [];
 
-  const total = cart.reduce((acc, item) => acc + (item.quantity * item.salePrice), 0);
+  const subtotal = useMemo(() => {
+    return cart.reduce((acc, item) => acc + (item.quantity * item.salePrice), 0);
+  }, [cart]);
+
+  const parsedShippingCost = useMemo(() => {
+    if (!hasShipping) return 0;
+    const parsed = parseFloat(shippingCostInput);
+    return isNaN(parsed) || parsed < 0 ? 0 : parsed;
+  }, [hasShipping, shippingCostInput]);
+
+  const total = useMemo(() => {
+    return subtotal + parsedShippingCost;
+  }, [subtotal, parsedShippingCost]);
 
   const handleClientTypeChange = (newType: 'normal' | 'wholesale' | 'special_wholesale') => {
     setClientType(newType);
@@ -615,6 +660,10 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       .map(i => `• ${i.quantity}x ${i.name} — $${(i.salePrice * i.quantity).toLocaleString('es-AR')}`)
       .join('\n');
     
+    const shippingText = (completedSale.shippingCost && completedSale.shippingCost > 0)
+      ? `\n🚚 *Envío a domicilio:* $${completedSale.shippingCost.toLocaleString('es-AR')}`
+      : '';
+
     const paymentText = completedSale.paymentType === 'total' && completedSale.pendingAmount <= 0
       ? `✅ *Pago Total:* $${completedSale.total.toLocaleString('es-AR')}`
       : completedSale.paymentType === 'cuotas'
@@ -625,7 +674,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       `Te compartimos el comprobante de tu compra en *Ciara Bonita* ✨\n\n` +
       `🧾 *Ticket N°:* #${completedSale.ticketId}\n` +
       `📅 *Fecha:* ${completedSale.date}\n\n` +
-      `🛍️ *Detalle del pedido:*\n${itemsText}\n\n` +
+      `🛍️ *Detalle del pedido:*\n${itemsText}${shippingText}\n\n` +
       `💰 *Total:* $${completedSale.total.toLocaleString('es-AR')}\n` +
       `${paymentText}\n\n` +
       `¡Muchas gracias por elegirnos! Quedamos a tu entera disposición. 😊`;
@@ -637,7 +686,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     window.open(waUrl, '_blank');
   };
 
-  const handleConfirmSale = () => {
+  const handleConfirmSale = async () => {
     let finalPaid = total;
     let finalPending = 0;
 
@@ -659,12 +708,41 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       finalPending = Math.max(0, total - down);
     }
 
+    setIsSubmittingSale(true);
+
+    let finalInvoiceUrl = shippingInvoiceUrl;
+    if (hasShipping && shippingInvoiceFile) {
+      try {
+        const token = getAuthToken();
+        const formData = new FormData();
+        formData.append('file', shippingInvoiceFile);
+        formData.append('folder', 'Facturas');
+        const uploadRes = await fetch('/api/admin/upload', {
+          method: 'POST',
+          headers: token ? { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` } : {},
+          body: formData,
+        });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          if (uploadData.url) {
+            finalInvoiceUrl = uploadData.url;
+          }
+        } else {
+          console.warn('No se pudo subir la factura de envío, continuando venta.');
+        }
+      } catch (err) {
+        console.error('Error subiendo factura de envío:', err);
+      }
+    }
+
     const savedCart = [...cart];
     const savedClientName = clientName.trim() || 'Consumidor Final';
     const savedClientPhone = clientPhone.trim();
     const savedClientEmail = clientEmail.trim();
     const savedTotal = total;
     const savedNotes = saleNotes.trim();
+    const finalShippingCost = hasShipping ? parsedShippingCost : 0;
+    const finalShippingTracking = hasShipping ? shippingTrackingInput.trim() : '';
 
     const ticketId = registerSale(clientName, clientPhone, cart, {
       paymentType,
@@ -675,6 +753,10 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       clientEmail: clientEmail.trim(),
       isSpecialWholesale: clientType === 'special_wholesale',
       clientType: clientType,
+      shippingCost: finalShippingCost,
+      shippingType: hasShipping ? 'delivery' : 'pickup',
+      shippingInvoiceUrl: finalInvoiceUrl || undefined,
+      shippingTrackingNumber: finalShippingTracking || undefined,
     });
 
     const now = new Date();
@@ -698,8 +780,13 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       pendingAmount: finalPending,
       installmentsCount: paymentType === 'cuotas' ? installmentsCount : 1,
       notes: savedNotes,
+      shippingCost: finalShippingCost,
+      shippingType: hasShipping ? 'delivery' : 'pickup',
+      shippingInvoiceUrl: finalInvoiceUrl || undefined,
+      shippingTrackingNumber: finalShippingTracking || undefined,
     });
 
+    setIsSubmittingSale(false);
     setShowPaymentModal(false);
     setShowSuccessModal(true);
 
@@ -720,6 +807,11 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     setSelectedCategory('');
     setSelectedProductId('');
     setProductSearchText('');
+    setHasShipping(false);
+    setShippingCostInput('');
+    setShippingInvoiceFile(null);
+    setShippingInvoiceUrl('');
+    setShippingTrackingInput('');
   };
 
   return (
@@ -1273,15 +1365,156 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
             )}
         </div>
 
-        <div className="mt-auto border-t border-slate-200 dark:border-slate-700 pt-6">
-            <div className="flex justify-between items-center mb-6">
+        {/* Sección Opciones de Envío / Despacho */}
+        <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${hasShipping ? 'bg-orange-500 text-white shadow-sm' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                <span className="material-symbols-outlined text-lg">local_shipping</span>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-800 dark:text-white">¿Incluir Envío / Flete?</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Sumar el costo al total que abona el cliente</p>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hasShipping}
+                onChange={(e) => {
+                  setHasShipping(e.target.checked);
+                  if (!e.target.checked) {
+                    setShippingCostInput('');
+                    setShippingInvoiceFile(null);
+                    setShippingInvoiceUrl('');
+                    setShippingTrackingInput('');
+                  }
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+            </label>
+          </div>
+
+          {hasShipping && (
+            <div className="pt-3 border-t border-slate-200/80 dark:border-slate-700/80 space-y-3 animate-fadeIn">
+              {/* Monto de Envío */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Costo de Envío a cobrar al cliente ($):
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={shippingCostInput}
+                    onChange={(e) => setShippingCostInput(e.target.value)}
+                    placeholder="0"
+                    className="w-full pl-7 pr-3 py-2 text-sm font-black rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Factura / Remito del Envío */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Factura / Remito del Envío (PDF o Imagen, opcional):
+                </label>
+
+                {shippingInvoiceUrl ? (
+                  <div className="flex items-center justify-between p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs">
+                    <a
+                      href={shippingInvoiceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1.5 font-bold text-emerald-700 dark:text-emerald-300 hover:underline truncate max-w-[200px]"
+                    >
+                      <span className="material-symbols-outlined text-base">receipt_long</span>
+                      Ver Factura Adjunta
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShippingInvoiceUrl('');
+                        setShippingInvoiceFile(null);
+                      }}
+                      className="text-slate-400 hover:text-red-500 p-1 rounded-md"
+                      title="Quitar factura"
+                    >
+                      <span className="material-symbols-outlined text-sm">close</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <input
+                      type="file"
+                      accept="application/pdf,image/*"
+                      onChange={(e) => setShippingInvoiceFile(e.target.files?.[0] || null)}
+                      className="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-orange-500/10 file:text-orange-600 hover:file:bg-orange-500/20 file:cursor-pointer"
+                    />
+                    {shippingInvoiceFile && (
+                      <div className="flex items-center justify-between p-2 bg-orange-50/70 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-xl">
+                        <p className="text-[11px] font-medium text-orange-800 dark:text-orange-300 flex items-center gap-1 truncate max-w-[210px]">
+                          <span className="material-symbols-outlined text-sm text-orange-600">attach_file</span>
+                          {shippingInvoiceFile.name}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setShippingInvoiceFile(null)}
+                          className="text-slate-400 hover:text-red-500 p-0.5"
+                          title="Quitar archivo"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">close</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Guía o Transporte opcional */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Guía / Empresa de Transporte (opcional):
+                </label>
+                <input
+                  type="text"
+                  value={shippingTrackingInput}
+                  onChange={(e) => setShippingTrackingInput(e.target.value)}
+                  placeholder="Ej: Correo Argentino, Andreani, Mensajería..."
+                  className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-auto border-t border-slate-200 dark:border-slate-700 pt-4 space-y-2">
+            {hasShipping && parsedShippingCost > 0 && (
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                  <span>Subtotal Artículos:</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">${subtotal.toLocaleString('es-AR')}</span>
+                </div>
+                <div className="flex justify-between text-orange-600 dark:text-orange-400 font-bold">
+                  <span className="flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">local_shipping</span>
+                    Envío a Domicilio:
+                  </span>
+                  <span>+${parsedShippingCost.toLocaleString('es-AR')}</span>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-between items-center mb-4">
                 <p className="text-slate-500 dark:text-slate-400 font-bold uppercase text-sm">Total a Cobrar</p>
-                <p className="text-4xl font-black text-primary tracking-tight">${total.toLocaleString()}</p>
+                <p className="text-4xl font-black text-primary tracking-tight">${total.toLocaleString('es-AR')}</p>
             </div>
             <button 
                 onClick={handleOpenPaymentModal} 
                 disabled={cart.length === 0}
-                className="w-full bg-green-500 hover:bg-green-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-black py-4 rounded-xl text-lg shadow-lg shadow-green-500/20 transition-all flex justify-center items-center gap-2"
+                className="w-full bg-green-500 hover:bg-green-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-black py-4 rounded-xl text-lg shadow-lg shadow-green-500/20 transition-all flex justify-center items-center gap-2 cursor-pointer"
             >
                 <span className="material-symbols-outlined text-2xl">point_of_sale</span> 
                 COBRAR / CONFIRMAR VENTA
@@ -1333,8 +1566,13 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                 <p className="text-xs text-slate-500 mt-0.5">{cart.length} artículo(s) en caja</p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total Venta</p>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total a Cobrar</p>
                 <p className="text-2xl font-black text-primary">${total.toLocaleString('es-AR')}</p>
+                {hasShipping && parsedShippingCost > 0 && (
+                  <p className="text-[10px] text-orange-600 dark:text-orange-400 font-bold mt-0.5">
+                    (Artículos: ${subtotal.toLocaleString('es-AR')} + Envío: ${parsedShippingCost.toLocaleString('es-AR')})
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1515,10 +1753,13 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
               <button
                 type="button"
                 onClick={handleConfirmSale}
-                className="flex-[2] py-3 rounded-xl bg-green-500 hover:bg-green-600 text-white font-black text-sm shadow-lg shadow-green-500/20 transition-all flex items-center justify-center gap-2"
+                disabled={isSubmittingSale}
+                className="flex-[2] py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-black text-sm shadow-lg shadow-green-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span className="material-symbols-outlined text-lg">check_circle</span>
-                Confirmar Venta y Generar Ticket
+                <span className={`material-symbols-outlined text-lg ${isSubmittingSale ? 'animate-spin' : ''}`}>
+                  {isSubmittingSale ? 'sync' : 'check_circle'}
+                </span>
+                {isSubmittingSale ? 'Guardando Venta...' : 'Confirmar Venta y Generar Ticket'}
               </button>
             </div>
 
@@ -1721,6 +1962,34 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                   ))}
                 </div>
               </div>
+
+              {/* Detalle de Envío si fue incluido */}
+              {Boolean(completedSale.shippingCost && completedSale.shippingCost > 0) && (
+                <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/50 rounded-xl p-3 text-xs text-orange-900 dark:text-orange-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-600 flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-lg">local_shipping</span>
+                    </div>
+                    <div>
+                      <span className="font-bold block">Envío a Domicilio: ${completedSale.shippingCost?.toLocaleString('es-AR')}</span>
+                      {completedSale.shippingTrackingNumber && (
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Guía / Transp: {completedSale.shippingTrackingNumber}</span>
+                      )}
+                    </div>
+                  </div>
+                  {completedSale.shippingInvoiceUrl && (
+                    <a
+                      href={completedSale.shippingInvoiceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] shadow-sm transition-all self-start sm:self-center"
+                    >
+                      <span className="material-symbols-outlined text-sm">receipt_long</span>
+                      Ver Factura Adjunta
+                    </a>
+                  )}
+                </div>
+              )}
 
               {/* Observaciones si las hay */}
               {completedSale.notes && (

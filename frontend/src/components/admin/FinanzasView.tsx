@@ -148,7 +148,7 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
             const first = records[0];
             if (first.status === 'Cancelada') return;
 
-            const totalRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
+            const totalRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0) + (first.shippingCost || 0);
             const isFullyPaid = first.status === 'Pagada' || (first.paymentStatus === 'full');
             const explicitPending = first.pendingAmount ?? first.remainingAmount;
             const actualPending = isFullyPaid ? 0 : (explicitPending !== undefined ? Number(explicitPending) : 0);

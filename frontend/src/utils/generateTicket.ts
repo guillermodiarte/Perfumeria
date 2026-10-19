@@ -7,8 +7,11 @@ export function createTicketDoc(ticketId: string, sales: SaleRecord[]): jsPDF | 
     const ticketSales = sales.filter(s => s.ticketId === ticketId);
     if (ticketSales.length === 0) return null;
 
+    const firstSale = ticketSales[0];
+    const shippingCost = firstSale?.shippingCost || 0;
+
     // Thermal printer format (80mm width, auto height depending on content)
-    const baseHeight = 90;
+    const baseHeight = shippingCost > 0 ? 105 : 90;
     const itemHeight = 15;
     const docHeight = baseHeight + (ticketSales.length * itemHeight);
 
@@ -69,11 +72,20 @@ export function createTicketDoc(ticketId: string, sales: SaleRecord[]): jsPDF | 
 
     let currentY = (doc as any).lastAutoTable?.finalY ?? 68;
     // Total
-    const total = ticketSales.reduce((acc, s) => acc + s.revenue, 0);
-    const firstSale = ticketSales[0];
+    const itemsTotal = ticketSales.reduce((acc, s) => acc + s.revenue, 0);
+    const total = itemsTotal + shippingCost;
     const paid = firstSale.paidAmount !== undefined ? firstSale.paidAmount : total;
     const pending = firstSale.pendingAmount !== undefined ? firstSale.pendingAmount : (firstSale.remainingAmount || 0);
     const pType = firstSale.paymentType || 'total';
+
+    if (shippingCost > 0) {
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Subtotal: $${itemsTotal.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
+        currentY += 4.5;
+        doc.text(`Envío a Domicilio: $${shippingCost.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
+        currentY += 4.5;
+    }
 
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
