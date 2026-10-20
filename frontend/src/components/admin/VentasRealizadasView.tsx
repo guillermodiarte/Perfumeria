@@ -20,6 +20,7 @@ export interface UnifiedSale {
   clientPhone: string;
   clientEmail?: string;
   total: number;
+  subtotal: number;
   paidAmount: number;
   paymentType: string;
   itemsCount: number;
@@ -123,6 +124,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
         clientName: first.clientName || 'Consumidor Final',
         clientPhone: first.clientPhone || 'S/D',
         total: totalRev,
+        subtotal: itemsRev,
         paidAmount: Math.min(totalRev, paid || totalRev),
         paymentType: first.paymentType || 'total',
         itemsCount: records.reduce((acc, r) => acc + (r.quantity || 1), 0),
@@ -149,6 +151,8 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
       if (st.includes('cancel') || st.includes('rechaz')) return;
 
       const tot = Number(o.total || 0);
+      const shippingCost = Number(o.shipping_cost || 0);
+      const itemsRev = Math.max(0, tot - shippingCost);
       const paid = Number(o.paid_amount || 0);
       const paySt = (o.payment_status || '').toLowerCase();
 
@@ -164,6 +168,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
         clientPhone: o.customer?.phone || 'S/D',
         clientEmail: o.customer?.email || '',
         total: tot,
+        subtotal: itemsRev,
         paidAmount: paid || tot,
         paymentType: o.payment_type || 'total',
         itemsCount: (o.items || []).reduce((acc: number, i: any) => acc + (i.quantity || 1), 0),
@@ -177,7 +182,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
           imageUrl: i.image_url,
         })),
         adminNotes: o.admin_notes || '',
-        shippingCost: Number(o.shipping_cost || 0),
+        shippingCost: shippingCost,
         shippingType: o.shipping_type,
         shippingInvoiceUrl: o.shipping_invoice_url,
         shippingTrackingNumber: o.shipping_tracking_number,
@@ -241,15 +246,19 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
 
   // --- Metrics ---
   const metrics = useMemo(() => {
-    const totalRevenue = filteredSales.reduce((acc, s) => acc + s.total, 0);
+    const totalRevenue = filteredSales.reduce((acc, s) => acc + s.subtotal, 0);
+    const totalShipping = filteredSales.reduce((acc, s) => acc + (s.shippingCost || 0), 0);
+    const totalCharged = filteredSales.reduce((acc, s) => acc + s.total, 0);
     const mostradorSales = filteredSales.filter(s => s.channel === 'mostrador');
     const webSales = filteredSales.filter(s => s.channel === 'web');
-    const mostradorRevenue = mostradorSales.reduce((acc, s) => acc + s.total, 0);
-    const webRevenue = webSales.reduce((acc, s) => acc + s.total, 0);
+    const mostradorRevenue = mostradorSales.reduce((acc, s) => acc + s.subtotal, 0);
+    const webRevenue = webSales.reduce((acc, s) => acc + s.subtotal, 0);
     const avgTicket = filteredSales.length > 0 ? Math.round(totalRevenue / filteredSales.length) : 0;
 
     return {
       totalRevenue,
+      totalShipping,
+      totalCharged,
       countTotal: filteredSales.length,
       mostradorRevenue,
       mostradorCount: mostradorSales.length,
@@ -376,18 +385,26 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
 
       {/* Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Cobrado */}
+        {/* Ventas de Mercadería */}
         <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Total Cobrado</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Venta Mercadería</span>
             <span className="material-symbols-outlined text-emerald-500">payments</span>
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             ${metrics.totalRevenue.toLocaleString('es-AR')}
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 font-medium block">
-            {metrics.countTotal} venta{metrics.countTotal === 1 ? '' : 's'} concretada{metrics.countTotal === 1 ? '' : 's'}
-          </span>
+          <div className="mt-1 space-y-0.5">
+            {metrics.totalShipping > 0 && (
+              <span className="text-[11px] text-orange-500 dark:text-orange-400 font-bold block flex items-center gap-1">
+                <span className="material-symbols-outlined text-[12px]">local_shipping</span>
+                +${metrics.totalShipping.toLocaleString('es-AR')} en envíos (traslado)
+              </span>
+            )}
+            <span className="text-[11px] text-slate-400 font-medium block">
+              {metrics.countTotal} venta{metrics.countTotal === 1 ? '' : 's'} • Total cobrado: ${metrics.totalCharged.toLocaleString('es-AR')}
+            </span>
+          </div>
         </div>
 
         {/* Ventas Mostrador */}
@@ -400,7 +417,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
             ${metrics.mostradorRevenue.toLocaleString('es-AR')}
           </div>
           <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-1 block">
-            {metrics.mostradorCount} ticket{metrics.mostradorCount === 1 ? '' : 's'} en local
+            {metrics.mostradorCount} ticket{metrics.mostradorCount === 1 ? '' : 's'} en local (solo mercadería)
           </span>
         </div>
 
@@ -414,7 +431,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
             ${metrics.webRevenue.toLocaleString('es-AR')}
           </div>
           <span className="text-[11px] text-blue-600 dark:text-blue-400 font-bold mt-1 block">
-            {metrics.webCount} pedido{metrics.webCount === 1 ? '' : 's'} online
+            {metrics.webCount} pedido{metrics.webCount === 1 ? '' : 's'} online (solo mercadería)
           </span>
         </div>
 
@@ -823,20 +840,36 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
                 </div>
               )}
 
-              {/* Total Box */}
-              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block">
-                    Total Cobrado
-                  </span>
-                  <span className="text-xs text-emerald-600 dark:text-emerald-300">
-                    {selectedSaleDetail.shippingCost && selectedSaleDetail.shippingCost > 0
-                      ? `Incluye $${selectedSaleDetail.shippingCost.toLocaleString('es-AR')} de envío`
-                      : 'Pago Completado'}
+              {/* Resumen de Importes */}
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                {/* Subtotal Mercadería */}
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-900/40">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Subtotal Mercadería</span>
+                  <span className="text-sm font-bold text-slate-800 dark:text-slate-200 font-mono">
+                    ${selectedSaleDetail.subtotal.toLocaleString('es-AR')}
                   </span>
                 </div>
-                <div className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
-                  ${selectedSaleDetail.total.toLocaleString('es-AR')}
+                {/* Envío (si aplica) */}
+                {selectedSaleDetail.shippingCost != null && selectedSaleDetail.shippingCost > 0 && (
+                  <div className="flex items-center justify-between px-4 py-3 bg-orange-50 dark:bg-orange-950/20 border-t border-orange-100 dark:border-orange-900/30">
+                    <div>
+                      <span className="text-xs font-semibold text-orange-700 dark:text-orange-400 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[14px]">local_shipping</span>
+                        Envío / Despacho
+                      </span>
+                      <p className="text-[10px] text-orange-500 dark:text-orange-500 mt-0.5">A cargo del comprador — no computable como ganancia</p>
+                    </div>
+                    <span className="text-sm font-bold text-orange-700 dark:text-orange-400 font-mono">
+                      +${selectedSaleDetail.shippingCost.toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                )}
+                {/* Total Cobrado */}
+                <div className="flex items-center justify-between px-4 py-3 bg-emerald-50 dark:bg-emerald-950/40 border-t border-emerald-200 dark:border-emerald-800/40">
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Total Cobrado al Cliente</span>
+                  <span className="text-xl font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                    ${selectedSaleDetail.total.toLocaleString('es-AR')}
+                  </span>
                 </div>
               </div>
             </div>

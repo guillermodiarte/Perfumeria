@@ -341,7 +341,8 @@ export default function DashboardView({ setActiveView, apiKey, pendingUserCount 
       if (status === 'approved' || pStatus === 'paid' || pStatus === 'partial') {
         const oDateStr = (o.created_at || '').substring(0, 10);
         const oDate = o.created_at ? new Date(o.created_at) : null;
-        const amount = parseFloat(o.total || 0);
+        // Excluimos el costo de envío porque es un traslado al comprador, no ingreso de la tienda
+        const amount = Math.max(0, parseFloat(o.total || 0) - parseFloat(o.shipping_cost || 0));
 
         if (oDateStr === todayStr) {
           todayRev += amount;

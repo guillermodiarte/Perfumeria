@@ -81,15 +81,17 @@ export function createTicketDoc(ticketId: string, sales: SaleRecord[]): jsPDF | 
     if (shippingCost > 0) {
         doc.setFontSize(8.5);
         doc.setFont("helvetica", "normal");
-        doc.text(`Subtotal: $${itemsTotal.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
+        doc.text(`Subtotal Productos: $${itemsTotal.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
         currentY += 4.5;
-        doc.text(`Envío a Domicilio: $${shippingCost.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
+        doc.setTextColor(180, 80, 0);
+        doc.text(`Envío (a cargo del comprador): $${shippingCost.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
+        doc.setTextColor(0, 0, 0);
         currentY += 4.5;
     }
 
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
-    doc.text(`TOTAL: $${total.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
+    doc.text(`TOTAL A COBRAR: $${total.toLocaleString('es-AR')}`, 75, currentY, { align: "right" });
     currentY += 6;
 
     if (pType !== 'total' || pending > 0) {

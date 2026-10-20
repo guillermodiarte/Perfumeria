@@ -30,6 +30,7 @@ interface TransactionItem {
     variant: string;
     description: string;
     extra: string;
+    shippingCost?: number;
 }
 
 export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
@@ -148,16 +149,23 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
             const first = records[0];
             if (first.status === 'Cancelada') return;
 
-            const totalRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0) + (first.shippingCost || 0);
+            const itemsRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
+            const shippingCost = first.shippingCost || 0;
+            const totalClientCharge = itemsRev + shippingCost;
+
             const isFullyPaid = first.status === 'Pagada' || (first.paymentStatus === 'full');
             const explicitPending = first.pendingAmount ?? first.remainingAmount;
             const actualPending = isFullyPaid ? 0 : (explicitPending !== undefined ? Number(explicitPending) : 0);
             const actualPaid = isFullyPaid 
-                ? totalRev 
-                : (first.paidAmount !== undefined ? Math.max(0, Number(first.paidAmount)) : Math.max(0, totalRev - actualPending));
+                ? totalClientCharge 
+                : (first.paidAmount !== undefined ? Math.max(0, Number(first.paidAmount)) : Math.max(0, totalClientCharge - actualPending));
 
-            const paidClamped = Math.min(totalRev, Math.max(0, actualPaid));
-            const pendingClamped = isFullyPaid ? 0 : Math.max(0, totalRev - paidClamped);
+            const paidClamped = Math.min(totalClientCharge, Math.max(0, actualPaid));
+            const pendingClamped = isFullyPaid ? 0 : Math.max(0, totalClientCharge - paidClamped);
+
+            // El ingreso real del negocio para cálculo de ganancia corresponde únicamente al producto vendido
+            const productPaid = Math.min(itemsRev, paidClamped);
+            const shippingPaid = Math.max(0, paidClamped - productPaid);
 
             const totalQty = records.reduce((acc, r) => acc + (r.quantity || 1), 0);
             const clientName = first.clientName || 'Consumidor Final';
@@ -167,11 +175,11 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
             let installmentNote: string | undefined = undefined;
             if (paidClamped > 0 && pendingClamped > 0) {
                 if (first.installmentsCount && first.installmentsCount > 1) {
-                    const monthly = first.installmentMonthlyAmount || Math.round(totalRev / first.installmentsCount);
+                    const monthly = first.installmentMonthlyAmount || Math.round(totalClientCharge / first.installmentsCount);
                     const cuotaNum = Math.min(first.installmentsCount, Math.max(1, Math.round(paidClamped / (monthly || 1))));
-                    installmentNote = `${cuotaNum}° cuota pagada ($${fmt(paidClamped)} de $${fmt(totalRev)} total)`;
+                    installmentNote = `${cuotaNum}° cuota pagada ($${fmt(paidClamped)} de $${fmt(totalClientCharge)} total)`;
                 } else {
-                    installmentNote = `Entrega / pago parcial de $${fmt(paidClamped)} de $${fmt(totalRev)} total`;
+                    installmentNote = `Entrega / pago parcial de $${fmt(paidClamped)} de $${fmt(totalClientCharge)} total`;
                 }
             }
 
@@ -180,10 +188,11 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                     id: `pos-${tId}`,
                     date: first.date || new Date().toISOString(),
                     type: 'Ingreso' as const,
-                    amount: paidClamped,
-                    totalAmount: totalRev,
+                    amount: productPaid, // Solo mercadería genera ganancia/ingreso del negocio
+                    totalAmount: totalClientCharge,
                     paidAmount: paidClamped,
                     pendingAmount: pendingClamped,
+                    shippingCost: shippingPaid,
                     isPartial: pendingClamped > 0,
                     installmentsCount: first.installmentsCount,
                     paymentType: first.paymentType,
@@ -191,7 +200,9 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                     productName: productsSummary || `Ticket #${tId}`,
                     quantity: totalQty,
                     variant: '',
-                    description: `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName}`,
+                    description: shippingCost > 0
+                        ? `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
+                        : `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName}`,
                     extra: `${clientName} • Mostrador`
                 });
             } else if (pendingClamped > 0) {
@@ -201,16 +212,19 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                     date: first.date || new Date().toISOString(),
                     type: 'Pendiente' as const,
                     amount: 0,
-                    totalAmount: totalRev,
+                    totalAmount: totalClientCharge,
                     paidAmount: 0,
                     pendingAmount: pendingClamped,
+                    shippingCost: 0,
                     isPendingOnly: true,
                     installmentsCount: first.installmentsCount,
                     paymentType: first.paymentType,
                     productName: productsSummary || `Ticket #${tId}`,
                     quantity: totalQty,
                     variant: '',
-                    description: `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName}`,
+                    description: shippingCost > 0
+                        ? `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
+                        : `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName}`,
                     extra: `${clientName} • Mostrador (Pendiente de cobro)`
                 });
             }
@@ -228,6 +242,8 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                 .forEach((o: any) => {
                     const client = o.customer?.name || o.customer_name || 'Cliente Web';
                     const tot = Number(o.total || 0);
+                    const shippingCost = Number(o.shipping_cost || 0);
+                    const itemsRev = Math.max(0, tot - shippingCost);
                     const paid = Number(o.paid_amount || 0);
                     const paySt = (o.payment_status || '').toLowerCase();
                     const ordSt = (o.status || '').toLowerCase();
@@ -236,6 +252,10 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                     const actualPaid = isFullyPaid ? tot : Math.max(0, paid);
                     const paidClamped = Math.min(tot, actualPaid);
                     const pendingClamped = isFullyPaid ? 0 : Math.max(0, tot - paidClamped);
+
+                    // El ingreso real del negocio corresponde únicamente al producto vendido
+                    const productPaid = Math.min(itemsRev, paidClamped);
+                    const shippingPaid = Math.max(0, paidClamped - productPaid);
 
                     const totalQty = Array.isArray(o.items) ? o.items.reduce((s: number, i: any) => s + (i.quantity || 1), 0) : 1;
                     const productsSummary = Array.isArray(o.items) ? o.items.map((i: any) => `${i.quantity}x ${i.product_name || 'Producto'}`).join(' • ') : '';
@@ -250,10 +270,11 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                             id: `web-order-${o.id || o.order_number}`,
                             date: o.created_at || new Date().toISOString(),
                             type: 'Ingreso' as const,
-                            amount: paidClamped,
+                            amount: productPaid, // Solo mercadería genera ganancia
                             totalAmount: tot,
                             paidAmount: paidClamped,
                             pendingAmount: pendingClamped,
+                            shippingCost: shippingPaid,
                             isPartial: pendingClamped > 0,
                             installmentsCount: o.installments_count,
                             paymentType: o.payment_type,
@@ -261,7 +282,9 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                             productName: productsSummary || `Pedido #${o.order_number}`,
                             quantity: totalQty,
                             variant: '',
-                            description: `Venta Web #${o.order_number} (${totalQty} uds) a ${client}`,
+                            description: shippingCost > 0
+                                ? `Venta Web #${o.order_number} (${totalQty} uds) a ${client} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
+                                : `Venta Web #${o.order_number} (${totalQty} uds) a ${client}`,
                             extra: `${client} • Tienda Web`
                         });
                     } else if (pendingClamped > 0) {
@@ -273,13 +296,16 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                             totalAmount: tot,
                             paidAmount: 0,
                             pendingAmount: pendingClamped,
+                            shippingCost: 0,
                             isPendingOnly: true,
                             installmentsCount: o.installments_count,
                             paymentType: o.payment_type,
                             productName: productsSummary || `Pedido #${o.order_number}`,
                             quantity: totalQty,
                             variant: '',
-                            description: `Venta Web #${o.order_number} (${totalQty} uds) a ${client}`,
+                            description: shippingCost > 0
+                                ? `Venta Web #${o.order_number} (${totalQty} uds) a ${client} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
+                                : `Venta Web #${o.order_number} (${totalQty} uds) a ${client}`,
                             extra: `${client} • Tienda Web (Pendiente de pago)`
                         });
                     }
@@ -298,13 +324,17 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
             fallbackWebTickets.forEach((records, tId) => {
                 const first = records[0];
                 if (first.status === 'Cancelada') return;
-                const totalRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
+                const itemsRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
+                const shippingCost = first.shippingCost || 0;
+                const totalClientCharge = itemsRev + shippingCost;
                 const isFullyPaid = first.status === 'Pagada' || (first.paymentStatus === 'full');
                 const explicitPending = first.pendingAmount ?? first.remainingAmount;
                 const actualPending = isFullyPaid ? 0 : (explicitPending !== undefined ? Number(explicitPending) : 0);
-                const actualPaid = isFullyPaid ? totalRev : (first.paidAmount !== undefined ? Math.max(0, Number(first.paidAmount)) : Math.max(0, totalRev - actualPending));
-                const paidClamped = Math.min(totalRev, Math.max(0, actualPaid));
-                const pendingClamped = isFullyPaid ? 0 : Math.max(0, totalRev - paidClamped);
+                const actualPaid = isFullyPaid ? totalClientCharge : (first.paidAmount !== undefined ? Math.max(0, Number(first.paidAmount)) : Math.max(0, totalClientCharge - actualPending));
+                const paidClamped = Math.min(totalClientCharge, Math.max(0, actualPaid));
+                const pendingClamped = isFullyPaid ? 0 : Math.max(0, totalClientCharge - paidClamped);
+                const productPaid = Math.min(itemsRev, paidClamped);
+                const shippingPaid = Math.max(0, paidClamped - productPaid);
                 const totalQty = records.reduce((acc, r) => acc + (r.quantity || 1), 0);
                 const clientName = first.clientName || 'Cliente Web';
                 const productsSummary = records.map(r => `${r.quantity}x ${r.productName}`).join(' • ');
@@ -314,15 +344,18 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                         id: `local-web-${tId}`,
                         date: first.date || new Date().toISOString(),
                         type: 'Ingreso' as const,
-                        amount: paidClamped,
-                        totalAmount: totalRev,
+                        amount: productPaid,
+                        totalAmount: totalClientCharge,
                         paidAmount: paidClamped,
                         pendingAmount: pendingClamped,
+                        shippingCost: shippingPaid,
                         isPartial: pendingClamped > 0,
                         productName: productsSummary || `Pedido #${tId}`,
                         quantity: totalQty,
                         variant: '',
-                        description: `Venta Web #${tId} (${totalQty} uds) a ${clientName}`,
+                        description: shippingCost > 0
+                            ? `Venta Web #${tId} (${totalQty} uds) a ${clientName} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
+                            : `Venta Web #${tId} (${totalQty} uds) a ${clientName}`,
                         extra: `${clientName} • Tienda Web`
                     });
                 } else if (pendingClamped > 0) {
@@ -331,14 +364,17 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                         date: first.date || new Date().toISOString(),
                         type: 'Pendiente' as const,
                         amount: 0,
-                        totalAmount: totalRev,
+                        totalAmount: totalClientCharge,
                         paidAmount: 0,
                         pendingAmount: pendingClamped,
+                        shippingCost: 0,
                         isPendingOnly: true,
                         productName: productsSummary || `Pedido #${tId}`,
                         quantity: totalQty,
                         variant: '',
-                        description: `Venta Web #${tId} (${totalQty} uds) a ${clientName}`,
+                        description: shippingCost > 0
+                            ? `Venta Web #${tId} (${totalQty} uds) a ${clientName} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
+                            : `Venta Web #${tId} (${totalQty} uds) a ${clientName}`,
                         extra: `${clientName} • Tienda Web (Pendiente de pago)`
                     });
                 }
@@ -355,8 +391,13 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
     }, [transactions]);
 
     const totalRevenue = useMemo(() => {
-        // Solo sumamos los montos efectivamente cobrados en caja o banco
+        // Solo sumamos los ingresos efectivos por venta de productos (sin fletes a terceros)
         return transactions.filter(t => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
+    }, [transactions]);
+
+    const totalShippingCollected = useMemo(() => {
+        // Total de fletes pagados por clientes (trasladados a empresas de envío)
+        return transactions.reduce((acc, t) => acc + (t.shippingCost || 0), 0);
     }, [transactions]);
 
     const totalPending = useMemo(() => {
@@ -427,10 +468,15 @@ export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
                         <span className="material-symbols-outlined text-xl sm:text-2xl">account_balance_wallet</span>
                     </div>
                     <div className="min-w-0 flex-1">
-                        <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Ingresos Cobrados</p>
+                        <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Ventas de Mercadería</p>
                         <p className="text-base sm:text-xl lg:text-2xl font-black text-slate-900 dark:text-white truncate font-mono mt-0.5">
                             ${fmt(totalRevenue)}
                         </p>
+                        {totalShippingCollected > 0 && (
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate mt-0.5" title="Monto de flete cobrado al comprador para transporte">
+                                + ${fmt(totalShippingCollected)} fletes traslado
+                            </p>
+                        )}
                     </div>
                 </div>
 

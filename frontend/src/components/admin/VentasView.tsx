@@ -1495,13 +1495,13 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
             {hasShipping && parsedShippingCost > 0 && (
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                  <span>Subtotal Artículos:</span>
+                  <span>Subtotal Mercadería:</span>
                   <span className="font-bold text-slate-700 dark:text-slate-300">${subtotal.toLocaleString('es-AR')}</span>
                 </div>
                 <div className="flex justify-between text-orange-600 dark:text-orange-400 font-bold">
                   <span className="flex items-center gap-1">
                     <span className="material-symbols-outlined text-[14px]">local_shipping</span>
-                    Envío a Domicilio:
+                    Envío (a cargo del cliente):
                   </span>
                   <span>+${parsedShippingCost.toLocaleString('es-AR')}</span>
                 </div>
@@ -1566,12 +1566,17 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                 <p className="text-xs text-slate-500 mt-0.5">{cart.length} artículo(s) en caja</p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total a Cobrar</p>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total a Cobrar al Cliente</p>
                 <p className="text-2xl font-black text-primary">${total.toLocaleString('es-AR')}</p>
                 {hasShipping && parsedShippingCost > 0 && (
-                  <p className="text-[10px] text-orange-600 dark:text-orange-400 font-bold mt-0.5">
-                    (Artículos: ${subtotal.toLocaleString('es-AR')} + Envío: ${parsedShippingCost.toLocaleString('es-AR')})
-                  </p>
+                  <div className="text-right">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Mercadería: ${subtotal.toLocaleString('es-AR')}
+                    </p>
+                    <p className="text-[10px] text-orange-600 dark:text-orange-400 font-bold">
+                      + Envío cliente: ${parsedShippingCost.toLocaleString('es-AR')} (no es ganancia)
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
