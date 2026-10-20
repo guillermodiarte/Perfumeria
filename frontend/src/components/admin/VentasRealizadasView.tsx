@@ -39,6 +39,7 @@ export interface UnifiedSale {
   shippingType?: string;
   shippingInvoiceUrl?: string;
   shippingTrackingNumber?: string;
+  invoiceNumber?: string;
 }
 
 export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRole }: VentasRealizadasViewProps) {
@@ -142,6 +143,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
         shippingType: first.shippingType,
         shippingInvoiceUrl: first.shippingInvoiceUrl,
         shippingTrackingNumber: first.shippingTrackingNumber,
+        invoiceNumber: first.invoiceNumber,
       });
     });
 
@@ -290,6 +292,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
           clientPhone: sale.clientPhone,
           status: 'Pagada',
           shippingCost: idx === 0 ? sale.shippingCost : 0,
+          invoiceNumber: sale.invoiceNumber,
         }));
         await generateTicketPDF(sale.ticketId, pseudoRecords, true);
       }

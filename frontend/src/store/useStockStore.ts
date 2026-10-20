@@ -318,7 +318,31 @@ export interface SaleRecord {
   shippingType?: 'delivery' | 'pickup' | string;
   shippingInvoiceUrl?: string;
   shippingTrackingNumber?: string;
+  invoiceNumber?: string;
 }
+
+// ─── Configuración de Factura ─────────────────────────────────────────────
+export interface InvoiceSettings {
+  logoUrl: string;          // URL del logo que se usa en la factura PDF
+  companyName: string;      // Nombre de la empresa / Razón Social
+  companyAddress: string;   // Dirección completa
+  companyPhone: string;     // Teléfono de contacto
+  companyInstagram: string; // @usuario de Instagram
+  companyWebsite: string;   // Sitio web
+  pointOfSale: number;      // Punto de venta (ej: 1 -> 0001)
+  invoiceCounter: number;   // Número actual del contador de facturas correlativo
+}
+
+export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
+  logoUrl: '/logo-ciara-bonita.png',
+  companyName: 'Ciara Bonita',
+  companyAddress: 'Circuito 5, Formosa Argentina 3600.',
+  companyPhone: '+54 9 3704 74-7426',
+  companyInstagram: 'ciarabonita_26',
+  companyWebsite: 'www.ciarabonita.com',
+  pointOfSale: 1,
+  invoiceCounter: 0,
+};
 
 export interface StockFlowState {
   globalMarkupPrc: number;
@@ -493,6 +517,10 @@ export interface StockFlowState {
   deleteVariant: (productId: string, variantId: string) => void;
   updateProduct: (productId: string, data: Partial<Product>, variants?: ProductVariant[]) => void;
   
+  invoiceSettings: InvoiceSettings;
+  getNextInvoiceNumber: (ticketId?: string) => string;
+  updateInvoiceSettings: (settings: Partial<InvoiceSettings>) => void;
+
   importData: (data: any) => void;
 }
 
@@ -741,7 +769,7 @@ const MOCK_SALES: SaleRecord[] = [];
 
 export const useStockFlowStore = create<StockFlowState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       globalMarkupPrc: 50,
       wholesaleConfig: { minQuantity: 3, discountPercentage: 15, enabled: true },
       products: MOCK_PRODUCTS,
@@ -750,6 +778,7 @@ export const useStockFlowStore = create<StockFlowState>()(
       categoriesConfig: CATEGORIAS_PERFUMERIA,
       variantGroupsConfig: DEFAULT_VARIANT_GROUPS,
       perfumeTypesConfig: DEFAULT_PERFUME_TYPES,
+      invoiceSettings: DEFAULT_INVOICE_SETTINGS,
 
       setGlobalMarkup: (prc) => set({ globalMarkupPrc: prc }),
       setWholesaleConfig: (cfg) => set({ wholesaleConfig: cfg }),
@@ -1771,12 +1800,52 @@ export const useStockFlowStore = create<StockFlowState>()(
               categoriesConfig: data.categoriesConfig ?? state.categoriesConfig,
               variantGroupsConfig: data.variantGroupsConfig ?? state.variantGroupsConfig,
               perfumeTypesConfig: data.perfumeTypesConfig ?? state.perfumeTypesConfig ?? DEFAULT_PERFUME_TYPES,
+              invoiceSettings: data.invoiceSettings ? { ...DEFAULT_INVOICE_SETTINGS, ...data.invoiceSettings } : state.invoiceSettings,
               products: sanitizedProducts,
               purchases: data.purchases ?? state.purchases,
               sales: data.sales ?? state.sales
             };
           });
-      }
+      },
+
+      updateInvoiceSettings: (settings) => {
+        set((state) => ({
+          invoiceSettings: {
+            ...(state.invoiceSettings || DEFAULT_INVOICE_SETTINGS),
+            ...settings,
+          },
+        }));
+      },
+
+      getNextInvoiceNumber: (ticketId?: string) => {
+        const state = get();
+        if (ticketId) {
+          const existing = state.sales.find((s) => s.ticketId === ticketId && s.invoiceNumber);
+          if (existing?.invoiceNumber) {
+            return existing.invoiceNumber;
+          }
+        }
+
+        const currentCounter = (state.invoiceSettings?.invoiceCounter || 0) + 1;
+        const pos = String(state.invoiceSettings?.pointOfSale || 1).padStart(4, '0');
+        const num = String(currentCounter).padStart(8, '0');
+        const formatted = `${pos}-${num}`;
+
+        set((prev) => {
+          const nextSales = ticketId
+            ? prev.sales.map((s) => (s.ticketId === ticketId ? { ...s, invoiceNumber: formatted } : s))
+            : prev.sales;
+          return {
+            invoiceSettings: {
+              ...(prev.invoiceSettings || DEFAULT_INVOICE_SETTINGS),
+              invoiceCounter: currentCounter,
+            },
+            sales: nextSales,
+          };
+        });
+
+        return formatted;
+      },
     }),
     {
       name: 'perfumeria-data-v9',
@@ -1784,6 +1853,14 @@ export const useStockFlowStore = create<StockFlowState>()(
         if (!state) return;
         if (!state.perfumeTypesConfig || !state.perfumeTypesConfig.length) {
           state.perfumeTypesConfig = DEFAULT_PERFUME_TYPES;
+        }
+        if (!state.invoiceSettings) {
+          state.invoiceSettings = DEFAULT_INVOICE_SETTINGS;
+        } else {
+          state.invoiceSettings = {
+            ...DEFAULT_INVOICE_SETTINGS,
+            ...state.invoiceSettings,
+          };
         }
         if (Array.isArray(state.products)) {
           state.products = state.products.map(p => ({

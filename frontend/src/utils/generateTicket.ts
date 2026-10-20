@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { SaleRecord } from '@/store/useStockStore';
+import { SaleRecord, useStockFlowStore, DEFAULT_INVOICE_SETTINGS } from '@/store/useStockStore';
 
 // ─── Paleta de colores Ciara Bonita ───────────────────────────────────────
 const PINK_HEADER: [number, number, number] = [242, 157, 185];   // cabecera de tabla
@@ -9,21 +9,35 @@ const PINK_DOT:   [number, number, number] = [248, 186, 208];    // puntos decor
 const TEXT_DARK:  [number, number, number] = [25,  25,  25];
 const TEXT_GRAY:  [number, number, number] = [90,  90,  90];
 
-// ─── Cargar el logo como base64 desde /public ─────────────────────────────
-async function loadLogoBase64(): Promise<string | null> {
-  try {
-    const res = await fetch('/logo-ciara-bonita.png');
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return new Promise<string | null>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror   = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
+// ─── Cargar el logo dinámicamente como base64 ─────────────────────────────
+async function loadLogoBase64(logoUrl?: string): Promise<string | null> {
+  if (logoUrl && logoUrl.startsWith('data:image')) {
+    return logoUrl;
   }
+  const candidates = [
+    logoUrl,
+    '/logo-ciara-bonita.png',
+    '/uploads/Logo/LogoCuadrado.png',
+    '/LogoCuadrado.png',
+  ].filter(Boolean) as string[];
+
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      const base64 = await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror   = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+      if (base64) return base64;
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
 }
 
 // ─── Puntos decorativos (cuadrícula de círculos) ──────────────────────────
@@ -55,6 +69,21 @@ export async function createInvoiceDoc(
   const firstSale    = ticketSales[0];
   const shippingCost = firstSale?.shippingCost || 0;
 
+  // ── Configuración activa de factura ───────────────────────────────────
+  const store = useStockFlowStore.getState();
+  const invoiceSettings = store.invoiceSettings || DEFAULT_INVOICE_SETTINGS;
+
+  // Obtener o asignar número correlativo con modelo de factura de Argentina (ej: 0001-00000001)
+  let invoiceNumber = firstSale.invoiceNumber;
+  if (!invoiceNumber && ticketId) {
+    invoiceNumber = store.getNextInvoiceNumber(ticketId);
+  }
+  if (!invoiceNumber) {
+    const pos = String(invoiceSettings.pointOfSale || 1).padStart(4, '0');
+    const num = String((invoiceSettings.invoiceCounter || 0) + 1).padStart(8, '0');
+    invoiceNumber = `${pos}-${num}`;
+  }
+
   // ── Documento A4 ──────────────────────────────────────────────────────
   const doc      = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   const pageW    = 210;
@@ -63,8 +92,8 @@ export async function createInvoiceDoc(
   const marginR  = 15;
   const contentW = pageW - marginL - marginR;
 
-  // Cargar logo
-  const logoBase64 = await loadLogoBase64();
+  // Cargar logo configurado
+  const logoBase64 = await loadLogoBase64(invoiceSettings.logoUrl);
 
   // ══════════════════════════════════════════════════════════════════════
   //  ENCABEZADO
@@ -89,7 +118,7 @@ export async function createInvoiceDoc(
     doc.setFontSize(15);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(180, 50, 110);
-    doc.text('Ciara Bonita', pageW - marginR, 28, { align: 'right' });
+    doc.text(invoiceSettings.companyName || 'Ciara Bonita', pageW - marginR, 28, { align: 'right' });
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...TEXT_GRAY);
@@ -102,7 +131,7 @@ export async function createInvoiceDoc(
   doc.setTextColor(...TEXT_DARK);
   doc.text('FACTURA', marginL, 36);
 
-  // Número y fecha
+  // Número correlativo de Factura (modelo Argentina) y fecha
   const dateObj = new Date(firstSale.date);
   const dateStr = dateObj.toLocaleDateString('es-AR', {
     day: '2-digit', month: '2-digit', year: '2-digit'
@@ -110,7 +139,7 @@ export async function createInvoiceDoc(
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TEXT_GRAY);
-  doc.text(`N-${ticketId}`, marginL, 44);
+  doc.text(`Factura Nº ${invoiceNumber}`, marginL, 44);
   doc.text(dateStr, marginL, 50);
 
   // ══════════════════════════════════════════════════════════════════════
@@ -283,16 +312,33 @@ export async function createInvoiceDoc(
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  //  PIE DE PÁGINA
+  //  PIE DE PÁGINA (Datos de la empresa y contacto)
   // ══════════════════════════════════════════════════════════════════════
-  const footerY = pageH - 22;
+  const footerY = pageH - 24;
 
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TEXT_GRAY);
-  doc.text('Ciara Bonita perfumería y cosméticos.', marginL, footerY);
-  doc.text('\u24D8  ciarabonita_26', marginL, footerY + 5);
-  doc.text('www.ciarabonita.com', marginL, footerY + 10);
+
+  // Línea 1: Dirección
+  if (invoiceSettings.companyAddress) {
+    doc.text(invoiceSettings.companyAddress, marginL, footerY);
+  }
+
+  // Línea 2: Teléfono
+  if (invoiceSettings.companyPhone) {
+    doc.text(`Tel: ${invoiceSettings.companyPhone}`, marginL, footerY + 4.5);
+  }
+
+  // Línea 3: Instagram y Web
+  const igText = invoiceSettings.companyInstagram
+    ? `@${invoiceSettings.companyInstagram.replace(/^@/, '')}`
+    : '';
+  const webText = invoiceSettings.companyWebsite || '';
+  const socialText = [igText, webText].filter(Boolean).join('   |   ');
+  if (socialText) {
+    doc.text(socialText, marginL, footerY + 9);
+  }
 
   // Puntos decorativos — esquina inferior derecha
   drawDots(doc, pageW - 43, footerY - 2, 6, 3, 5.5, 1.3);
@@ -300,7 +346,7 @@ export async function createInvoiceDoc(
   // Línea separadora de pie de página
   doc.setDrawColor(...PINK_BORDER);
   doc.setLineWidth(0.4);
-  doc.line(marginL, footerY - 5, pageW - marginR, footerY - 5);
+  doc.line(marginL, footerY - 4, pageW - marginR, footerY - 4);
 
   return doc;
 }
@@ -311,6 +357,13 @@ export async function generateTicketPDF(
   sales: SaleRecord[],
   print: boolean = true
 ): Promise<void> {
+  const ticketSales = sales.filter(s => s.ticketId === ticketId);
+  const firstSale   = ticketSales[0];
+  let invoiceNumber = firstSale?.invoiceNumber;
+  if (!invoiceNumber && ticketId) {
+    invoiceNumber = useStockFlowStore.getState().getNextInvoiceNumber(ticketId);
+  }
+
   const doc = await createInvoiceDoc(ticketId, sales);
   if (!doc) return;
 
@@ -320,7 +373,7 @@ export async function generateTicketPDF(
     const url  = URL.createObjectURL(blob);
     window.open(url, '_blank');
   } else {
-    doc.save(`Factura-${ticketId}.pdf`);
+    doc.save(`Factura-${invoiceNumber || ticketId}.pdf`);
   }
 }
 

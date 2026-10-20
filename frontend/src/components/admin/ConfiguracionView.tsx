@@ -1,10 +1,11 @@
 'use client';
 
-import { useStockFlowStore } from '@/store/useStockStore';
+import { useStockFlowStore, DEFAULT_INVOICE_SETTINGS, InvoiceSettings, SaleRecord } from '@/store/useStockStore';
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { API_URL } from '@/utils/api';
 import CatalogConfig from './CatalogConfig';
 import { COMPANY_DEFAULTS, CompanyInfo } from '@/config/company';
+import { createInvoiceDoc } from '@/utils/generateTicket';
 
 interface AutoBackup {
   filename: string;
@@ -35,7 +36,7 @@ function localDateTime(iso: string): string {
   });
 }
 
-type TabType = 'precios' | 'catalogo' | 'envios' | 'empresa' | 'respaldos';
+type TabType = 'precios' | 'catalogo' | 'envios' | 'factura' | 'empresa' | 'respaldos';
 
 interface ConfiguracionViewProps {
   isSuperAdmin?: boolean;
@@ -58,7 +59,7 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const initialTab = params.get('tab') as TabType | null;
-    const validTabs: TabType[] = ['precios', 'catalogo', 'envios', 'empresa', 'respaldos'];
+    const validTabs: TabType[] = ['precios', 'catalogo', 'envios', 'factura', 'empresa', 'respaldos'];
     if (initialTab && validTabs.includes(initialTab)) {
       setActiveTabState(initialTab);
     }
@@ -109,6 +110,105 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
   const setWholesaleConfig = useStockFlowStore(s => s.setWholesaleConfig);
   const importData = useStockFlowStore(s => s.importData);
   const getZustandState = () => useStockFlowStore.getState();
+
+  // Invoice Settings State
+  const invoiceSettings = useStockFlowStore(s => s.invoiceSettings);
+  const updateInvoiceSettings = useStockFlowStore(s => s.updateInvoiceSettings);
+  const [invoiceForm, setInvoiceForm] = useState<InvoiceSettings>(invoiceSettings || DEFAULT_INVOICE_SETTINGS);
+  const [savingInvoice, setSavingInvoice] = useState(false);
+  const [invoiceSaveMsg, setInvoiceSaveMsg] = useState<string | null>(null);
+  const [previewingInvoice, setPreviewingInvoice] = useState(false);
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (invoiceSettings) {
+      setInvoiceForm(invoiceSettings);
+    }
+  }, [invoiceSettings]);
+
+  const handleSaveInvoiceSettings = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSavingInvoice(true);
+    updateInvoiceSettings(invoiceForm);
+    setTimeout(() => {
+      setSavingInvoice(false);
+      setInvoiceSaveMsg('Configuración de factura guardada exitosamente.');
+      setTimeout(() => setInvoiceSaveMsg(null), 3500);
+      showModal('¡Guardado Exitoso!', 'La configuración de la factura, el logo y la numeración se guardaron correctamente.', 'success');
+    }, 300);
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showModal('Archivo muy pesado', 'El archivo del logo no debe superar los 5MB.', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      if (base64) {
+        setInvoiceForm(prev => ({ ...prev, logoUrl: base64 }));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePreviewInvoice = async () => {
+    setPreviewingInvoice(true);
+    try {
+      updateInvoiceSettings(invoiceForm);
+      const previewNumber = `${String(invoiceForm.pointOfSale || 1).padStart(4, '0')}-${String((invoiceForm.invoiceCounter || 0) + 1).padStart(8, '0')}`;
+      const sampleSale: SaleRecord = {
+        id: 'sample-preview-1',
+        ticketId: 'DEMO-PREVIEW',
+        date: new Date().toISOString(),
+        productId: 'demo-prod-1',
+        variantId: 'demo-var-1',
+        productName: 'Perfume de Demostración 100ml',
+        size: '100ml',
+        color: 'Edición Exclusiva',
+        clientName: 'Cliente Ejemplo',
+        clientPhone: '+54 9 3704 00-0000',
+        quantity: 1,
+        unitSalePrice: 35000,
+        revenue: 35000,
+        status: 'Pagada',
+        invoiceNumber: previewNumber,
+      };
+
+      const doc = await createInvoiceDoc('DEMO-PREVIEW', [sampleSale]);
+      if (doc) {
+        doc.autoPrint();
+        const blob = doc.output('blob');
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+      } else {
+        showModal('Error al previsualizar', 'No se pudo generar la factura de prueba.', 'error');
+      }
+    } catch (err) {
+      console.error('Error generating preview:', err);
+      showModal('Error al previsualizar', 'Ocurrió un error al generar la factura.', 'error');
+    } finally {
+      setPreviewingInvoice(false);
+    }
+  };
+
+  const copyFromCompanyConfig = () => {
+    const parts = [companyConfig.address, companyConfig.city, companyConfig.province, companyConfig.postalCode].filter(Boolean);
+    const fullAddress = parts.length > 0 ? parts.join(', ') : companyConfig.address;
+    const igUsername = companyConfig.instagramUrl ? companyConfig.instagramUrl.replace(/https?:\/\/(www\.)?instagram\.com\//, '').replace(/\/$/, '') : '';
+
+    setInvoiceForm(prev => ({
+      ...prev,
+      companyName: companyConfig.name || prev.companyName,
+      companyAddress: fullAddress || prev.companyAddress,
+      companyPhone: companyConfig.phone || companyConfig.whatsapp || prev.companyPhone,
+      companyInstagram: igUsername || prev.companyInstagram,
+    }));
+    showModal('Datos Copiados', 'Se copiaron el Nombre, Dirección, Teléfono e Instagram desde la configuración de Empresa. Recordá hacer clic en "Guardar Cambios".', 'info');
+  };
 
   // Loading & refs for backups
   const [loading, setLoading] = useState(false);
@@ -681,6 +781,24 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
           <span className="leading-tight truncate">Envíos y Entregas</span>
         </button>
 
+        <button
+          onClick={() => setActiveTab('factura')}
+          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
+            activeTab === 'factura'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+          }`}
+        >
+          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+            activeTab === 'factura'
+              ? 'bg-primary/10 text-primary'
+              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+          }`}>
+            <span className="material-symbols-outlined text-base sm:text-lg">receipt_long</span>
+          </div>
+          <span className="leading-tight truncate">Facturación</span>
+        </button>
+
         {isSuperAdmin && (
           <button
             onClick={() => setActiveTab('empresa')}
@@ -1078,6 +1196,360 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                   {savingShipping ? 'sync' : 'save'}
                 </span>
                 {savingShipping ? 'Guardando...' : 'Guardar Configuración'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* TAB: FACTURACIÓN Y TICKET */}
+      {activeTab === 'factura' && (
+        <div className="animate-in fade-in duration-200 w-full space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-2xl">receipt_long</span>
+                Configuración de Factura y Ticket
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Personalizá el logo, la numeración correlativa bajo el modelo argentino (Punto de Venta - N° Comprobante) y los datos de contacto impresos en las facturas.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handlePreviewInvoice}
+                disabled={previewingInvoice}
+                className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs sm:text-sm shadow-sm transition-all"
+                title="Genera un ticket de prueba en PDF"
+              >
+                <span className="material-symbols-outlined text-base sm:text-lg text-primary">
+                  {previewingInvoice ? 'sync' : 'picture_as_pdf'}
+                </span>
+                {previewingInvoice ? 'Generando...' : 'Previsualizar PDF'}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveInvoiceSettings}
+                disabled={savingInvoice}
+                className="flex items-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-bold text-xs sm:text-sm shadow-md shadow-primary/25 hover:shadow-primary/40 transition-all disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-base sm:text-lg">
+                  {savingInvoice ? 'sync' : 'save'}
+                </span>
+                {savingInvoice ? 'Guardando...' : 'Guardar Cambios'}
+              </button>
+            </div>
+          </div>
+
+          {invoiceSaveMsg && (
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-2xl flex items-center gap-3 font-semibold text-sm">
+              <span className="material-symbols-outlined text-emerald-500">check_circle</span>
+              {invoiceSaveMsg}
+            </div>
+          )}
+
+          <form onSubmit={handleSaveInvoiceSettings} className="space-y-6 w-full">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+              {/* COLUMNA IZQUIERDA: LOGO DE FACTURA */}
+              <div className="space-y-6">
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                    <div className="w-9 h-9 rounded-xl bg-pink-500/10 text-pink-500 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-lg">image</span>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-base">Logo de la Factura</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Imagen que se imprime en el margen superior de cada comprobante</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-6 p-4 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl">
+                    <div className="relative w-32 h-32 rounded-2xl border-2 border-dashed border-pink-300 dark:border-pink-800 flex items-center justify-center overflow-hidden bg-pink-50/30 dark:bg-pink-950/20 shrink-0">
+                      {invoiceForm.logoUrl ? (
+                        <img
+                          src={invoiceForm.logoUrl}
+                          alt="Logo de Factura"
+                          className="w-full h-full object-contain p-2"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = '/logo-ciara-bonita.png';
+                          }}
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-400 text-center px-2">Sin logo</span>
+                      )}
+                    </div>
+
+                    <div className="space-y-3 w-full">
+                      <div>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 mb-2">
+                          <span className="size-1.5 rounded-full bg-pink-500"></span>
+                          Logo Actual
+                        </span>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Podés subir tu archivo de imagen (PNG, JPG, WebP) o seleccionar uno de los logos predeterminados.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          type="file"
+                          ref={logoFileInputRef}
+                          onChange={handleLogoUpload}
+                          accept="image/*"
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => logoFileInputRef.current?.click()}
+                          className="px-3.5 py-2 bg-primary text-white rounded-xl font-bold text-xs hover:bg-primary/90 flex items-center gap-1.5 shadow-sm transition-all"
+                        >
+                          <span className="material-symbols-outlined text-base">upload</span>
+                          Subir imagen desde tu equipo
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      Logos Disponibles
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setInvoiceForm({ ...invoiceForm, logoUrl: '/logo-ciara-bonita.png' })}
+                        className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all ${
+                          invoiceForm.logoUrl === '/logo-ciara-bonita.png' || invoiceForm.logoUrl === '/uploads/Logo/LogoCuadrado.png'
+                            ? 'bg-pink-50/70 dark:bg-pink-950/30 border-pink-500 text-pink-700 dark:text-pink-300 font-bold'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium'
+                        }`}
+                      >
+                        <img src="/logo-ciara-bonita.png" alt="Logo Cuadrado" className="size-8 rounded-lg object-contain bg-white shrink-0 border border-slate-200" />
+                        <div className="min-w-0">
+                          <p className="text-xs leading-tight font-bold truncate">Logo Flor Rosa</p>
+                          <p className="text-[10px] text-slate-400 truncate">LogoCuadrado.png (Recomendado)</p>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setInvoiceForm({ ...invoiceForm, logoUrl: '/uploads/Logo/logo.webp' })}
+                        className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all ${
+                          invoiceForm.logoUrl === '/uploads/Logo/logo.webp'
+                            ? 'bg-pink-50/70 dark:bg-pink-950/30 border-pink-500 text-pink-700 dark:text-pink-300 font-bold'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium'
+                        }`}
+                      >
+                        <img src="/uploads/Logo/logo.webp" alt="Logo Web" className="size-8 rounded-lg object-contain bg-white shrink-0 border border-slate-200" />
+                        <div className="min-w-0">
+                          <p className="text-xs leading-tight font-bold truncate">Logo Web</p>
+                          <p className="text-[10px] text-slate-400 truncate">logo.webp</p>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                      Ruta o URL Directa del Logo
+                    </label>
+                    <input
+                      type="text"
+                      value={invoiceForm.logoUrl.startsWith('data:image') ? 'Imagen personalizada cargada en base64' : invoiceForm.logoUrl}
+                      onChange={(e) => setInvoiceForm({ ...invoiceForm, logoUrl: e.target.value })}
+                      disabled={invoiceForm.logoUrl.startsWith('data:image')}
+                      className="w-full px-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+                      placeholder="Ej: /logo-ciara-bonita.png o https://..."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* COLUMNA DERECHA: NUMERACIÓN OFICIAL ARGENTINA */}
+              <div className="space-y-6">
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                    <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-lg">tag</span>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-base">Numeración de Factura (Modelo Argentina)</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Punto de venta y número correlativo autoincrementable</p>
+                    </div>
+                  </div>
+
+                  {/* Vista Previa En Vivo del Formato */}
+                  <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800/40 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                        Vista Previa de la Próxima Factura
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500 text-white">
+                        Formato Oficial
+                      </span>
+                    </div>
+                    <div className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl p-3 font-mono">
+                      <p className="text-xs font-bold text-slate-400">ENCABEZADO:</p>
+                      <p className="text-base font-black text-slate-800 dark:text-white">FACTURA</p>
+                      <p className="text-sm font-bold text-primary">
+                        Factura Nº {String(invoiceForm.pointOfSale || 1).padStart(4, '0')}-{String((invoiceForm.invoiceCounter || 0) + 1).padStart(8, '0')}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        Fecha: {new Date().toLocaleDateString('es-AR')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Punto de Venta (4 dígitos)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="9999"
+                        value={invoiceForm.pointOfSale || 1}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, pointOfSale: Math.max(1, parseInt(e.target.value) || 1) })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        required
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Se muestra como: <span className="font-mono font-bold text-slate-600 dark:text-slate-300">{String(invoiceForm.pointOfSale || 1).padStart(4, '0')}</span>
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                        Último Número Emitido (Contador)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={invoiceForm.invoiceCounter || 0}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceCounter: Math.max(0, parseInt(e.target.value) || 0) })}
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        required
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Próxima factura: <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{String((invoiceForm.invoiceCounter || 0) + 1).padStart(8, '0')}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700/60 flex items-start gap-2.5 text-xs text-slate-600 dark:text-slate-300">
+                    <span className="material-symbols-outlined text-base text-primary shrink-0 mt-0.5">info</span>
+                    <span>
+                      Al generar o imprimir la factura de una venta, el número se incrementará automáticamente en 1 y quedará asociado a esa venta de forma permanente.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* FILA COMPLETA: DATOS DE LA EMPRESA (PIE DE FACTURA) */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-lg">storefront</span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-800 dark:text-white text-base">Datos de la Empresa en la Factura</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Información de contacto que se muestra en el pie de página de la factura</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={copyFromCompanyConfig}
+                  className="px-3.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-primary border border-primary/30 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all self-start sm:self-auto"
+                >
+                  <span className="material-symbols-outlined text-sm">content_copy</span>
+                  Copiar desde pestaña Empresa
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                    Nombre / Razón Social
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceForm.companyName}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, companyName: e.target.value })}
+                    className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Ej: Ciara Bonita"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                    Teléfono de Contacto
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceForm.companyPhone}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, companyPhone: e.target.value })}
+                    className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Ej: +54 9 3704 74-7426"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                    Usuario de Instagram
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceForm.companyInstagram}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, companyInstagram: e.target.value })}
+                    className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Ej: ciarabonita_26"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                    Dirección Completa
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceForm.companyAddress}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, companyAddress: e.target.value })}
+                    className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Ej: Circuito 5, Formosa Argentina 3600."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                    Sitio Web
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceForm.companyWebsite}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, companyWebsite: e.target.value })}
+                    className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Ej: www.ciarabonita.com"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* BOTÓN INFERIOR DE GUARDADO */}
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={savingInvoice}
+                className="px-8 py-3 bg-primary text-white font-bold text-sm rounded-xl hover:bg-primary/90 transition-all flex items-center gap-2 shadow-md shadow-primary/25 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-lg">
+                  {savingInvoice ? 'sync' : 'save'}
+                </span>
+                {savingInvoice ? 'Guardando...' : 'Guardar Configuración de Factura'}
               </button>
             </div>
           </form>
