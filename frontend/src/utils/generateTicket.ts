@@ -15,7 +15,7 @@ async function loadLogoBase64(): Promise<string | null> {
     const res = await fetch('/logo-ciara-bonita.png');
     if (!res.ok) return null;
     const blob = await res.blob();
-    return new Promise((resolve) => {
+    return new Promise<string | null>((resolve) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
       reader.onerror   = () => resolve(null);
