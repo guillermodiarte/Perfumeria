@@ -37,12 +37,115 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const products = useStockFlowStore(s => s.products);
   const registerSale = useStockFlowStore(s => s.registerSale);
   const categoriesConfig = useStockFlowStore(s => s.categoriesConfig);
+  const sales = useStockFlowStore(s => s.sales);
   const allCategories = categoriesConfig.flatMap(g => g.opciones);
 
   const [customers, setCustomers] = useState<any[]>([]);
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+
+  // Clientes unificados: Web + Mostrador previo (fusionados si comparten teléfono)
+  const unifiedCustomers = useMemo(() => {
+    const cleanDigits = (p?: string) => (p || '').replace(/\D/g, '');
+
+    const isPhoneMatch = (p1?: string, p2?: string): boolean => {
+      const c1 = cleanDigits(p1);
+      const c2 = cleanDigits(p2);
+      if (!c1 || !c2) return false;
+      if (c1 === c2) return true;
+      if (c1.length >= 8 && c2.length >= 8) {
+        return c1.slice(-8) === c2.slice(-8);
+      }
+      return false;
+    };
+
+    // 1. Usuarios registrados desde la página web
+    const webList = customers.map((c: any) => ({
+      id: c.id,
+      name: (c.name || '').trim(),
+      phone: (c.phone || '').trim(),
+      email: (c.email || '').trim(),
+      customer_type: c.customer_type || (c.is_special_wholesale ? 'special_wholesale' : c.is_wholesale ? 'wholesale' : 'normal'),
+      is_wholesale: !!c.is_wholesale,
+      is_special_wholesale: !!c.is_special_wholesale,
+      source: 'web' as const,
+    }));
+
+    // 2. Extraer clientes de ventas previas por mostrador
+    const mostradorMap = new Map<string, {
+      id: string;
+      name: string;
+      phone: string;
+      email: string;
+      customer_type: 'normal' | 'wholesale' | 'special_wholesale';
+      is_wholesale: boolean;
+      is_special_wholesale: boolean;
+      source: 'mostrador';
+    }>();
+
+    // Recorrer las ventas de más reciente a más antigua
+    const sortedSales = [...sales].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+    for (const sale of sortedSales) {
+      const rawName = (sale.clientName || '').trim();
+      const rawPhone = (sale.clientPhone || '').trim();
+      const rawEmail = (sale.clientEmail || '').trim();
+
+      if (!rawName && !rawPhone) continue;
+
+      // Descartar etiquetas genéricas sin teléfono
+      const lowerName = rawName.toLowerCase();
+      if ((lowerName === 'consumidor final' || lowerName === 'anonimo' || lowerName === 'anónimo') && !rawPhone) {
+        continue;
+      }
+
+      // Si el teléfono coincide con un usuario registrado en la página:
+      // se fusionan los datos y se deja uno solo (el de la registración por la página)
+      const matchedWeb = webList.find(w => {
+        if (rawPhone && w.phone && isPhoneMatch(rawPhone, w.phone)) return true;
+        if (rawEmail && w.email && rawEmail.toLowerCase() === w.email.toLowerCase()) return true;
+        if (rawName && w.name && lowerName === w.name.toLowerCase()) return true;
+        return false;
+      });
+
+      if (matchedWeb) {
+        // En caso de que el usuario de la página no tuviera teléfono o email registrado, se complementa
+        if (!matchedWeb.phone && rawPhone) matchedWeb.phone = rawPhone;
+        if (!matchedWeb.email && rawEmail) matchedWeb.email = rawEmail;
+        continue;
+      }
+
+      // Si no coincide con ninguno registrado en la web, se agrupa entre clientes de mostrador
+      const phoneDigits = cleanDigits(rawPhone);
+      const groupKey = phoneDigits && phoneDigits.length >= 6
+        ? `phone:${phoneDigits.slice(-8)}`
+        : `name:${lowerName}`;
+
+      const existing = mostradorMap.get(groupKey);
+      if (existing) {
+        if (!existing.phone && rawPhone) existing.phone = rawPhone;
+        if (!existing.email && rawEmail) existing.email = rawEmail;
+        if (existing.name.length < rawName.length && lowerName !== 'consumidor final') {
+          existing.name = rawName;
+        }
+      } else {
+        const rawType = (sale as any).clientType || 'normal';
+        mostradorMap.set(groupKey, {
+          id: `pos-${sale.ticketId || sale.id || Math.random().toString(36).substr(2, 9)}`,
+          name: rawName || rawPhone,
+          phone: rawPhone,
+          email: rawEmail,
+          customer_type: rawType === 'special_wholesale' ? 'special_wholesale' : rawType === 'wholesale' ? 'wholesale' : 'normal',
+          is_wholesale: rawType === 'wholesale',
+          is_special_wholesale: rawType === 'special_wholesale',
+          source: 'mostrador',
+        });
+      }
+    }
+
+    return [...webList, ...Array.from(mostradorMap.values())];
+  }, [customers, sales]);
   const [clientType, setClientType] = useState<'normal' | 'wholesale' | 'special_wholesale'>('normal');
   const [customUnitPriceInput, setCustomUnitPriceInput] = useState<string>('');
   
@@ -493,18 +596,40 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     }
   };
 
-  // Autocompletar datos si el nombre seleccionado coincide con un cliente registrado
+  // Autocompletar datos si el nombre seleccionado coincide con un cliente registrado o de mostrador previo
   const handleClientNameChange = (val: string) => {
     setClientName(val);
-    const matched = customers.find(c => 
-      c.name?.trim().toLowerCase() === val.trim().toLowerCase() ||
-      c.email?.trim().toLowerCase() === val.trim().toLowerCase()
+    const trimmed = val.trim().toLowerCase();
+    if (!trimmed) return;
+
+    const matched = unifiedCustomers.find(c => 
+      c.name.trim().toLowerCase() === trimmed ||
+      (c.email && c.email.trim().toLowerCase() === trimmed)
     );
+
     if (matched) {
       if (matched.phone) setClientPhone(matched.phone);
       if (matched.email) setClientEmail(matched.email);
       const cType = matched.customer_type || (matched.is_special_wholesale ? 'special_wholesale' : matched.is_wholesale ? 'wholesale' : 'normal');
       handleClientTypeChange(cType as any);
+    }
+  };
+
+  // Autocompletar si se escribe un teléfono que ya pertenece a un cliente conocido
+  const handleClientPhoneChange = (val: string) => {
+    setClientPhone(val);
+    const cleanDigits = val.replace(/\D/g, '');
+    if (cleanDigits.length >= 8 && (!clientName.trim() || clientName.trim().toLowerCase() === 'consumidor final')) {
+      const matched = unifiedCustomers.find(c => {
+        const cPhoneDigits = (c.phone || '').replace(/\D/g, '');
+        return cPhoneDigits && (cPhoneDigits === cleanDigits || (cPhoneDigits.length >= 8 && cleanDigits.endsWith(cPhoneDigits.slice(-8))));
+      });
+      if (matched) {
+        setClientName(matched.name);
+        if (matched.email && !clientEmail) setClientEmail(matched.email);
+        const cType = matched.customer_type || (matched.is_special_wholesale ? 'special_wholesale' : matched.is_wholesale ? 'wholesale' : 'normal');
+        handleClientTypeChange(cType as any);
+      }
     }
   };
 
@@ -634,12 +759,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const handleDownloadTicket = async () => {
     if (!completedSale) return;
     try {
-      const doc = await createTicketDoc(completedSale.ticketId, useStockFlowStore.getState().sales);
-      if (doc) {
-        doc.save(`Factura-${completedSale.ticketId}.pdf`);
-      } else {
-        showAlert('No se pudo generar el archivo de la factura.');
-      }
+      await generateTicketPDF(completedSale.ticketId, useStockFlowStore.getState().sales, false);
     } catch (e) {
       console.error(e);
       showAlert('Error al generar la factura PDF.');
@@ -649,15 +769,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
   const handleOpenTicket = async () => {
     if (!completedSale) return;
     try {
-      const doc = await createTicketDoc(completedSale.ticketId, useStockFlowStore.getState().sales);
-      if (doc) {
-        doc.autoPrint();
-        const blob = doc.output('blob');
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-      } else {
-        showAlert('No se pudo abrir la factura.');
-      }
+      await generateTicketPDF(completedSale.ticketId, useStockFlowStore.getState().sales, true);
     } catch (e) {
       console.error(e);
       showAlert('Error al generar la factura PDF.');
@@ -892,9 +1004,11 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             value={clientName} onChange={e => handleClientNameChange(e.target.value)}
                         />
                         <datalist id="ventas-clientes-list">
-                          {customers.map((c: any) => (
+                          {unifiedCustomers.map((c: any) => (
                             <option key={c.id} value={c.name}>
-                              {c.customer_type === 'special_wholesale' || c.is_special_wholesale ? '👑 Mayorista Especial' : c.is_wholesale ? '📦 Mayorista' : '🛍️ Normal'} {c.phone ? `(${c.phone})` : ''}
+                              {c.source === 'mostrador'
+                                ? `🏪 Mostrador${c.phone ? ` (${c.phone})` : ''}`
+                                : `${c.customer_type === 'special_wholesale' || c.is_special_wholesale ? '👑 Mayorista Especial' : c.is_wholesale ? '📦 Mayorista' : '🛍️ Normal'} ${c.phone ? `(${c.phone})` : ''}`}
                             </option>
                           ))}
                         </datalist>
@@ -907,7 +1021,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                         <input 
                             type="tel" placeholder="Ej. 1123456789"
                             className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none transition-all dark:text-white font-medium"
-                            value={clientPhone} onChange={e => setClientPhone(e.target.value)}
+                            value={clientPhone} onChange={e => handleClientPhoneChange(e.target.value)}
                         />
                     </div>
                 </div>
