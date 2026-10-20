@@ -631,25 +631,36 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
     return cleaned;
   };
 
-  const handleDownloadTicket = () => {
+  const handleDownloadTicket = async () => {
     if (!completedSale) return;
-    const doc = createTicketDoc(completedSale.ticketId, useStockFlowStore.getState().sales);
-    if (doc) {
-      doc.save(`Ticket-${completedSale.ticketId}.pdf`);
-    } else {
-      showAlert('No se pudo generar el archivo del ticket.');
+    try {
+      const doc = await createTicketDoc(completedSale.ticketId, useStockFlowStore.getState().sales);
+      if (doc) {
+        doc.save(`Factura-${completedSale.ticketId}.pdf`);
+      } else {
+        showAlert('No se pudo generar el archivo de la factura.');
+      }
+    } catch (e) {
+      console.error(e);
+      showAlert('Error al generar la factura PDF.');
     }
   };
 
-  const handleOpenTicket = () => {
+  const handleOpenTicket = async () => {
     if (!completedSale) return;
-    const doc = createTicketDoc(completedSale.ticketId, useStockFlowStore.getState().sales);
-    if (doc) {
-      const blob = doc.output('blob');
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-    } else {
-      showAlert('No se pudo abrir el ticket.');
+    try {
+      const doc = await createTicketDoc(completedSale.ticketId, useStockFlowStore.getState().sales);
+      if (doc) {
+        doc.autoPrint();
+        const blob = doc.output('blob');
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+      } else {
+        showAlert('No se pudo abrir la factura.');
+      }
+    } catch (e) {
+      console.error(e);
+      showAlert('Error al generar la factura PDF.');
     }
   };
 

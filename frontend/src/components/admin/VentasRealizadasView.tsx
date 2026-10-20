@@ -270,9 +270,9 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
 
   // --- Handlers ---
   const handlePrintTicket = (sale: UnifiedSale) => {
-    try {
+    const run = async () => {
       if (sale.channel === 'mostrador' && sale.rawSaleRecords) {
-        generateTicketPDF(sale.ticketId, sale.rawSaleRecords, true);
+        await generateTicketPDF(sale.ticketId, sale.rawSaleRecords, true);
       } else {
         const pseudoRecords: SaleRecord[] = sale.items.map((item, idx) => ({
           id: sale.id,
@@ -291,13 +291,15 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
           status: 'Pagada',
           shippingCost: idx === 0 ? sale.shippingCost : 0,
         }));
-        generateTicketPDF(sale.ticketId, pseudoRecords, true);
+        await generateTicketPDF(sale.ticketId, pseudoRecords, true);
       }
-      if (showAlert) showAlert('Ticket enviado a impresión.');
-    } catch (e: any) {
+      if (showAlert) showAlert('Factura enviada a impresión.');
+    };
+
+    run().catch((e: any) => {
       console.error(e);
-      if (showAlert) showAlert('Error al generar el ticket PDF');
-    }
+      if (showAlert) showAlert('Error al generar la factura PDF');
+    });
   };
 
   const formatDate = (isoString: string) => {
