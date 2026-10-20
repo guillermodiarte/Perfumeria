@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useStockFlowStore } from '@/store/useStockStore';
+import { useStockFlowStore, SaleRecord } from '@/store/useStockStore';
+import { generateTicketPDF } from '@/utils/generateTicket';
 import { API_URL } from '@/utils/api';
 
 interface CobrosPendientesViewProps {
@@ -64,6 +65,9 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
   // Modal Eliminar Deuda (Super Admin)
   const [debtToDelete, setDebtToDelete] = useState<PendingDebtRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Modal Ver Detalle de Venta
+  const [selectedDetailRecord, setSelectedDetailRecord] = useState<PendingDebtRecord | null>(null);
 
   const currentMonth = new Date().toISOString().substring(0, 7); // "YYYY-MM"
 
@@ -549,8 +553,37 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
 
                     </div>
 
-                    {/* Acciones: Registrar Cobro y Eliminar */}
+                    {/* Acciones: Ver Venta, Ticket, Registrar Cobro, Eliminar */}
                     <div className="flex items-center gap-2 shrink-0">
+                      {/* Botón Ver Detalle */}
+                      <button
+                        onClick={() => setSelectedDetailRecord(d)}
+                        className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors"
+                        title="Ver detalle de la venta"
+                      >
+                        <span className="material-symbols-outlined text-lg">visibility</span>
+                      </button>
+
+                      {/* Botón Ticket PDF */}
+                      {d.source === 'mostrador' && d.rawSaleRecords && d.rawSaleRecords.length > 0 && (
+                        <button
+                          onClick={() => {
+                            try {
+                              generateTicketPDF(d.reference, d.rawSaleRecords as SaleRecord[], true);
+                              showAlert?.('Ticket enviado a impresión.');
+                            } catch (e) {
+                              console.error(e);
+                              showAlert?.('Error al generar el ticket PDF');
+                            }
+                          }}
+                          className="flex items-center gap-1 px-3 py-2.5 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary/90 transition-colors shadow-sm"
+                          title="Imprimir / Descargar Ticket PDF"
+                        >
+                          <span className="material-symbols-outlined text-base">print</span>
+                          <span className="hidden sm:inline">Ticket</span>
+                        </button>
+                      )}
+
                       {/* Botón Registrar Cobro */}
                       <button
                         onClick={() => {
@@ -812,6 +845,203 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL: Ver Detalle de Venta */}
+      {selectedDetailRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                    Detalle de Venta #{selectedDetailRecord.reference}
+                  </h3>
+                  <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                    selectedDetailRecord.source === 'mostrador'
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300'
+                      : 'bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300'
+                  }`}>
+                    {selectedDetailRecord.source === 'mostrador' ? 'Mostrador' : 'Online Web'}
+                  </span>
+                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300">
+                    ⏳ Deuda pendiente
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {formatDate(selectedDetailRecord.date)}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedDetailRecord(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              {/* Cliente */}
+              <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Datos del Cliente</span>
+                <p className="font-bold text-sm text-slate-900 dark:text-white">{selectedDetailRecord.clientName}</p>
+                {selectedDetailRecord.clientPhone && selectedDetailRecord.clientPhone !== 'S/D' && (
+                  <p className="text-xs text-slate-500 mt-0.5">Teléfono: <span className="font-medium text-slate-700 dark:text-slate-300">{selectedDetailRecord.clientPhone}</span></p>
+                )}
+                {selectedDetailRecord.notes && (
+                  <p className="text-xs text-slate-500 italic mt-1">Nota: {selectedDetailRecord.notes}</p>
+                )}
+              </div>
+
+              {/* Productos */}
+              <div>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-3">
+                  Productos ({selectedDetailRecord.items.length})
+                </span>
+                <div className="space-y-2">
+                  {selectedDetailRecord.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-900/30 rounded-xl border border-slate-100 dark:border-slate-800 text-xs"
+                    >
+                      <div className="min-w-0 pr-3">
+                        <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {item.quantity}x {item.productName}
+                        </p>
+                        {item.variantInfo && (
+                          <p className="text-[11px] text-slate-400">{item.variantInfo}</p>
+                        )}
+                      </div>
+                      <div className="text-right flex-shrink-0 font-mono font-bold text-slate-800 dark:text-white">
+                        {item.price != null ? `$${(item.quantity * item.price).toLocaleString('es-AR')}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Envío (si aplica) */}
+              {selectedDetailRecord.shippingCost != null && selectedDetailRecord.shippingCost > 0 && (
+                <div className="bg-orange-50 dark:bg-orange-950/30 p-4 rounded-2xl border border-orange-200 dark:border-orange-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-orange-500/10 text-orange-600 flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-xl">local_shipping</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-orange-800 dark:text-orange-400 uppercase tracking-wider block">Envío / Despacho</span>
+                      <p className="font-black text-sm text-slate-900 dark:text-white">
+                        ${selectedDetailRecord.shippingCost.toLocaleString('es-AR')}
+                      </p>
+                      <p className="text-[10px] text-orange-500 mt-0.5">A cargo del comprador — no computable como ganancia</p>
+                      {selectedDetailRecord.shippingTrackingNumber && (
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Guía / Empresa: <span className="font-semibold text-slate-700 dark:text-slate-300">{selectedDetailRecord.shippingTrackingNumber}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {selectedDetailRecord.shippingInvoiceUrl && (
+                    <a
+                      href={selectedDetailRecord.shippingInvoiceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all self-start sm:self-center"
+                    >
+                      <span className="material-symbols-outlined text-base">receipt_long</span>
+                      Ver Factura de Envío
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Desglose de importes */}
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                {/* Subtotal Mercadería */}
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-900/40">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Subtotal Mercadería</span>
+                  <span className="text-sm font-bold text-slate-800 dark:text-slate-200 font-mono">
+                    ${(selectedDetailRecord.total - (selectedDetailRecord.shippingCost || 0)).toLocaleString('es-AR')}
+                  </span>
+                </div>
+                {selectedDetailRecord.shippingCost != null && selectedDetailRecord.shippingCost > 0 && (
+                  <div className="flex items-center justify-between px-4 py-3 bg-orange-50 dark:bg-orange-950/20 border-t border-orange-100 dark:border-orange-900/30">
+                    <span className="text-xs font-semibold text-orange-700 dark:text-orange-400 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">local_shipping</span>
+                      Envío (a cargo del comprador)
+                    </span>
+                    <span className="text-sm font-bold text-orange-700 dark:text-orange-400 font-mono">
+                      +${selectedDetailRecord.shippingCost.toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                )}
+                {/* Total cobrado al cliente */}
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-100 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-700">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Total Venta (cobrado al cliente)</span>
+                  <span className="text-sm font-bold text-slate-800 dark:text-slate-200 font-mono">
+                    ${selectedDetailRecord.total.toLocaleString('es-AR')}
+                  </span>
+                </div>
+                {/* Abonado */}
+                <div className="flex items-center justify-between px-4 py-3 bg-emerald-50 dark:bg-emerald-950/30 border-t border-emerald-100 dark:border-emerald-900/30">
+                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Ya Abonado</span>
+                  <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 font-mono">
+                    ${selectedDetailRecord.paidAmount.toLocaleString('es-AR')}
+                  </span>
+                </div>
+                {/* Saldo Adeudado */}
+                <div className="flex items-center justify-between px-4 py-3 bg-red-50 dark:bg-red-950/40 border-t border-red-200 dark:border-red-800/40">
+                  <span className="text-xs font-black uppercase tracking-wider text-red-700 dark:text-red-400">Saldo Adeudado</span>
+                  <span className="text-xl font-black text-red-700 dark:text-red-400 font-mono">
+                    ${selectedDetailRecord.pendingAmount.toLocaleString('es-AR')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/50">
+              <button
+                onClick={() => setSelectedDetailRecord(null)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors"
+              >
+                Cerrar
+              </button>
+              <div className="flex items-center gap-2">
+                {selectedDetailRecord.source === 'mostrador' && selectedDetailRecord.rawSaleRecords && selectedDetailRecord.rawSaleRecords.length > 0 && (
+                  <button
+                    onClick={() => {
+                      try {
+                        generateTicketPDF(selectedDetailRecord.reference, selectedDetailRecord.rawSaleRecords as SaleRecord[], true);
+                        showAlert?.('Ticket enviado a impresión.');
+                      } catch (e) {
+                        console.error(e);
+                        showAlert?.('Error al generar el ticket PDF');
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary/90 transition-colors shadow-sm"
+                  >
+                    <span className="material-symbols-outlined text-base">print</span>
+                    Imprimir Ticket
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setSelectedDetailRecord(null);
+                    const debt = selectedDetailRecord;
+                    setSelectedRecord(debt);
+                    setPaymentAmount('');
+                    setPaymentNote('');
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md shadow-emerald-500/20 transition-all"
+                >
+                  <span className="material-symbols-outlined text-base">payments</span>
+                  Registrar Cobro
+                </button>
+              </div>
             </div>
           </div>
         </div>
