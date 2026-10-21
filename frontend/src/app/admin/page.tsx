@@ -17,6 +17,7 @@ import NotificationBell from '@/components/admin/NotificationBell';
 import FinanzasView from '@/components/admin/FinanzasView';
 import ClientesView from '@/components/admin/ClientesView';
 import ComboBuilderView from '@/components/admin/ComboBuilderView';
+import AdminGlobalSearch from '@/components/admin/AdminGlobalSearch';
 import Logo from '@/components/ui/Logo';
 import { API_URL } from '@/utils/api';
 
@@ -857,11 +858,12 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="relative flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 transition-colors duration-200">
+    <div className="relative flex w-full overflow-hidden bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 transition-colors duration-200" style={{ height: '100dvh' }}>
       {/* Mobile Sidebar Backdrop */}
       {isMobileSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+          className="fixed inset-x-0 top-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+          style={{ height: '100dvh' }}
           onClick={closeMobileSidebar}
         />
       )}
@@ -1059,19 +1061,20 @@ export default function AdminDashboard() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Header Bar */}
-        <header className="h-16 px-3 sm:px-6 md:px-8 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between shrink-0 z-20">
-          <div className="flex items-center gap-2 sm:gap-3 text-sm font-bold text-slate-800 dark:text-white min-w-0">
-            {/* Hamburger button on mobile */}
-            <button
-              onClick={openMobileSidebar}
-              className="md:hidden p-2 -ml-1 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors shrink-0"
-              aria-label="Abrir menú"
-            >
-              <span className="material-symbols-outlined text-2xl">menu</span>
-            </button>
+        <header className="h-16 px-3 sm:px-6 md:px-8 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center gap-3 shrink-0 z-20">
+          {/* Hamburger button on mobile */}
+          <button
+            onClick={openMobileSidebar}
+            className="md:hidden p-2 -ml-1 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors shrink-0"
+            aria-label="Abrir menú"
+          >
+            <span className="material-symbols-outlined text-2xl">menu</span>
+          </button>
 
-            <span className="material-symbols-outlined text-primary text-xl shrink-0 hidden sm:inline">admin_panel_settings</span>
-            <span className="capitalize truncate text-xs sm:text-sm">
+          {/* View Title - hidden on small screens to give room to search */}
+          <div className="hidden md:flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-white shrink-0">
+            <span className="material-symbols-outlined text-primary text-xl shrink-0">admin_panel_settings</span>
+            <span className="capitalize truncate max-w-[180px] xl:max-w-none text-xs sm:text-sm">
               {activeView === 'dashboard' ? 'Panel de Control General' :
                activeView === 'products' ? 'Productos y Stock' :
                activeView === 'combos' ? 'Armar Combos y Sets de Productos' :
@@ -1088,7 +1091,18 @@ export default function AdminDashboard() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Global Search - takes remaining space */}
+          <div className="flex-1 max-w-lg">
+            <AdminGlobalSearch
+              onNavigateView={(view, filter) => {
+                setActiveView(view as ViewId);
+              }}
+              users={users}
+              className="w-full"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
             {/* Campana de Notificaciones */}
             <NotificationBell 
               apiKey={apiKey} 
@@ -1098,10 +1112,10 @@ export default function AdminDashboard() {
             <Link
               href="/"
               target="_blank"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700"
             >
               <span className="material-symbols-outlined text-sm">open_in_new</span>
-              <span className="hidden sm:inline">Ver Tienda</span>
+              <span className="hidden lg:inline">Ver Tienda</span>
             </Link>
           </div>
         </header>

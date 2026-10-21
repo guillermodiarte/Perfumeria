@@ -233,7 +233,25 @@ export default function Home() {
 
           {/* Promociones Destacadas / Precio Especial (Solo visible si hay promociones activas) */}
           {promoProducts.length > 0 && (() => {
-            const isFewItems = promoProducts.length <= 3;
+            // Ordenar por mayor porcentaje de descuento (los de más descuento primero)
+            const sortedPromoProducts = [...promoProducts].sort((a, b) => {
+              const promoA = a.promoPrice || 0;
+              const varPricesA = a.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
+              const minA = varPricesA.length > 0 ? Math.min(...varPricesA) : (a.salePrice || 0);
+              const prcA = minA > 0 ? ((minA - promoA) / minA) : 0;
+
+              const promoB = b.promoPrice || 0;
+              const varPricesB = b.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
+              const minB = varPricesB.length > 0 ? Math.min(...varPricesB) : (b.salePrice || 0);
+              const prcB = minB > 0 ? ((minB - promoB) / minB) : 0;
+
+              return prcB - prcA;
+            });
+
+            // Mostrar solo una fila: los 4 productos con mayor descuento
+            const featuredPromos = sortedPromoProducts.slice(0, 4);
+            const isFewItems = featuredPromos.length <= 3;
+
             return (
               <section className="relative overflow-hidden py-6 sm:py-8 my-4 border-y border-orange-500/30 bg-slate-950">
                 {/* Background image */}
@@ -271,20 +289,20 @@ export default function Home() {
 
                     <Link
                       href="/catalog?category=En%20Promoci%C3%B3n"
-                      className={`group inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-orange-500/30 hover:shadow-orange-500/40 transition-all ${isFewItems ? 'mt-1' : 'self-start sm:self-auto'}`}
+                      className={`group inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-orange-500/20 hover:bg-orange-500 text-orange-200 hover:text-white border border-orange-500/40 font-bold text-xs sm:text-sm backdrop-blur-md transition-all shadow-md ${isFewItems ? 'mt-1' : 'self-start sm:self-auto'}`}
                     >
-                      <span>{promoButtonText}</span>
-                      <span className="material-symbols-outlined text-base group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                      <span>Ver las {sortedPromoProducts.length} ofertas disponibles</span>
+                      <span className="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">arrow_forward</span>
                     </Link>
                   </div>
 
-                  {/* Products Grid / Centered Showcase */}
+                  {/* Products Grid: Exactamente una fila en desktop (hasta 4 items) */}
                   <div className={
                     isFewItems
                       ? "flex flex-wrap justify-center gap-6 sm:gap-8 max-w-5xl mx-auto"
-                      : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6"
+                      : "grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6"
                   }>
-                    {promoProducts.map((product) => {
+                    {featuredPromos.map((product) => {
                       const promoP = product.promoPrice || 0;
                       const variantPrices = product.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
                       const minNormalPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.salePrice || 0);
@@ -367,6 +385,8 @@ export default function Home() {
                       );
                     })}
                   </div>
+
+
                 </div>
               </section>
             );

@@ -149,12 +149,37 @@ function CatalogContent() {
 
     // Sorting
     const sorted = [...result];
+    const isPromoFilter = categoryFilter === 'En Promoción' || categoryFilter === 'Promociones' || categoryFilter === 'Ofertas';
+
     if (sortBy === 'price_asc') {
-      sorted.sort((a, b) => (a.salePrice || 0) - (b.salePrice || 0));
+      sorted.sort((a, b) => {
+        const pA = (a.promoEnabled && a.promoPrice) ? a.promoPrice : (a.salePrice || 0);
+        const pB = (b.promoEnabled && b.promoPrice) ? b.promoPrice : (b.salePrice || 0);
+        return pA - pB;
+      });
     } else if (sortBy === 'price_desc') {
-      sorted.sort((a, b) => (b.salePrice || 0) - (a.salePrice || 0));
+      sorted.sort((a, b) => {
+        const pA = (a.promoEnabled && a.promoPrice) ? a.promoPrice : (a.salePrice || 0);
+        const pB = (b.promoEnabled && b.promoPrice) ? b.promoPrice : (b.salePrice || 0);
+        return pB - pA;
+      });
     } else if (sortBy === 'name_asc') {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (isPromoFilter) {
+      // Por defecto en ofertas: los productos con mayor porcentaje de descuento primero
+      sorted.sort((a, b) => {
+        const promoA = a.promoPrice || 0;
+        const varA = a.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
+        const normA = varA.length > 0 ? Math.min(...varA) : (a.salePrice || 0);
+        const prcA = normA > 0 ? (normA - promoA) / normA : 0;
+
+        const promoB = b.promoPrice || 0;
+        const varB = b.variants?.map((v: any) => v.manualSalePrice).filter((p: any): p is number => p !== undefined && p > 0) || [];
+        const normB = varB.length > 0 ? Math.min(...varB) : (b.salePrice || 0);
+        const prcB = normB > 0 ? (normB - promoB) / normB : 0;
+
+        return prcB - prcA;
+      });
     }
 
     return sorted;

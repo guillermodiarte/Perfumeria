@@ -299,15 +299,17 @@ export default function Header() {
       {/* MOBILE NAVIGATION DRAWER */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] lg:hidden animate-in fade-in duration-200"
+          className="fixed inset-x-0 top-0 bg-black/60 backdrop-blur-sm z-[110] lg:hidden animate-in fade-in duration-200"
+          style={{ height: '100dvh' }}
           onClick={closeMobileMenu}
         />
       )}
 
       <div
-        className={`fixed top-0 right-0 h-full w-[85%] max-w-[360px] bg-white dark:bg-slate-900 shadow-2xl z-[120] lg:hidden flex flex-col transform transition-transform duration-300 ease-in-out ${
+        className={`fixed top-0 right-0 w-[85%] max-w-[360px] bg-white dark:bg-slate-900 shadow-2xl z-[120] lg:hidden flex flex-col transform transition-transform duration-300 ease-in-out ${
           isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
+        style={{ height: '100dvh' }}
       >
         {/* Drawer Header & Fixed Search - Permanently fixed at top of mobile menu */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 space-y-3">
