@@ -125,8 +125,8 @@ export default function Header() {
 
   return (
     <>
-      <header className={`sticky top-0 z-50 transition-all duration-300 ${scrolled ? 'bg-white/95 dark:bg-slate-900/95 backdrop-blur-lg shadow-sm h-[70px]' : 'bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 h-[76px] sm:h-[80px]'}`}>
-        <div className="px-4 sm:px-6 lg:px-12 h-full flex items-center justify-between">
+      <header className={`sticky top-0 z-50 transition-all duration-300 bg-white/95 dark:bg-slate-900/95 backdrop-blur-lg border-b border-slate-200 dark:border-slate-800 ${scrolled ? 'shadow-md' : 'shadow-sm'}`}>
+        <div className={`px-4 sm:px-6 lg:px-12 flex items-center justify-between transition-all duration-300 ${scrolled ? 'h-[60px] sm:h-[68px] lg:h-[72px]' : 'h-[66px] sm:h-[74px] lg:h-[80px]'}`}>
 
           {/* Left: Logo */}
           <div className="flex-shrink-0 flex items-center">
@@ -280,6 +280,20 @@ export default function Header() {
             </button>
           </div>
         </div>
+
+        {/* Mobile Search Bar - Fixed at top with header */}
+        <div className="xl:hidden px-4 pb-2.5 pt-0.5">
+          <form onSubmit={handleSearchSubmit} className="relative flex items-center">
+            <input
+              type="text"
+              placeholder="Buscar perfumes, fragancias..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 border border-slate-200 dark:border-slate-700/60 focus:border-primary focus:bg-white dark:focus:bg-slate-900 focus:outline-none transition-all shadow-inner"
+            />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          </form>
+        </div>
       </header>
 
       {/* MOBILE NAVIGATION DRAWER */}
@@ -295,34 +309,36 @@ export default function Header() {
           isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {/* Drawer Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800">
-          <Link href="/" onClick={() => setIsMobileMenuOpen(false)} className="flex items-center">
-            <Logo />
-          </Link>
-          <button
-            onClick={closeMobileMenu}
-            className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            aria-label="Cerrar menú"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+        {/* Drawer Header & Fixed Search - Permanently fixed at top of mobile menu */}
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 space-y-3">
+          <div className="flex items-center justify-between">
+            <Link href="/" onClick={() => setIsMobileMenuOpen(false)} className="flex items-center">
+              <Logo />
+            </Link>
+            <button
+              onClick={closeMobileMenu}
+              className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Cerrar menú"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
-        {/* Drawer Scrollable Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-6 space-y-6">
-
-          {/* Mobile Search */}
+          {/* Search bar inside drawer - pinned at top so it never hides when scrolling options */}
           <form onSubmit={handleSearchSubmit} className="relative">
             <input
               type="text"
               placeholder="Buscar perfumes, fragancias..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-slate-100 dark:bg-slate-800 rounded-2xl text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 border border-transparent focus:border-primary focus:outline-none transition-all"
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 border border-transparent focus:border-primary focus:outline-none transition-all"
             />
-            <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           </form>
+        </div>
+
+        {/* Drawer Scrollable Body - Only the menu options scroll */}
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
           {/* User Account Card */}
           {user ? (
