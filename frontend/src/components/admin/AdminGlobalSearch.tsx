@@ -181,7 +181,7 @@ export default function AdminGlobalSearch({ onNavigateView, users = [], classNam
           id: `sale-${s.id}-${s.ticketId}`,
           category: 'venta',
           title: `Ticket #${s.ticketId} — ${s.productName}`,
-          subtitle: `${dateStr} • Cant: ${s.quantity} • Total: $${(s.totalSalePrice || (s.unitSalePrice || 0) * (s.quantity || 1)).toLocaleString('es-AR')}`,
+          subtitle: `${dateStr} • Cant: ${s.quantity} • Total: $${(s.revenue || ((s as any).totalSalePrice) || (s.unitSalePrice || 0) * (s.quantity || 1)).toLocaleString('es-AR')}`,
           icon: 'receipt_long',
           badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
           badgeLabel: 'Venta',

@@ -199,6 +199,14 @@ def update_order_status_admin(order_number: str, data: UpdateOrderStatusSchema, 
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
     
+    if current_admin.role == "viewer":
+        raise HTTPException(status_code=403, detail="El rol Visualizador no tiene permisos para modificar pedidos")
+        
+    is_manager = current_admin.role in ("super_admin", "admin") or current_admin.email.lower() == "guillermo.diarte@gmail.com"
+    if not is_manager:
+        if data.status is not None or data.payment_status is not None or data.paid_amount is not None:
+            raise HTTPException(status_code=403, detail="Solo Administradores pueden aprobar/rechazar pedidos o modificar montos de cobro")
+
     was_already_approved = (order.status or "").lower().startswith("aprob")
     
     if data.status is not None:
@@ -308,6 +316,9 @@ def delete_order_customer(order_number: str, db: Session = Depends(get_db), curr
 
 @router.delete("/admin/{order_number}")
 def delete_order_admin(order_number: str, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    is_super = current_admin.role == "super_admin" or current_admin.email.lower() == "guillermo.diarte@gmail.com"
+    if not is_super:
+        raise HTTPException(status_code=403, detail="Solo el Super Administrador puede eliminar pedidos permanentemente")
     order = db.query(Order).filter(Order.order_number == order_number).first()
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")

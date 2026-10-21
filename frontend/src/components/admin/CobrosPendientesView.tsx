@@ -42,6 +42,7 @@ interface PendingDebtRecord {
 
 export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRole }: CobrosPendientesViewProps) {
   const isSuperAdmin = currentAdminRole === 'super_admin';
+  const canManageCobros = currentAdminRole === 'super_admin' || currentAdminRole === 'admin';
 
   // Store de Mostrador
   const posSales = useStockFlowStore(s => s.sales);
@@ -585,27 +586,33 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                       )}
 
                       {/* Botón Registrar Cobro */}
-                      <button
-                        onClick={() => {
-                          setSelectedRecord(d);
-                          setPaymentAmount('');
-                          setPaymentNote('');
-                        }}
-                        className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all active:scale-95"
-                      >
-                        <span className="material-symbols-outlined text-base">payments</span>
-                        Registrar Cobro
-                      </button>
+                      {canManageCobros ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              setSelectedRecord(d);
+                              setPaymentAmount('');
+                              setPaymentNote('');
+                            }}
+                            className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all active:scale-95"
+                          >
+                            <span className="material-symbols-outlined text-base">payments</span>
+                            Registrar Cobro
+                          </button>
 
-                      {/* Botón Eliminar Cobro Pendiente (Super Admin) */}
-                      {isSuperAdmin && (
-                        <button
-                          onClick={() => setDebtToDelete(d)}
-                          className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors tooltip"
-                          title="Eliminar cobro pendiente y devolver productos al stock"
-                        >
-                          <span className="material-symbols-outlined text-lg">delete</span>
-                        </button>
+                          {/* Botón Eliminar Cobro Pendiente (Super Admin / Admin) */}
+                          <button
+                            onClick={() => setDebtToDelete(d)}
+                            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors tooltip"
+                            title="Eliminar cobro pendiente y devolver productos al stock"
+                          >
+                            <span className="material-symbols-outlined text-lg">delete</span>
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-400 px-3 py-2 bg-slate-100 dark:bg-slate-700/50 rounded-xl flex items-center gap-1">
+                          <span className="material-symbols-outlined text-sm">visibility</span> Solo Lectura
+                        </span>
                       )}
                     </div>
 
@@ -698,7 +705,7 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                 </button>
               </div>
 
-              {isSuperAdmin && (
+              {canManageCobros && (
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex justify-center">
                   <button
                     type="button"
@@ -721,7 +728,7 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
       )}
 
       {/* MODAL CONFIRMAR ELIMINACIÓN DE COBRO PENDIENTE (SUPER ADMIN ONLY) */}
-      {debtToDelete && isSuperAdmin && (
+      {debtToDelete && canManageCobros && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-red-200 dark:border-red-900/40 animate-scaleUp">
             {/* Modal Header */}

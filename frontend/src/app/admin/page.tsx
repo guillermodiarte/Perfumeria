@@ -78,7 +78,14 @@ export default function AdminDashboard() {
   const [currentAdminEmail, setCurrentAdminEmail] = useState<string>('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showAddPassword, setShowAddPassword] = useState(false);
-  const [newUserRole, setNewUserRole] = useState('editor');
+  const [newUserRole, setNewUserRole] = useState('empleado');
+
+  // Role helper flags
+  const isSuperAdminRole = currentAdminRole === 'super_admin';
+  const isAdminRole = currentAdminRole === 'admin';
+  const isEmpleadoRole = currentAdminRole === 'empleado' || currentAdminRole === 'editor';
+  const isViewerRole = currentAdminRole === 'viewer';
+  const isManagerRole = isSuperAdminRole || isAdminRole;
 
   // User Modal State
   const [showUserModal, setShowUserModal] = useState(false);
@@ -353,20 +360,35 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (apiKey && isAuthenticated) {
+      const isSuper = currentAdminRole === 'super_admin';
+      const isAdm = currentAdminRole === 'admin';
+      const isEmp = currentAdminRole === 'empleado' || currentAdminRole === 'editor';
+      const isVw = currentAdminRole === 'viewer';
+
+      // Redirecciones de seguridad si no tiene permisos para la vista activa
+      if ((activeView === 'admins' || activeView === 'sections' || activeView === 'configuracion') && !isSuper) {
+        setActiveView('dashboard');
+        return;
+      }
+      if ((activeView === 'combos' || activeView === 'users') && (isEmp || isVw)) {
+        setActiveView('dashboard');
+        return;
+      }
+      if (activeView === 'finanzas' && isEmp) {
+        setActiveView('dashboard');
+        return;
+      }
+      if ((activeView === 'compras' || activeView === 'ventas' || activeView === 'media') && isVw) {
+        setActiveView('dashboard');
+        return;
+      }
+
       if (activeView === 'admins') {
-        if (currentAdminRole === 'super_admin') {
-          fetchAdmins();
-        } else {
-          setActiveView('products');
-        }
-      } else {
-        fetchUsers();
-      }
-      if (activeView === 'sections' && currentAdminRole !== 'super_admin') {
-        setActiveView('products');
-      }
-      if (activeView === 'media') {
-        fetchMedia(selectedMediaCategory);
+        if (isSuper) fetchAdmins();
+      } else if (activeView === 'users') {
+        if (isSuper || isAdm) fetchUsers();
+      } else if (activeView === 'media') {
+        if (!isVw) fetchMedia(selectedMediaCategory);
       }
     }
   }, [apiKey, isAuthenticated, activeView, currentAdminRole]);
@@ -918,18 +940,22 @@ export default function AdminDashboard() {
             <span>Productos</span>
           </button>
 
-          <button
-            onClick={() => setActiveView('combos')}
-            className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'combos' ? 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}
-            title="Armar un nuevo combo o set de regalo"
-          >
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'combos' ? 'bg-gradient-to-tr from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/30' : 'bg-pink-100 dark:bg-pink-950/60 text-pink-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">featured_seasonal_and_gifts</span>
-            </span>
-            <span>Armar Combo / Set</span>
-          </button>
+          {/* Armar Combo / Set - Solo Super Admin y Admin */}
+          {isManagerRole && (
+            <button
+              onClick={() => setActiveView('combos')}
+              className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'combos' ? 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}
+              title="Armar un nuevo combo o set de regalo"
+            >
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'combos' ? 'bg-gradient-to-tr from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/30' : 'bg-pink-100 dark:bg-pink-950/60 text-pink-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">featured_seasonal_and_gifts</span>
+              </span>
+              <span>Armar Combo / Set</span>
+            </button>
+          )}
 
-          {currentAdminRole === 'super_admin' && (
+          {/* Secciones y Banner - Solo Super Admin */}
+          {isSuperAdminRole && (
             <button
               id="btn-nav-sections"
               onClick={() => { setActiveView('sections'); setSectionsKey(k => k + 1); }}
@@ -942,19 +968,25 @@ export default function AdminDashboard() {
             </button>
           )}
 
-          <button onClick={() => { setActiveView('compras'); setComprasResetKey(k => k + 1); }} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'compras' ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'compras' ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">local_shipping</span>
-            </span>
-            <span>Compras</span>
-          </button>
+          {/* Compras - Super Admin, Admin y Empleado (NO viewer) */}
+          {!isViewerRole && (
+            <button onClick={() => { setActiveView('compras'); setComprasResetKey(k => k + 1); }} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'compras' ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'compras' ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">local_shipping</span>
+              </span>
+              <span>Compras</span>
+            </button>
+          )}
 
-          <button onClick={() => setActiveView('ventas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'ventas' ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'ventas' ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30' : 'bg-rose-100 dark:bg-rose-950/60 text-rose-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">point_of_sale</span>
-            </span>
-            <span>Vender (Caja)</span>
-          </button>
+          {/* Vender (Caja) - Super Admin, Admin y Empleado (NO viewer) */}
+          {!isViewerRole && (
+            <button onClick={() => setActiveView('ventas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'ventas' ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'ventas' ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30' : 'bg-rose-100 dark:bg-rose-950/60 text-rose-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">point_of_sale</span>
+              </span>
+              <span>Vender (Caja)</span>
+            </button>
+          )}
 
           <button onClick={() => setActiveView('ventas_realizadas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
             <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador' ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-500'}`}>
@@ -977,19 +1009,23 @@ export default function AdminDashboard() {
             <span>Cobros Pendientes</span>
           </button>
 
-          <button onClick={() => setActiveView('users')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'users' ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'users' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/30' : 'bg-sky-100 dark:bg-sky-950/60 text-sky-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">group</span>
-            </span>
-            <span>Clientes</span>
-            {pendingCount > 0 && (
-              <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-black animate-pulse">
-                {pendingCount}
+          {/* Clientes - Solo Super Admin y Admin */}
+          {isManagerRole && (
+            <button onClick={() => setActiveView('users')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'users' ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'users' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/30' : 'bg-sky-100 dark:bg-sky-950/60 text-sky-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">group</span>
               </span>
-            )}
-          </button>
+              <span>Clientes</span>
+              {pendingCount > 0 && (
+                <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-black animate-pulse">
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+          )}
 
-          {currentAdminRole === 'super_admin' && (
+          {/* Administradores - Exclusivo Super Admin */}
+          {isSuperAdminRole && (
             <button onClick={() => setActiveView('admins')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'admins' ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
               <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'admins' ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30' : 'bg-purple-100 dark:bg-purple-950/60 text-purple-500'}`}>
                 <span className="material-symbols-outlined text-[18px]">admin_panel_settings</span>
@@ -998,26 +1034,35 @@ export default function AdminDashboard() {
             </button>
           )}
 
-          <button onClick={() => setActiveView('finanzas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'finanzas' ? 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'finanzas' ? 'bg-teal-500 text-white shadow-md shadow-teal-500/30' : 'bg-teal-100 dark:bg-teal-950/60 text-teal-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">payments</span>
-            </span>
-            <span>Finanzas</span>
-          </button>
+          {/* Finanzas - Super Admin, Admin y Viewer (NO empleado) */}
+          {!isEmpleadoRole && (
+            <button onClick={() => setActiveView('finanzas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'finanzas' ? 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'finanzas' ? 'bg-teal-500 text-white shadow-md shadow-teal-500/30' : 'bg-teal-100 dark:bg-teal-950/60 text-teal-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">payments</span>
+              </span>
+              <span>Finanzas</span>
+            </button>
+          )}
 
-          <button onClick={() => setActiveView('media')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'media' ? 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'media' ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/30' : 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">folder_special</span>
-            </span>
-            <span>Biblioteca</span>
-          </button>
+          {/* Biblioteca de Medios - Super Admin, Admin y Empleado (NO viewer) */}
+          {!isViewerRole && (
+            <button onClick={() => setActiveView('media')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'media' ? 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'media' ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/30' : 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">folder_special</span>
+              </span>
+              <span>Biblioteca</span>
+            </button>
+          )}
 
-          <button onClick={() => setActiveView('configuracion')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'configuracion' ? 'bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-200' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'configuracion' ? 'bg-slate-500 text-white shadow-md shadow-slate-500/30' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">settings</span>
-            </span>
-            <span>Configuración</span>
-          </button>
+          {/* Configuración - Exclusivo Super Admin */}
+          {isSuperAdminRole && (
+            <button onClick={() => setActiveView('configuracion')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'configuracion' ? 'bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-200' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'configuracion' ? 'bg-slate-500 text-white shadow-md shadow-slate-500/30' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                <span className="material-symbols-outlined text-[18px]">settings</span>
+              </span>
+              <span>Configuración</span>
+            </button>
+          )}
 
           <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-3 mb-3 mt-6">Sistema</div>
           <Link href="/" target="_blank" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-all font-semibold text-sm">
@@ -1031,22 +1076,36 @@ export default function AdminDashboard() {
         <div className="p-4 border-t border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
             <div className={`size-10 rounded-full flex items-center justify-center font-bold text-white shrink-0 ${
-              currentAdminRole === 'super_admin' ? 'bg-gradient-to-tr from-purple-600 to-indigo-600 shadow-md shadow-purple-500/20' : 'bg-primary'
+              isSuperAdminRole ? 'bg-gradient-to-tr from-purple-600 to-indigo-600 shadow-md shadow-purple-500/20' :
+              isAdminRole ? 'bg-blue-600 shadow-md shadow-blue-500/20' :
+              isEmpleadoRole ? 'bg-emerald-600 shadow-md shadow-emerald-500/20' :
+              'bg-slate-500 shadow-md shadow-slate-500/20'
             }`}>
               <span className="material-symbols-outlined text-[20px]">
-                {currentAdminRole === 'super_admin' ? 'shield_person' : 'person'}
+                {isSuperAdminRole ? 'shield_person' :
+                 isAdminRole ? 'person' :
+                 isEmpleadoRole ? 'badge' :
+                 'visibility'}
               </span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold truncate dark:text-white">{currentAdminName || 'Admin'}</p>
               <div className="text-xs truncate">
-                {currentAdminRole === 'super_admin' ? (
+                {isSuperAdminRole ? (
                   <span className="inline-flex items-center gap-0.5 text-purple-600 dark:text-purple-400 font-bold text-[11px]">
                     ★ Super Admin
                   </span>
+                ) : isAdminRole ? (
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold text-[11px]">
+                    Administrador
+                  </span>
+                ) : isEmpleadoRole ? (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">
+                    Empleado
+                  </span>
                 ) : (
-                  <span className="text-slate-500 dark:text-slate-400">
-                    {currentAdminRole === 'editor' ? 'Editor' : 'Administrador'}
+                  <span className="text-slate-500 dark:text-slate-400 font-semibold text-[11px]">
+                    Visualizador
                   </span>
                 )}
               </div>
@@ -1357,7 +1416,7 @@ export default function AdminDashboard() {
                       >
                         Deseleccionar todo
                       </button>
-                      {currentAdminRole === 'super_admin' && (
+                      {isManagerRole && (
                         <button
                           onClick={() => setShowBulkDeleteConfirm(true)}
                           disabled={isDeletingBulkMedia}
@@ -1436,13 +1495,13 @@ export default function AdminDashboard() {
                               <button onClick={() => { navigator.clipboard.writeText(file.url); showAlert("URL Copiada"); }} className="size-10 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-colors tooltip" title="Copiar URL">
                                 <span className="material-symbols-outlined text-lg">content_copy</span>
                               </button>
-                              {currentAdminRole === 'super_admin' && (
+                              {isManagerRole && (
                                 <button onClick={() => handleDeleteMedia(file.category, file.filename)} className="size-10 rounded-full bg-red-500/80 hover:bg-red-500 text-white flex items-center justify-center transition-colors tooltip" title="Eliminar">
                                   <span className="material-symbols-outlined text-lg">delete</span>
                                 </button>
                               )}
                             </div>
-                            {currentAdminRole === 'super_admin' && (
+                            {isManagerRole && (
                               <select
                                 className="w-full text-center h-8 rounded-lg bg-white/20 hover:bg-white/40 text-white outline-none cursor-pointer text-xs font-bold appearance-none px-2"
                                 value=""
@@ -1522,9 +1581,9 @@ export default function AdminDashboard() {
                   )}
                 </div>
               </div>
-            ) : activeView === 'compras' ? (
+            ) : (activeView === 'compras' && !isViewerRole) ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ComprasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} resetKey={comprasResetKey} /></div>
-            ) : activeView === 'ventas' ? (
+            ) : (activeView === 'ventas' && !isViewerRole) ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} /></div>
             ) : (activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador') ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><VentasRealizadasView apiKey={apiKey} showAlert={showAlert} currentAdminRole={currentAdminRole} /></div>
@@ -1532,21 +1591,21 @@ export default function AdminDashboard() {
               <div className="max-w-[1600px] w-full px-2 mx-auto"><PedidosWebView apiKey={apiKey} showAlert={showAlert} currentAdminRole={currentAdminRole} /></div>
             ) : activeView === 'cobros_pendientes' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><CobrosPendientesView apiKey={apiKey} showAlert={showAlert} currentAdminRole={currentAdminRole} /></div>
-            ) : activeView === 'finanzas' ? (
+            ) : (activeView === 'finanzas' && !isEmpleadoRole) ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><FinanzasView apiKey={apiKey} apiUrl={API_URL} /></div>
-            ) : activeView === 'configuracion' ? (
+            ) : (activeView === 'configuracion' && isSuperAdminRole) ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <ConfiguracionView
-                  isSuperAdmin={currentAdminRole === 'super_admin'}
+                  isSuperAdmin={isSuperAdminRole}
                   apiKey={apiKey}
                   showAlert={showAlert}
                 />
               </div>
-            ) : activeView === 'users' ? (
+            ) : (activeView === 'users' && isManagerRole) ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <ClientesView apiKey={apiKey} onPendingCountChange={setPendingCount} />
               </div>
-            ) : (activeView === 'admins' && currentAdminRole === 'super_admin') ? (
+            ) : (activeView === 'admins' && isSuperAdminRole) ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4">
                   <div>
@@ -1586,16 +1645,28 @@ export default function AdminDashboard() {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold uppercase text-[10px] tracking-wide ${
-                              u.role === 'super_admin'
-                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
-                                : u.role === 'admin'
-                                  ? 'bg-primary/10 text-primary border border-primary/20'
-                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                            }`}>
-                              {u.role === 'super_admin' && <span className="material-symbols-outlined text-[12px]">shield_person</span>}
-                              {u.role === 'super_admin' ? 'Super Admin' : u.role === 'admin' ? 'Administrador' : 'Editor'}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold uppercase text-[10px] tracking-wide ${
+                                u.role === 'super_admin'
+                                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                  : u.role === 'admin'
+                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                    : (u.role === 'empleado' || u.role === 'editor')
+                                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                      : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                              }`}>
+                                {u.role === 'super_admin' && <span className="material-symbols-outlined text-[12px]">shield_person</span>}
+                                {u.role === 'admin' && <span className="material-symbols-outlined text-[12px]">person</span>}
+                                {(u.role === 'empleado' || u.role === 'editor') && <span className="material-symbols-outlined text-[12px]">badge</span>}
+                                {u.role === 'viewer' && <span className="material-symbols-outlined text-[12px]">visibility</span>}
+                                {u.role === 'super_admin' ? 'Super Admin' : u.role === 'admin' ? 'Administrador' : (u.role === 'empleado' || u.role === 'editor') ? 'Empleado' : 'Visualizador'}
+                              </span>
+                              {u.email.toLowerCase() === 'guillermo.diarte@gmail.com' && (
+                                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                  ★ Principal
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
@@ -1610,7 +1681,11 @@ export default function AdminDashboard() {
                               }} title="Editar" className="size-8 inline-flex items-center justify-center rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/30 transition-all cursor-pointer">
                                 <span className="material-symbols-outlined text-[18px]">edit</span>
                               </button>
-                              {u.role !== 'super_admin' ? (
+                              {u.email.toLowerCase() === 'guillermo.diarte@gmail.com' ? (
+                                <span title="La cuenta principal no puede eliminarse ni cambiar de rol" className="size-8 inline-flex items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-500 cursor-not-allowed">
+                                  <span className="material-symbols-outlined text-[16px]">lock</span>
+                                </span>
+                              ) : u.role !== 'super_admin' ? (
                                 <button onClick={() => handleDeleteUser(u.id)} title="Eliminar" className="size-8 inline-flex items-center justify-center rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-red-500 hover:border-red-500/30 transition-all cursor-pointer">
                                   <span className="material-symbols-outlined text-[18px]">delete</span>
                                 </button>
@@ -1664,7 +1739,14 @@ export default function AdminDashboard() {
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Correo Electrónico <span className="text-primary">*</span></label>
-                    <input type="email" required value={userEmail} onChange={e => setUserEmail(e.target.value)} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none dark:text-white" />
+                    <input 
+                      type="email" 
+                      required 
+                      disabled={editingUser?.email?.toLowerCase() === 'guillermo.diarte@gmail.com'}
+                      value={userEmail} 
+                      onChange={e => setUserEmail(e.target.value)} 
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none dark:text-white disabled:opacity-60 disabled:cursor-not-allowed" 
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Contraseña {editingUser && <span className="text-xs font-normal text-slate-400">(Dejar vacío para no cambiar)</span>}</label>
@@ -1677,11 +1759,24 @@ export default function AdminDashboard() {
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Rol de Usuario <span className="text-primary">*</span></label>
-                    <select required value={newUserRole} onChange={e => setNewUserRole(e.target.value)} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none text-slate-800 dark:text-white appearance-none">
-                      <option value="super_admin">Super Administrador (Acceso Total)</option>
-                      <option value="admin">Administrador</option>
-                      <option value="editor">Editor</option>
+                    <select 
+                      required 
+                      disabled={editingUser?.email?.toLowerCase() === 'guillermo.diarte@gmail.com'}
+                      value={newUserRole} 
+                      onChange={e => setNewUserRole(e.target.value)} 
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary outline-none text-slate-800 dark:text-white appearance-none disabled:opacity-60 disabled:cursor-not-allowed font-medium"
+                    >
+                      <option value="super_admin">👑 Super Administrador (Acceso Total)</option>
+                      <option value="admin">🔵 Administrador (Gestión Operativa)</option>
+                      <option value="empleado">🟢 Empleado (Ventas y Compras)</option>
+                      <option value="viewer">👁️ Visualizador (Solo Lectura)</option>
                     </select>
+                    {editingUser?.email?.toLowerCase() === 'guillermo.diarte@gmail.com' && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5 font-semibold flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[13px]">lock</span>
+                        La cuenta principal no puede cambiar de rol ni email.
+                      </p>
+                    )}
                   </div>
                 </div>
               </form>

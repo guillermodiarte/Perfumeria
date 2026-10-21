@@ -14,7 +14,7 @@ from app.auth import get_password_hash, create_access_token
 import uuid
 
 # Database Setup
-from app.dependencies import engine, SessionLocal, get_db, get_current_admin
+from app.dependencies import engine, SessionLocal, get_db, get_current_admin, require_role, is_super_admin, is_at_least_admin, is_at_least_empleado, PROTECTED_SUPER_ADMIN_EMAIL, VALID_ADMIN_ROLES
 
 # Asegurar carpeta de uploads persistente
 UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")
@@ -128,8 +128,10 @@ def read_root():
 
 # --- ADMIN ENDPOINTS ---
 
-@app.post("/api/admin/upload", dependencies=[Depends(get_current_admin)])
-async def upload_image(request: Request, file: UploadFile = File(...)):
+@app.post("/api/admin/upload")
+async def upload_image(request: Request, file: UploadFile = File(...), current_admin: Admin = Depends(get_current_admin)):
+    if current_admin.role == "viewer":
+        raise HTTPException(status_code=403, detail="El rol Visualizador no tiene permisos para subir archivos")
     try:
         # Default upload going to "Otros"
         category_dir = os.path.join(UPLOAD_DIR, "Otros")
@@ -158,8 +160,10 @@ def normalize_category(raw: str) -> str:
     # Capitalise first letter for display consistency
     return raw[0].upper() + raw[1:] if raw else "Otros"
 
-@app.get("/api/admin/media", dependencies=[Depends(get_current_admin)])
-def get_media_library(request: Request, category: str = None):
+@app.get("/api/admin/media")
+def get_media_library(request: Request, category: str = None, current_admin: Admin = Depends(get_current_admin)):
+    if current_admin.role == "viewer":
+        raise HTTPException(status_code=403, detail="El rol Visualizador no tiene acceso a la biblioteca de medios")
     try:
         host_url = str(request.base_url).rstrip("/")
         media_files = []
@@ -243,8 +247,10 @@ def get_media_library(request: Request, category: str = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/admin/media", dependencies=[Depends(get_current_admin)])
-async def upload_media_file(request: Request, file: UploadFile = File(...), category: str = "Otros"):
+@app.post("/api/admin/media")
+async def upload_media_file(request: Request, file: UploadFile = File(...), category: str = "Otros", current_admin: Admin = Depends(get_current_admin)):
+    if current_admin.role == "viewer":
+        raise HTTPException(status_code=403, detail="El rol Visualizador no tiene permisos para subir archivos")
     try:
         # Asegurarse que la categoría exista
         safe_category = category.strip().replace("..", "").replace("/", "")
@@ -273,9 +279,11 @@ async def upload_media_file(request: Request, file: UploadFile = File(...), cate
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Dedicated endpoint for product images → uploads/productos/{subcategory}/ ---
-@app.post("/api/admin/product-image", dependencies=[Depends(get_current_admin)])
-async def upload_product_image(request: Request, file: UploadFile = File(...)):
+@app.post("/api/admin/product-image")
+async def upload_product_image(request: Request, file: UploadFile = File(...), current_admin: Admin = Depends(get_current_admin)):
     """Upload a product image to uploads/Productos/ (single unified folder for all products)."""
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo los Administradores pueden subir imágenes de productos")
     try:
         dest_dir = os.path.join(UPLOAD_DIR, "Productos")
         os.makedirs(dest_dir, exist_ok=True)
@@ -303,8 +311,10 @@ async def upload_product_image(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/api/admin/media", dependencies=[Depends(get_current_admin)])
-async def delete_media_file(request: Request, category: str = None, filename: str = None):
+@app.delete("/api/admin/media")
+async def delete_media_file(request: Request, category: str = None, filename: str = None, current_admin: Admin = Depends(get_current_admin)):
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo los Administradores pueden eliminar archivos de la biblioteca")
     try:
         files_to_delete = []
 
@@ -359,8 +369,10 @@ async def delete_media_file(request: Request, category: str = None, filename: st
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-@app.put("/api/admin/media/move", dependencies=[Depends(get_current_admin)])
-def move_media_file(category: str, filename: str, data: MediaMoveSchema):
+@app.put("/api/admin/media/move")
+def move_media_file(category: str, filename: str, data: MediaMoveSchema, current_admin: Admin = Depends(get_current_admin)):
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo los Administradores pueden mover archivos de la biblioteca")
     try:
         new_category = data.new_category.strip().replace("..", "")
         safe_category = category.strip().replace("..", "")
@@ -409,12 +421,22 @@ def get_admin_me(current_admin: Admin = Depends(get_current_admin)):
 
 # --- ADMIN ACCOUNTS MANAGEMENT ---
 
-@app.get("/api/admin/admins", response_model=list[AdminSchema], dependencies=[Depends(get_current_admin)])
-def get_admins(db: Session = Depends(get_db)):
+@app.get("/api/admin/admins", response_model=list[AdminSchema])
+def get_admins(db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    if not is_super_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo el Super Administrador puede ver la lista de administradores")
     return db.query(Admin).all()
 
-@app.post("/api/admin/admins", response_model=AdminSchema, dependencies=[Depends(get_current_admin)])
-def create_admin(data: AdminCreateSchema, db: Session = Depends(get_db)):
+@app.post("/api/admin/admins", response_model=AdminSchema)
+def create_admin(data: AdminCreateSchema, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    if not is_super_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo el Super Administrador puede crear administradores")
+    
+    # Validar que el nuevo rol sea válido
+    target_role = data.role or "admin"
+    if target_role not in VALID_ADMIN_ROLES:
+        raise HTTPException(status_code=400, detail=f"Rol inválido. Roles permitidos: {', '.join(VALID_ADMIN_ROLES)}")
+        
     exist = db.query(Admin).filter(Admin.email == data.email).first()
     if exist:
         raise HTTPException(status_code=400, detail="Este correo ya está registrado como administrador")
@@ -422,18 +444,34 @@ def create_admin(data: AdminCreateSchema, db: Session = Depends(get_db)):
         email=data.email,
         name=data.name,
         password_hash=get_password_hash(data.password),
-        role=data.role or "admin"
+        role=target_role
     )
     db.add(new_admin)
     db.commit()
     db.refresh(new_admin)
     return new_admin
 
-@app.put("/api/admin/admins/{admin_id}", response_model=AdminSchema, dependencies=[Depends(get_current_admin)])
-def update_admin(admin_id: int, data: dict, db: Session = Depends(get_db)):
+@app.put("/api/admin/admins/{admin_id}", response_model=AdminSchema)
+def update_admin(admin_id: int, data: dict, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    # Solo super_admin puede gestionar otros admins
+    if not is_super_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo el Super Administrador puede editar cuentas de administrador")
+    
     admin = db.query(Admin).filter(Admin.id == admin_id).first()
     if not admin:
         raise HTTPException(status_code=404, detail="Administrador no encontrado")
+    
+    # Protección especial: el email protegido nunca puede cambiar de rol
+    if admin.email.lower() == PROTECTED_SUPER_ADMIN_EMAIL:
+        if data.get("role") and data["role"] != "super_admin":
+            raise HTTPException(status_code=403, detail="No se puede cambiar el rol de la cuenta principal del sistema")
+        if data.get("email") and data["email"].lower() != PROTECTED_SUPER_ADMIN_EMAIL:
+            raise HTTPException(status_code=403, detail="No se puede cambiar el email de la cuenta principal del sistema")
+    
+    # Validar que el nuevo rol sea válido
+    if data.get("role") and data["role"] not in VALID_ADMIN_ROLES:
+        raise HTTPException(status_code=400, detail=f"Rol inválido. Roles permitidos: {', '.join(VALID_ADMIN_ROLES)}")
+    
     if data.get("email"):
         admin.email = data["email"]
     if data.get("name"):
@@ -448,10 +486,19 @@ def update_admin(admin_id: int, data: dict, db: Session = Depends(get_db)):
 
 @app.delete("/api/admin/admins/{admin_id}")
 def delete_admin(admin_id: int, current_admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    # Solo super_admin puede eliminar admins
+    if not is_super_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo el Super Administrador puede eliminar cuentas de administrador")
+    
     admin = db.query(Admin).filter(Admin.id == admin_id).first()
     if not admin:
         raise HTTPException(status_code=404, detail="Administrador no encontrado")
-    if admin.role == "super_admin":
+    
+    # Nunca se puede eliminar la cuenta protegida
+    if admin.email.lower() == PROTECTED_SUPER_ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="No se puede eliminar la cuenta principal del sistema")
+    
+    if admin.role == "super_admin" and admin.id != current_admin.id:
         raise HTTPException(status_code=400, detail="No se puede eliminar la cuenta de un Super Administrador")
     if admin.id == current_admin.id:
         raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
@@ -461,8 +508,10 @@ def delete_admin(admin_id: int, current_admin: Admin = Depends(get_current_admin
 
 
 
-@app.get("/api/admin/users", response_model=list[CustomerSchema], dependencies=[Depends(get_current_admin)])
-def get_users(db: Session = Depends(get_db)):
+@app.get("/api/admin/users", response_model=list[CustomerSchema])
+def get_users(db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo Administradores pueden ver la lista de clientes")
     # Devolver ordenados: primero los no aprobados (por fecha desc), luego los aprobados
     from sqlalchemy import case
     return db.query(Customer).order_by(
@@ -470,8 +519,10 @@ def get_users(db: Session = Depends(get_db)):
         Customer.created_at.desc()
     ).all()
 
-@app.post("/api/admin/users", response_model=CustomerSchema, dependencies=[Depends(get_current_admin)])
-def create_admin_user(data: CustomerCreateSchema, db: Session = Depends(get_db)):
+@app.post("/api/admin/users", response_model=CustomerSchema)
+def create_admin_user(data: CustomerCreateSchema, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo Administradores pueden crear clientes")
     exist = db.query(Customer).filter(Customer.email == data.email).first()
     if exist:
         raise HTTPException(status_code=400, detail="Este correo ya esta registrado")
@@ -494,8 +545,10 @@ def create_admin_user(data: CustomerCreateSchema, db: Session = Depends(get_db))
     db.refresh(new_user)
     return new_user
 
-@app.put("/api/admin/users/{user_id}", response_model=CustomerSchema, dependencies=[Depends(get_current_admin)])
+@app.put("/api/admin/users/{user_id}", response_model=CustomerSchema)
 def update_admin_user(user_id: int, data: CustomerUpdateSchema, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo Administradores pueden editar clientes")
     user = db.query(Customer).filter(Customer.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -516,8 +569,10 @@ def update_admin_user(user_id: int, data: CustomerUpdateSchema, db: Session = De
     db.refresh(user)
     return user
 
-@app.patch("/api/admin/users/{user_id}/approval", response_model=CustomerSchema, dependencies=[Depends(get_current_admin)])
-def update_customer_approval(user_id: int, data: CustomerApprovalUpdateSchema, db: Session = Depends(get_db)):
+@app.patch("/api/admin/users/{user_id}/approval", response_model=CustomerSchema)
+def update_customer_approval(user_id: int, data: CustomerApprovalUpdateSchema, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo Administradores pueden cambiar aprobación de clientes")
     user = db.query(Customer).filter(Customer.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -526,8 +581,10 @@ def update_customer_approval(user_id: int, data: CustomerApprovalUpdateSchema, d
     db.refresh(user)
     return user
 
-@app.delete("/api/admin/users/{user_id}", dependencies=[Depends(get_current_admin)])
-def delete_admin_user(user_id: int, db: Session = Depends(get_db)):
+@app.delete("/api/admin/users/{user_id}")
+def delete_admin_user(user_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo Administradores pueden eliminar clientes")
     user = db.query(Customer).filter(Customer.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -553,25 +610,25 @@ def get_public_setting_by_key(key: str, db: Session = Depends(get_db)):
 
 @app.put("/api/admin/settings/{key}", response_model=SiteSettingSchema)
 def update_site_setting(key: str, data: SiteSettingUpdateSchema, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
-    """
-    Actualiza (o crea si no existe) una configuración de sección.
-    El campo 'value' admite cualquier estructura JSON válida.
-    """
+    # Solo super_admin puede editar configuraciones del sitio
+    if not is_super_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo el Super Administrador puede modificar la configuración del sitio")
     setting = db.query(SiteSetting).filter(SiteSetting.key == key).first()
     if not setting:
         setting = SiteSetting(key=key, value=data.value)
         db.add(setting)
     else:
         setting.value = data.value
-    
     db.commit()
     db.refresh(setting)
     return setting
 
 # --- Endpoints para Mayoristas & Notificaciones ---
 
-@app.patch("/api/admin/users/{user_id}/wholesale", response_model=CustomerSchema, dependencies=[Depends(get_current_admin)])
-def update_customer_wholesale(user_id: int, data: CustomerWholesaleUpdateSchema, db: Session = Depends(get_db)):
+@app.patch("/api/admin/users/{user_id}/wholesale", response_model=CustomerSchema)
+def update_customer_wholesale(user_id: int, data: CustomerWholesaleUpdateSchema, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
+    if not is_at_least_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo Administradores pueden gestionar clientes mayoristas")
     user = db.query(Customer).filter(Customer.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -598,9 +655,8 @@ def get_wholesale_auto_setting(db: Session = Depends(get_db), current_admin: Adm
 @app.patch("/api/admin/settings/wholesale-auto")
 def update_wholesale_auto_setting(data: dict, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
     # Solo super admin puede modificar esta opción
-    is_super_admin = (current_admin.email.lower() == "guillermo.diarte@gmail.com") or (current_admin.role == "superadmin") or (current_admin.role == "admin")
-    if not is_super_admin:
-        raise HTTPException(status_code=403, detail="Solo el super administrador puede cambiar esta configuración.")
+    if not is_super_admin(current_admin):
+        raise HTTPException(status_code=403, detail="Solo el Super Administrador puede cambiar esta configuración.")
     
     new_val = bool(data.get("enabled", False))
     min_qty = int(data.get("min_quantity", 6)) if data.get("min_quantity") is not None else 6
@@ -663,15 +719,19 @@ def get_admin_notifications_summary(db: Session = Depends(get_db), current_admin
 # ENDPOINTS: PROVEEDORES
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.get("/api/admin/suppliers", response_model=list[SupplierSchema], dependencies=[Depends(get_current_admin)])
-def get_suppliers(db: Session = Depends(get_db)):
+@app.get("/api/admin/suppliers", response_model=list[SupplierSchema])
+def get_suppliers(db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
     """Lista todos los proveedores ordenados por nombre (para autocomplete)."""
+    if not is_at_least_empleado(current_admin):
+        raise HTTPException(status_code=403, detail="No tienes permisos para ver proveedores")
     return db.query(Supplier).order_by(Supplier.name).all()
 
 
-@app.post("/api/admin/suppliers", response_model=SupplierSchema, dependencies=[Depends(get_current_admin)])
-def create_supplier(data: SupplierCreateSchema, db: Session = Depends(get_db)):
+@app.post("/api/admin/suppliers", response_model=SupplierSchema)
+def create_supplier(data: SupplierCreateSchema, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
     """Crea un proveedor nuevo. Si ya existe con ese nombre, lo devuelve."""
+    if not is_at_least_empleado(current_admin):
+        raise HTTPException(status_code=403, detail="No tienes permisos para registrar proveedores")
     name = data.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="El nombre del proveedor no puede estar vacío")
@@ -709,14 +769,17 @@ def _generate_batch_number(db: Session) -> str:
     return f"{prefix}{seq:03d}"
 
 
-@app.get("/api/admin/purchase-batches", dependencies=[Depends(get_current_admin)])
+@app.get("/api/admin/purchase-batches")
 def get_purchase_batches(
     skip: int = 0,
     limit: int = 50,
     supplier_id: int = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin)
 ):
     """Lista lotes de compra con datos de proveedor resueltos (para el historial)."""
+    if not is_at_least_empleado(current_admin):
+        raise HTTPException(status_code=403, detail="No tienes permisos para ver lotes de compra")
     query = db.query(PurchaseBatch).order_by(PurchaseBatch.purchase_date.desc(), PurchaseBatch.id.desc())
     if supplier_id:
         query = query.filter(PurchaseBatch.supplier_id == supplier_id)
@@ -747,9 +810,11 @@ def get_purchase_batches(
     return {"total": total, "batches": result}
 
 
-@app.get("/api/admin/purchase-batches/{batch_id}", dependencies=[Depends(get_current_admin)])
-def get_purchase_batch(batch_id: int, db: Session = Depends(get_db)):
+@app.get("/api/admin/purchase-batches/{batch_id}")
+def get_purchase_batch(batch_id: int, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
     """Devuelve el detalle completo de un lote con todos sus ítems."""
+    if not is_at_least_empleado(current_admin):
+        raise HTTPException(status_code=403, detail="No tienes permisos para ver el detalle de compra")
     batch = db.query(PurchaseBatch).filter(PurchaseBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Lote no encontrado")
@@ -788,14 +853,16 @@ def get_purchase_batch(batch_id: int, db: Session = Depends(get_db)):
     }
 
 
-@app.post("/api/admin/purchase-batches", dependencies=[Depends(get_current_admin)])
-def create_purchase_batch(data: PurchaseBatchCreateSchema, db: Session = Depends(get_db)):
+@app.post("/api/admin/purchase-batches")
+def create_purchase_batch(data: PurchaseBatchCreateSchema, db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)):
     """
     Crea un lote de compra completo:
     1. Resuelve/crea el proveedor si se envió nombre.
     2. Genera número de lote automático.
     3. Guarda el batch y sus ítems.
     """
+    if not is_at_least_empleado(current_admin):
+        raise HTTPException(status_code=403, detail="No tienes permisos para registrar compras")
     import datetime as dt
 
     # 1. Proveedor

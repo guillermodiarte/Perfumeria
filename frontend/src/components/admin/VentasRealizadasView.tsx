@@ -44,6 +44,7 @@ export interface UnifiedSale {
 
 export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRole }: VentasRealizadasViewProps) {
   const isSuperAdmin = currentAdminRole === 'super_admin';
+  const canDeleteSale = currentAdminRole === 'super_admin' || currentAdminRole === 'admin';
 
   // --- Zustand store (Mostrador POS sales) ---
   const posSales = useStockFlowStore(s => s.sales);
@@ -682,7 +683,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
                   <span className="hidden sm:inline">Ticket</span>
                 </button>
 
-                {isSuperAdmin && (
+                {canDeleteSale && (
                   <button
                     onClick={() => setSaleToDelete(sale)}
                     className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors tooltip"
@@ -882,7 +883,7 @@ export default function VentasRealizadasView({ apiKey, showAlert, currentAdminRo
             {/* Modal Footer */}
             <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/50">
               <div>
-                {isSuperAdmin && (
+                {canDeleteSale && (
                   <button
                     onClick={() => {
                       const s = selectedSaleDetail;

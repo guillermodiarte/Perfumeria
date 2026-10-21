@@ -168,6 +168,10 @@ export default function ProductosView({
   currentAdminRole?: string;
 }) {
   const isSuper = isSuperAdmin ?? (currentAdminRole === 'super_admin');
+  const isAdmin = currentAdminRole === 'admin';
+  const canEditProducts = isSuper || isAdmin;
+  const canDeleteProducts = isSuper;
+  const canAdjustManualStock = isSuper;
   const products = useStockFlowStore(s => s.products);
   const deleteProduct = useStockFlowStore(s => s.deleteProduct);
   const updateProduct = useStockFlowStore(s => s.updateProduct);
@@ -1273,14 +1277,18 @@ export default function ProductosView({
                            } overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col group relative animate-in fade-in zoom-in-95 duration-500`}
                          >
                             {/* Action Buttons */}
-                            <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 bg-white/80 dark:bg-slate-800/80 backdrop-blur rounded-full p-1 border border-slate-100 dark:border-slate-700">
-                                <button onClick={() => handleEditClick(p)} className="size-8 rounded-full flex items-center justify-center text-slate-500 hover:bg-blue-50 hover:text-blue-500 transition-colors">
-                                    <span className="material-symbols-outlined text-sm">edit</span>
-                                </button>
-                                <button onClick={() => setConfirmDeleteId(p.id)} className="size-8 rounded-full flex items-center justify-center text-slate-500 hover:bg-red-50 hover:text-red-500 transition-colors">
-                                    <span className="material-symbols-outlined text-sm">delete</span>
-                                </button>
-                            </div>
+                            {canEditProducts && (
+                              <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 bg-white/80 dark:bg-slate-800/80 backdrop-blur rounded-full p-1 border border-slate-100 dark:border-slate-700">
+                                  <button onClick={() => handleEditClick(p)} title="Editar Producto" className="size-8 rounded-full flex items-center justify-center text-slate-500 hover:bg-blue-50 hover:text-blue-500 transition-colors">
+                                      <span className="material-symbols-outlined text-sm">edit</span>
+                                  </button>
+                                  {canDeleteProducts && (
+                                    <button onClick={() => setConfirmDeleteId(p.id)} title="Eliminar Producto" className="size-8 rounded-full flex items-center justify-center text-slate-500 hover:bg-red-50 hover:text-red-500 transition-colors">
+                                        <span className="material-symbols-outlined text-sm">delete</span>
+                                    </button>
+                                  )}
+                              </div>
+                            )}
                             
                             {/* Fuera de venta / Out of Stock / Promo / Combo Banner */}
                             {p.isBundle ? (
@@ -2449,12 +2457,20 @@ export default function ProductosView({
                                             />
                                         </div>
                                         <div className="w-[72px]">
-                                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Stock</label>
+                                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">
+                                              Stock {canAdjustManualStock ? '' : '🔒'}
+                                            </label>
                                             <input 
                                                 type="number" 
                                                 step="1" 
                                                 placeholder="1" 
-                                                className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm text-slate-900 dark:text-white font-bold h-9 text-blue-600 dark:text-blue-400 focus:ring-2 focus:ring-primary outline-none" 
+                                                disabled={!canAdjustManualStock}
+                                                title={canAdjustManualStock ? "Ajuste manual de stock (Super Admin)" : "El stock solo se incrementa registrando una compra a proveedores"}
+                                                className={`w-full text-center border rounded-lg px-1 py-1 text-sm font-bold h-9 outline-none ${
+                                                  canAdjustManualStock
+                                                    ? "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-blue-600 dark:text-blue-400 focus:ring-2 focus:ring-primary"
+                                                    : "bg-slate-100 dark:bg-slate-700/60 border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-80"
+                                                }`}
                                                 value={variant.stock === '' ? '' : variant.stock} 
                                                 onChange={e => handleVariantChange(vIdx, 'stock', e.target.value === '' ? '' : Number(e.target.value))} 
                                             />
