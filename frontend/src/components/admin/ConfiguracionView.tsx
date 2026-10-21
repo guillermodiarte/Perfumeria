@@ -294,6 +294,7 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
       }
       const res = await fetch(`${API_URL || ''}/api/admin/settings/shipping`, {
         method: 'PUT',
+        credentials: 'include',
         headers,
         body: JSON.stringify(shippingConfig),
       });
@@ -302,8 +303,15 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
         setTimeout(() => setShippingSaveMsg(null), 3500);
         showModal('Configuración Guardada', 'La configuración de envíos se guardó exitosamente.', 'success');
       } else {
-        const errData = await res.json().catch(() => ({}));
-        showModal('Error al guardar', errData.detail || 'Error al guardar la configuración de envíos.', 'error');
+        let errorMsg = `Error HTTP ${res.status}`;
+        try {
+          const errData = await res.json();
+          errorMsg = errData.detail || errData.message || errData.error || errorMsg;
+        } catch {
+          const text = await res.text().catch(() => '');
+          if (text) errorMsg = `${errorMsg}: ${text.slice(0, 100)}`;
+        }
+        showModal('Error al guardar', errorMsg, 'error');
       }
     } catch {
       showModal('Error de Conexión', 'No se pudo conectar con el servidor para guardar la configuración de envíos.', 'error');

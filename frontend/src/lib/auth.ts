@@ -99,26 +99,54 @@ export function isSuperAdmin(admin: { email?: string | null; role?: string | nul
   return admin.role === 'super_admin' || (admin.email || '').toLowerCase() === PROTECTED_SUPER_ADMIN_EMAIL;
 }
 
-// Get current admin from token
-export async function getCurrentAdmin(req: NextRequest) {
-  const token = getTokenFromRequest(req);
-  if (!token) return null;
-  const payload = verifyToken(token);
-  if (!payload) return null;
-  const role = (payload.role as string) || '';
-  const email = ((payload.sub as string) || (payload.email as string) || '').toLowerCase();
-  const isAdmin = payload.type === 'admin' || VALID_ADMIN_ROLES.includes(role) || email === PROTECTED_SUPER_ADMIN_EMAIL;
-  if (!isAdmin) return null;
-  const sub = payload.sub as string;
-  let admin = await prisma.admin.findUnique({ where: { email: sub } });
-  if (!admin && sub) {
-    admin = {
-      id: (payload.id as number) || 1,
-      email: sub,
-      name: (payload.name as string) || (payload.email as string) || 'Admin',
-      role: (payload.role as string) || (email === PROTECTED_SUPER_ADMIN_EMAIL ? 'super_admin' : 'admin'),
-      password_hash: '',
-    } as any;
+// Get current admin from token or NextAuth session
+export async function getCurrentAdmin(req?: NextRequest) {
+  if (req) {
+    const token = getTokenFromRequest(req);
+    if (token) {
+      const payload = verifyToken(token);
+      if (payload) {
+        const role = (payload.role as string) || '';
+        const email = ((payload.sub as string) || (payload.email as string) || '').toLowerCase().trim();
+        const isAdmin = payload.type === 'admin' || VALID_ADMIN_ROLES.includes(role) || email === PROTECTED_SUPER_ADMIN_EMAIL;
+        if (isAdmin) {
+          const sub = (payload.sub as string) || email;
+          let admin = await prisma.admin.findUnique({ where: { email: sub } });
+          if (!admin && sub) {
+            admin = {
+              id: (payload.id as number) || 1,
+              email: sub,
+              name: (payload.name as string) || (payload.email as string) || 'Admin',
+              role: (payload.role as string) || (email === PROTECTED_SUPER_ADMIN_EMAIL ? 'super_admin' : 'admin'),
+              password_hash: '',
+            } as any;
+          }
+          if (admin) return admin;
+        }
+      }
+    }
   }
-  return admin;
+
+  // Fallback: Check NextAuth session from cookies
+  try {
+    const session = await getServerSession(authOptions);
+    if (session?.user?.email) {
+      const email = session.user.email.toLowerCase().trim();
+      let admin = await prisma.admin.findUnique({ where: { email } });
+      if (admin) return admin;
+      if (email === PROTECTED_SUPER_ADMIN_EMAIL) {
+        return {
+          id: 1,
+          email,
+          name: session.user.name || 'Super Admin',
+          role: 'super_admin',
+          password_hash: '',
+        } as any;
+      }
+    }
+  } catch {
+    // NextAuth session resolution not available in this context
+  }
+
+  return null;
 }

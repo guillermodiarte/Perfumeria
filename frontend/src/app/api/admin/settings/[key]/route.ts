@@ -29,12 +29,26 @@ export async function PUT(req: NextRequest, { params }: { params: { key: string 
 
   try {
     const body = await req.json();
-    const value = typeof body.value === 'string' ? body.value : JSON.stringify(body.value);
+    const effectiveKey = (params.key === 'shipping') ? 'shipping_config' : params.key;
+    const rawValue = body.value !== undefined ? body.value : body;
+    const value = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue);
+
+    // Garantizar que la tabla site_settings exista
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "site_settings" (
+        "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        "key" TEXT NOT NULL,
+        "value" TEXT NOT NULL
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "site_settings_key_key" ON "site_settings"("key");
+    `);
 
     const setting = await prisma.siteSetting.upsert({
-      where: { key: params.key },
+      where: { key: effectiveKey },
       update: { value },
-      create: { key: params.key, value },
+      create: { key: effectiveKey, value },
     });
 
     try {
@@ -45,7 +59,8 @@ export async function PUT(req: NextRequest, { params }: { params: { key: string 
     let parsedValue = setting.value;
     try { parsedValue = JSON.parse(setting.value as string); } catch {}
     return NextResponse.json({ id: setting.id, key: setting.key, value: parsedValue });
-  } catch (error) {
-    return NextResponse.json({ detail: 'Error guardando configuración' }, { status: 500 });
+  } catch (error: any) {
+    console.error(`Error guardando configuración [${params.key}]:`, error);
+    return NextResponse.json({ detail: error?.message || 'Error guardando configuración' }, { status: 500 });
   }
 }

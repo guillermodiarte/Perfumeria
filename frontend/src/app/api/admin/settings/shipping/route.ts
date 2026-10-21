@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentAdmin } from '@/lib/auth';
@@ -46,10 +49,15 @@ export async function GET(req: NextRequest) {
 // PUT /api/admin/settings/shipping
 export async function PUT(req: NextRequest) {
   const admin = await getCurrentAdmin(req);
-  if (!admin) return NextResponse.json({ detail: 'No autorizado' }, { status: 401 });
+  if (!admin) {
+    console.warn('⚠️ [ADMIN SHIPPING API] Rechazado: No autorizado');
+    return NextResponse.json({ detail: 'No autorizado como administrador' }, { status: 401 });
+  }
 
   try {
     const body = await req.json();
+    console.log('📦 [ADMIN SHIPPING API] Guardando configuración:', body, 'por admin:', admin.email);
+
     const config = {
       delivery_enabled: body.delivery_enabled ?? true,
       delivery_cost: Math.max(0, Number(body.delivery_cost || 0)),
@@ -73,9 +81,10 @@ export async function PUT(req: NextRequest) {
       create: { key: 'shipping_config', value: JSON.stringify(config) },
     });
 
+    console.log('✅ [ADMIN SHIPPING API] Configuración guardada con éxito:', config);
     return NextResponse.json(config);
   } catch (error: any) {
-    console.error('Error al guardar configuración de envíos:', error);
+    console.error('❌ [ADMIN SHIPPING API] Error al guardar configuración de envíos:', error);
     return NextResponse.json({ detail: error?.message || 'Error al guardar configuración de envíos' }, { status: 500 });
   }
 }
