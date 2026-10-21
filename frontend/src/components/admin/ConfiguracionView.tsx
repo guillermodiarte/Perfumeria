@@ -749,17 +749,15 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
       <div className="grid grid-cols-2 md:flex md:flex-wrap items-center gap-1.5 sm:gap-2 p-1.5 bg-slate-100/90 dark:bg-slate-900/80 rounded-2xl border border-slate-200/80 dark:border-slate-800 w-full md:w-fit mb-6 sm:mb-8">
         <button
           onClick={() => setActiveTab('precios')}
-          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
-            activeTab === 'precios'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-          }`}
+          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${activeTab === 'precios'
+            ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+            }`}
         >
-          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-            activeTab === 'precios'
-              ? 'bg-primary/10 text-primary'
-              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-          }`}>
+          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${activeTab === 'precios'
+            ? 'bg-primary/10 text-primary'
+            : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+            }`}>
             <span className="material-symbols-outlined text-base sm:text-lg">payments</span>
           </div>
           <span className="leading-tight truncate">Precios y Mayoristas</span>
@@ -767,17 +765,15 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
 
         <button
           onClick={() => setActiveTab('catalogo')}
-          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
-            activeTab === 'catalogo'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-          }`}
+          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${activeTab === 'catalogo'
+            ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+            }`}
         >
-          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-            activeTab === 'catalogo'
-              ? 'bg-primary/10 text-primary'
-              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-          }`}>
+          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${activeTab === 'catalogo'
+            ? 'bg-primary/10 text-primary'
+            : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+            }`}>
             <span className="material-symbols-outlined text-base sm:text-lg">category</span>
           </div>
           <span className="leading-tight truncate">Categorías y Catálogo</span>
@@ -785,19 +781,16 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
 
         <button
           onClick={() => setActiveTab('envios')}
-          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
-            !isSuperAdmin ? 'col-span-2 md:col-span-1' : ''
-          } ${
-            activeTab === 'envios'
+          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${!isSuperAdmin ? 'col-span-2 md:col-span-1' : ''
+            } ${activeTab === 'envios'
               ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-          }`}
+            }`}
         >
-          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-            activeTab === 'envios'
-              ? 'bg-primary/10 text-primary'
-              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-          }`}>
+          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${activeTab === 'envios'
+            ? 'bg-primary/10 text-primary'
+            : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+            }`}>
             <span className="material-symbols-outlined text-base sm:text-lg">local_shipping</span>
           </div>
           <span className="leading-tight truncate">Envíos y Entregas</span>
@@ -805,17 +798,15 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
 
         <button
           onClick={() => setActiveTab('factura')}
-          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
-            activeTab === 'factura'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-          }`}
+          className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${activeTab === 'factura'
+            ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+            }`}
         >
-          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-            activeTab === 'factura'
-              ? 'bg-primary/10 text-primary'
-              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-          }`}>
+          <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${activeTab === 'factura'
+            ? 'bg-primary/10 text-primary'
+            : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+            }`}>
             <span className="material-symbols-outlined text-base sm:text-lg">receipt_long</span>
           </div>
           <span className="leading-tight truncate">Facturación</span>
@@ -824,17 +815,15 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
         {isSuperAdmin && (
           <button
             onClick={() => setActiveTab('empresa')}
-            className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
-              activeTab === 'empresa'
-                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-            }`}
+            className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${activeTab === 'empresa'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+              }`}
           >
-            <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-              activeTab === 'empresa'
-                ? 'bg-primary/10 text-primary'
-                : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-            }`}>
+            <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${activeTab === 'empresa'
+              ? 'bg-primary/10 text-primary'
+              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+              }`}>
               <span className="material-symbols-outlined text-base sm:text-lg">storefront</span>
             </div>
             <span className="leading-tight truncate">Empresa</span>
@@ -844,17 +833,15 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
         {isSuperAdmin && (
           <button
             onClick={() => setActiveTab('respaldos')}
-            className={`col-span-2 md:col-span-1 flex items-center justify-center md:justify-start gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${
-              activeTab === 'respaldos'
-                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-            }`}
+            className={`col-span-2 md:col-span-1 flex items-center justify-center md:justify-start gap-2 sm:gap-2.5 p-2 sm:px-4 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all text-left ${activeTab === 'respaldos'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm shadow-slate-200 dark:shadow-none border border-slate-200/60 dark:border-slate-700'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+              }`}
           >
-            <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-              activeTab === 'respaldos'
-                ? 'bg-primary/10 text-primary'
-                : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-            }`}>
+            <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${activeTab === 'respaldos'
+              ? 'bg-primary/10 text-primary'
+              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+              }`}>
               <span className="material-symbols-outlined text-base sm:text-lg">cloud_sync</span>
             </div>
             <span className="leading-tight truncate">Copias de Seguridad (Backups)</span>
@@ -921,15 +908,13 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                           enabled: nextEnabled,
                         });
                       }}
-                      className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        wholesaleConfig?.enabled !== false ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
-                      }`}
+                      className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${wholesaleConfig?.enabled !== false ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
+                        }`}
                       title={wholesaleConfig?.enabled !== false ? 'Desactivar porcentaje automático' : 'Activar porcentaje automático'}
                     >
                       <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          wholesaleConfig?.enabled !== false ? 'translate-x-5' : 'translate-x-0'
-                        }`}
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${wholesaleConfig?.enabled !== false ? 'translate-x-5' : 'translate-x-0'
+                          }`}
                       />
                     </button>
                   </div>
@@ -964,9 +949,8 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                       disabled={wholesaleConfig?.enabled === false}
                       value={wholesaleConfig?.discountPercentage || 10}
                       onChange={(e) => setWholesaleConfig({ ...wholesaleConfig, discountPercentage: Number(e.target.value) || 0 })}
-                      className={`w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-4 pr-10 py-3 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary shadow-sm ${
-                        wholesaleConfig?.enabled === false ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800/40' : ''
-                      }`}
+                      className={`w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl pl-4 pr-10 py-3 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary shadow-sm ${wholesaleConfig?.enabled === false ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800/40' : ''
+                        }`}
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
                   </div>
@@ -1007,14 +991,12 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                     setWholesaleAutoEnabled(nextVal);
                     handleUpdateWholesaleAuto(nextVal, wholesaleAutoMinQty);
                   }}
-                  className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    wholesaleAutoEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
-                  }`}
+                  className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${wholesaleAutoEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
+                    }`}
                 >
                   <span
-                    className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                      wholesaleAutoEnabled ? 'translate-x-7' : 'translate-x-0'
-                    }`}
+                    className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${wholesaleAutoEnabled ? 'translate-x-7' : 'translate-x-0'
+                      }`}
                   />
                 </button>
               </div>
@@ -1164,7 +1146,7 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
               {shippingConfig.delivery_enabled && (
                 <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
                   <label className="block text-sm font-bold text-slate-800 dark:text-white">
-                    Costo de Envío a Domicilio ($ ARS)
+                    Costo de Envío a Domicilio Local ($ ARS)
                   </label>
                   <div className="relative max-w-xs">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">$</span>
@@ -1341,11 +1323,10 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                       <button
                         type="button"
                         onClick={() => setInvoiceForm({ ...invoiceForm, logoUrl: '/logo-ciara-bonita.png' })}
-                        className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all ${
-                          invoiceForm.logoUrl === '/logo-ciara-bonita.png' || invoiceForm.logoUrl === '/uploads/Logo/LogoCuadrado.png'
-                            ? 'bg-pink-50/70 dark:bg-pink-950/30 border-pink-500 text-pink-700 dark:text-pink-300 font-bold'
-                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium'
-                        }`}
+                        className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all ${invoiceForm.logoUrl === '/logo-ciara-bonita.png' || invoiceForm.logoUrl === '/uploads/Logo/LogoCuadrado.png'
+                          ? 'bg-pink-50/70 dark:bg-pink-950/30 border-pink-500 text-pink-700 dark:text-pink-300 font-bold'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium'
+                          }`}
                       >
                         <img src="/logo-ciara-bonita.png" alt="Logo Cuadrado" className="size-8 rounded-lg object-contain bg-white shrink-0 border border-slate-200" />
                         <div className="min-w-0">
@@ -1357,11 +1338,10 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                       <button
                         type="button"
                         onClick={() => setInvoiceForm({ ...invoiceForm, logoUrl: '/uploads/Logo/logo.webp' })}
-                        className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all ${
-                          invoiceForm.logoUrl === '/uploads/Logo/logo.webp'
-                            ? 'bg-pink-50/70 dark:bg-pink-950/30 border-pink-500 text-pink-700 dark:text-pink-300 font-bold'
-                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium'
-                        }`}
+                        className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all ${invoiceForm.logoUrl === '/uploads/Logo/logo.webp'
+                          ? 'bg-pink-50/70 dark:bg-pink-950/30 border-pink-500 text-pink-700 dark:text-pink-300 font-bold'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium'
+                          }`}
                       >
                         <img src="/uploads/Logo/logo.webp" alt="Logo Web" className="size-8 rounded-lg object-contain bg-white shrink-0 border border-slate-200" />
                         <div className="min-w-0">
@@ -2187,11 +2167,10 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
                 {autoBackups.map((backup) => (
                   <div
                     key={backup.filename}
-                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 transition-colors ${
-                      backup.isSafetyBackup
-                        ? 'bg-amber-500/5 hover:bg-amber-500/10 dark:bg-amber-950/20 dark:hover:bg-amber-950/30'
-                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                    }`}
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 transition-colors ${backup.isSafetyBackup
+                      ? 'bg-amber-500/5 hover:bg-amber-500/10 dark:bg-amber-950/20 dark:hover:bg-amber-950/30'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                      }`}
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -2330,20 +2309,19 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl border border-slate-100 dark:border-slate-700 text-center transform transition-all scale-100 animate-scale-up">
             <div
-              className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
-                modalState.type === 'error'
-                  ? 'bg-rose-500/10 text-rose-500'
-                  : modalState.type === 'success'
+              className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 ${modalState.type === 'error'
+                ? 'bg-rose-500/10 text-rose-500'
+                : modalState.type === 'success'
                   ? 'bg-emerald-500/10 text-emerald-500'
                   : 'bg-primary/10 text-primary'
-              }`}
+                }`}
             >
               <span className="material-symbols-outlined text-3xl">
                 {modalState.type === 'error'
                   ? 'error'
                   : modalState.type === 'success'
-                  ? 'check_circle'
-                  : 'info'}
+                    ? 'check_circle'
+                    : 'info'}
               </span>
             </div>
             <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2">
@@ -2355,13 +2333,12 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
             <button
               type="button"
               onClick={() => setModalState(null)}
-              className={`w-full py-3 text-white font-bold rounded-xl shadow-lg transition-all ${
-                modalState.type === 'error'
-                  ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/30'
-                  : modalState.type === 'success'
+              className={`w-full py-3 text-white font-bold rounded-xl shadow-lg transition-all ${modalState.type === 'error'
+                ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/30'
+                : modalState.type === 'success'
                   ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30'
                   : 'bg-primary hover:bg-primary/90 shadow-primary/30'
-              }`}
+                }`}
             >
               Aceptar
             </button>
