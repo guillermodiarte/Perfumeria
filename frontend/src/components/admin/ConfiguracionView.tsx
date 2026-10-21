@@ -697,8 +697,30 @@ export default function ConfiguracionView({ isSuperAdmin = false, apiKey, showAl
     }
   };
 
-  const handleDownloadAuto = (filename: string) => {
-    window.open(`/api/backup/auto?action=download&filename=${encodeURIComponent(filename)}`, '_blank');
+  const handleDownloadAuto = async (filename: string) => {
+    try {
+      const adminToken = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (adminToken) {
+        headers['X-API-KEY'] = adminToken;
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+      const res = await fetch(`/api/backup/auto?action=download&filename=${encodeURIComponent(filename)}`, { headers });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showModal('Error al Descargar', err.error || `Error (${res.status}) al descargar la copia.`, 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      showModal('Error de Red', 'Error de conexión al descargar la copia de seguridad.', 'error');
+    }
   };
 
   return (
