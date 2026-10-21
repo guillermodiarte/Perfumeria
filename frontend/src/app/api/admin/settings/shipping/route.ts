@@ -10,6 +10,17 @@ const DEFAULT_SHIPPING = {
 // GET /api/admin/settings/shipping
 export async function GET(req: NextRequest) {
   try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "site_settings" (
+        "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        "key" TEXT NOT NULL,
+        "value" TEXT NOT NULL
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "site_settings_key_key" ON "site_settings"("key");
+    `);
+
     const setting = await prisma.siteSetting.findUnique({
       where: { key: 'shipping_config' },
     });
@@ -44,6 +55,18 @@ export async function PUT(req: NextRequest) {
       delivery_cost: Math.max(0, Number(body.delivery_cost || 0)),
     };
 
+    // Garantizar que la tabla site_settings exista
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "site_settings" (
+        "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        "key" TEXT NOT NULL,
+        "value" TEXT NOT NULL
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "site_settings_key_key" ON "site_settings"("key");
+    `);
+
     await prisma.siteSetting.upsert({
       where: { key: 'shipping_config' },
       update: { value: JSON.stringify(config) },
@@ -52,6 +75,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json(config);
   } catch (error: any) {
-    return NextResponse.json({ detail: 'Error al guardar configuración de envíos' }, { status: 500 });
+    console.error('Error al guardar configuración de envíos:', error);
+    return NextResponse.json({ detail: error?.message || 'Error al guardar configuración de envíos' }, { status: 500 });
   }
 }
