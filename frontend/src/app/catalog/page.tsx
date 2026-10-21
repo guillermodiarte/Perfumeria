@@ -127,6 +127,10 @@ function CatalogContent() {
         if (categoryFilter === 'Unisex') {
           return p.targetGender === 'Unisex' || p.categoryId === 'Unisex';
         }
+        const matchingGroup = categoriesConfig.find(g => g.grupo.toLowerCase() === categoryFilter.toLowerCase());
+        if (matchingGroup) {
+          return matchingGroup.opciones.includes(p.categoryId) || p.categoryId === categoryFilter;
+        }
         return p.categoryId === categoryFilter;
       });
     }

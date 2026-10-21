@@ -181,11 +181,17 @@ export default function CartDrawer() {
                       <h4 className="font-bold text-slate-900 dark:text-white leading-tight line-clamp-2">
                         {item.product.name}
                       </h4>
-                      <p className="text-xs text-slate-500 mt-1 capitalize">
-                        {item.size !== 'Único' && `Talle: ${item.size}`}
-                        {item.size !== 'Único' && item.color !== 'Único' && ' | '}
-                        {item.color !== 'Único' && `Color: ${item.color}`}
-                      </p>
+                      {item.product.isBundle ? (
+                        <p className="text-xs font-bold text-fuchsia-600 dark:text-fuchsia-400 mt-1">
+                          🎁 Set / Combo Especial
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-500 mt-1 capitalize">
+                          {item.size !== 'Único' && `Talle: ${item.size}`}
+                          {item.size !== 'Único' && item.color !== 'Único' && ' | '}
+                          {item.color !== 'Único' && `Color: ${item.color}`}
+                        </p>
+                      )}
                     </div>
                     
                     <div className="flex items-center justify-between mt-3">

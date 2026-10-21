@@ -302,7 +302,9 @@ export default function CheckoutPage() {
                     </div>
                     <div className="flex-1 min-w-0 pr-6 sm:pr-0">
                       <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-tight line-clamp-2">{item.product.name}</h3>
-                      <p className="text-xs text-slate-500 mt-1 capitalize">{item.color} - {item.size}</p>
+                      <p className="text-xs text-slate-500 mt-1 capitalize">
+                        {item.product.isBundle ? '🎁 Set / Combo Especial' : `${item.color} - ${item.size}`}
+                      </p>
                       <p className="text-xs text-slate-400 mt-0.5 sm:hidden">
                         ${getItemFinalUnitPrice(item).toLocaleString()} c/u
                         {getItemFinalUnitPrice(item) < getItemUnitPrice(item) && (

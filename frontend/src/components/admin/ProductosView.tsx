@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize, consolidateProductVariants } from '@/store/useStockStore';
 import { API_URL } from '@/utils/api';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
+import ComboStockManagerModal from './ComboStockManagerModal';
 
 /** Full-screen lightbox with arrow navigation */
 function Lightbox({ images, startIndex, onClose }: { images: string[]; startIndex: number; onClose: () => void }) {
@@ -295,9 +296,16 @@ export default function ProductosView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMainCategory, setSelectedMainCategory] = useState<string>('Todo');
   const [selectedSubCategory, setSelectedSubCategory] = useState<string>('Todo');
-  const [stockFilter, setStockFilter] = useState<'all' | 'in_stock' | 'out_of_stock' | 'not_for_public_sale'>('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'in_stock' | 'out_of_stock' | 'not_for_public_sale' | 'combos'>('all');
   
   // Modals state
+  const [stockManagerModal, setStockManagerModal] = useState<{
+    isOpen: boolean;
+    product: Product | null;
+    mode: 'produce' | 'disassemble';
+  }>({ isOpen: false, product: null, mode: 'produce' });
+  const [expandedComboId, setExpandedComboId] = useState<string | null>(null);
+
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editForm, setEditForm] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -388,6 +396,10 @@ export default function ProductosView({
     return products.filter(p => Boolean((p as any).notForPublicSale)).length;
   }, [products]);
 
+  const comboProductsCount = useMemo(() => {
+    return products.filter(p => Boolean(p.isBundle)).length;
+  }, [products]);
+
   const filteredProducts = products.filter(p => {
     const totalStock = (p.variants || []).reduce((acc, v) => acc + (v.stock || 0), 0);
     const isNotForSale = Boolean((p as any).notForPublicSale);
@@ -396,6 +408,7 @@ export default function ProductosView({
     if (stockFilter === 'out_of_stock' && totalStock > 0) return false;
     if (stockFilter === 'in_stock' && totalStock <= 0) return false;
     if (stockFilter === 'not_for_public_sale' && !isNotForSale) return false;
+    if (stockFilter === 'combos' && !p.isBundle) return false;
 
     const matchesSearch = 
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -969,9 +982,34 @@ export default function ProductosView({
                   {stockFilter === 'not_for_public_sale' && <span className="material-symbols-outlined text-xs">close</span>}
                 </button>
               )}
+              {comboProductsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (stockFilter === 'combos') {
+                      setStockFilter('all');
+                    } else {
+                      setStockFilter('combos');
+                      if (selectedMainCategory.startsWith('⚠️ Sin Stock')) {
+                        setSelectedMainCategory('Todo');
+                      }
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    stockFilter === 'combos'
+                      ? 'bg-pink-600 text-white shadow-md shadow-pink-600/30 ring-2 ring-pink-400'
+                      : 'bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800 hover:bg-pink-100 dark:hover:bg-pink-900/40'
+                  }`}
+                  title={stockFilter === 'combos' ? 'Mostrar todos los productos' : 'Ver combos y sets armados'}
+                >
+                  <span className="material-symbols-outlined text-[15px]">featured_seasonal_and_gifts</span>
+                  <span>{comboProductsCount} Combos</span>
+                  {stockFilter === 'combos' && <span className="material-symbols-outlined text-xs">close</span>}
+                </button>
+              )}
             </div>
 
-            <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="flex items-center gap-3 w-full md:w-auto flex-wrap">
               <div className="relative w-full md:w-80 flex-shrink-0">
                   <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
                   <input 
@@ -1068,6 +1106,22 @@ export default function ProductosView({
               <span className="material-symbols-outlined text-[14px]">visibility_off</span>
               <span>Fuera de Venta</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-700/20">{notForPublicSaleCount}</span>
+            </button>
+          )}
+
+          {comboProductsCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setStockFilter(stockFilter === 'combos' ? 'all' : 'combos')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                stockFilter === 'combos'
+                  ? 'bg-pink-600 text-white shadow-sm shadow-pink-600/30 ring-2 ring-pink-400'
+                  : 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 hover:bg-pink-100 border border-pink-200 dark:border-pink-800'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[14px]">featured_seasonal_and_gifts</span>
+              <span>Combos & Sets</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-700/20">{comboProductsCount}</span>
             </button>
           )}
 
@@ -1228,8 +1282,19 @@ export default function ProductosView({
                                 </button>
                             </div>
                             
-                            {/* Fuera de venta / Out of Stock / Promo Banner */}
-                            {isNotForSale ? (
+                            {/* Fuera de venta / Out of Stock / Promo / Combo Banner */}
+                            {p.isBundle ? (
+                              <div className="bg-gradient-to-r from-pink-600 to-rose-600 text-white text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 flex items-center justify-between shadow-sm z-10">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="material-symbols-outlined text-[13px]">featured_seasonal_and_gifts</span>
+                                  <span>Combo / Set Armado</span>
+                                  {isNotForSale && <span className="bg-purple-900/80 text-[9px] px-1.5 py-0.2 rounded ml-1">Interno</span>}
+                                </div>
+                                <span className="bg-black/25 text-white text-[9px] px-2 py-0.5 rounded font-black tracking-normal">
+                                  {totalStock} {totalStock === 1 ? 'Combo' : 'Combos'} Disp.
+                                </span>
+                              </div>
+                            ) : isNotForSale ? (
                               <div className="bg-purple-600 text-white text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 flex items-center justify-between shadow-sm z-10">
                                 <div className="flex items-center gap-1.5">
                                   <span className="material-symbols-outlined text-[13px]">visibility_off</span>
@@ -1256,13 +1321,19 @@ export default function ProductosView({
                             
                             <div className="p-5 flex-1 flex flex-col">
                                  <div className="flex items-center gap-1.5 mb-1 mr-auto flex-wrap">
+                                     {p.isBundle && (
+                                       <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-gradient-to-r from-pink-500 to-rose-600 text-white shadow-sm flex items-center gap-1">
+                                         <span className="material-symbols-outlined text-[11px]">featured_seasonal_and_gifts</span>
+                                         Combo ({p.bundleComponents?.length || 0})
+                                       </span>
+                                     )}
                                      {isNotForSale && (
                                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-purple-600 text-white shadow-sm flex items-center gap-1">
                                          <span className="material-symbols-outlined text-[11px]">visibility_off</span>
                                          Fuera de Venta
                                        </span>
                                      )}
-                                     {isOutOfStock && !isNotForSale && (
+                                     {isOutOfStock && !isNotForSale && !p.isBundle && (
                                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-red-600 text-white shadow-sm flex items-center gap-1">
                                          <span className="material-symbols-outlined text-[11px]">block</span>
                                          Sin Stock
@@ -1407,6 +1478,74 @@ export default function ProductosView({
                                              </div>
                                          )}
                                      </div>
+
+                                     {/* Combo / Set Controls */}
+                                     {p.isBundle && (
+                                       <div className="mt-3 pt-3 border-t border-pink-100 dark:border-pink-900/40 space-y-2">
+                                         <div className="flex items-center justify-between">
+                                           <span className="text-[10px] font-black uppercase tracking-wider text-pink-600 dark:text-pink-400 flex items-center gap-1">
+                                             <span className="material-symbols-outlined text-[13px]">featured_seasonal_and_gifts</span>
+                                             Componentes ({p.bundleComponents?.length || 0})
+                                           </span>
+                                           <button
+                                             type="button"
+                                             onClick={() => setExpandedComboId(expandedComboId === p.id ? null : p.id)}
+                                             className="text-[10px] font-bold text-slate-500 hover:text-pink-600 flex items-center gap-0.5 cursor-pointer"
+                                           >
+                                             <span>{expandedComboId === p.id ? 'Ocultar' : 'Ver detalle'}</span>
+                                             <span className="material-symbols-outlined text-xs">
+                                               {expandedComboId === p.id ? 'expand_less' : 'expand_more'}
+                                             </span>
+                                           </button>
+                                         </div>
+
+                                         {/* Expanded component list */}
+                                         {expandedComboId === p.id && (
+                                           <div className="p-2.5 rounded-xl bg-pink-50/60 dark:bg-pink-950/30 border border-pink-200/60 dark:border-pink-800/40 space-y-1.5 text-[11px] animate-in fade-in duration-150">
+                                             <div className="font-bold text-slate-700 dark:text-slate-300">Incluye en el combo:</div>
+                                             <ul className="divide-y divide-pink-100 dark:divide-pink-900/40">
+                                               {(p.bundleComponents || []).map((c, i) => (
+                                                 <li key={i} className="py-1 flex justify-between items-center text-slate-600 dark:text-slate-300">
+                                                   <span className="truncate pr-2 font-medium">
+                                                     {c.quantityPerBundle}x {c.productName} ({c.variantInfo})
+                                                   </span>
+                                                   <span className="font-bold flex-shrink-0 text-slate-400">
+                                                     ${Math.round(c.unitCost).toLocaleString('es-AR')} c/u
+                                                   </span>
+                                                 </li>
+                                               ))}
+                                               {Boolean(p.suppliesCost && p.suppliesCost > 0) && (
+                                                 <li className="py-1 flex justify-between items-center text-pink-700 dark:text-pink-300 font-semibold">
+                                                   <span>+ Insumos / Packaging</span>
+                                                   <span>${Math.round(p.suppliesCost || 0).toLocaleString('es-AR')}</span>
+                                                 </li>
+                                               )}
+                                             </ul>
+                                           </div>
+                                         )}
+
+                                         {/* Quick Action buttons for combo stock */}
+                                         <div className="grid grid-cols-2 gap-2 pt-1">
+                                           <button
+                                             type="button"
+                                             onClick={() => setStockManagerModal({ isOpen: true, product: p, mode: 'produce' })}
+                                             className="px-2.5 py-1.5 rounded-lg bg-pink-50 hover:bg-pink-100 dark:bg-pink-950/60 dark:hover:bg-pink-900/60 text-pink-700 dark:text-pink-300 font-black text-[11px] transition-colors flex items-center justify-center gap-1 border border-pink-200 dark:border-pink-800 cursor-pointer"
+                                           >
+                                             <span className="material-symbols-outlined text-[14px]">add_circle</span>
+                                             Armar más
+                                           </button>
+                                           <button
+                                             type="button"
+                                             onClick={() => setStockManagerModal({ isOpen: true, product: p, mode: 'disassemble' })}
+                                             disabled={totalStock <= 0}
+                                             className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-black text-[11px] transition-colors flex items-center justify-center gap-1 border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                           >
+                                             <span className="material-symbols-outlined text-[14px]">remove_circle</span>
+                                             Desarmar
+                                           </button>
+                                         </div>
+                                       </div>
+                                     )}
                                  </div>
                             </div>
                          </div>
@@ -2591,6 +2730,15 @@ export default function ProductosView({
             </div>
         </div>
       )}
+
+      {/* Combo Stock Manager Modal (Armar más / Desarmar) */}
+      <ComboStockManagerModal
+        isOpen={stockManagerModal.isOpen}
+        product={stockManagerModal.product}
+        initialMode={stockManagerModal.mode}
+        onClose={() => setStockManagerModal({ isOpen: false, product: null, mode: 'produce' })}
+        showAlert={showAlert}
+      />
 
     </div>
   );

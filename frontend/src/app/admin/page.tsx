@@ -16,6 +16,7 @@ import CobrosPendientesView from '@/components/admin/CobrosPendientesView';
 import NotificationBell from '@/components/admin/NotificationBell';
 import FinanzasView from '@/components/admin/FinanzasView';
 import ClientesView from '@/components/admin/ClientesView';
+import ComboBuilderView from '@/components/admin/ComboBuilderView';
 import Logo from '@/components/ui/Logo';
 import { API_URL } from '@/utils/api';
 
@@ -26,8 +27,8 @@ export default function AdminDashboard() {
   const [apiKey, setApiKey] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  type ViewId = 'dashboard' | 'products' | 'sections' | 'compras' | 'ventas' | 'pedidos_web' | 'ventas_mostrador' | 'cobros_pendientes' | 'ventas_realizadas' | 'users' | 'admins' | 'finanzas' | 'media' | 'configuracion';
-  const VALID_VIEWS: ViewId[] = ['dashboard', 'products', 'sections', 'compras', 'ventas', 'pedidos_web', 'ventas_mostrador', 'cobros_pendientes', 'ventas_realizadas', 'users', 'admins', 'finanzas', 'media', 'configuracion'];
+  type ViewId = 'dashboard' | 'products' | 'combos' | 'sections' | 'compras' | 'ventas' | 'pedidos_web' | 'ventas_mostrador' | 'cobros_pendientes' | 'ventas_realizadas' | 'users' | 'admins' | 'finanzas' | 'media' | 'configuracion';
+  const VALID_VIEWS: ViewId[] = ['dashboard', 'products', 'combos', 'sections', 'compras', 'ventas', 'pedidos_web', 'ventas_mostrador', 'cobros_pendientes', 'ventas_realizadas', 'users', 'admins', 'finanzas', 'media', 'configuracion'];
   const getSavedView = (): ViewId => {
     if (typeof window === 'undefined') return 'dashboard';
     const params = new URLSearchParams(window.location.search);
@@ -915,6 +916,17 @@ export default function AdminDashboard() {
             <span>Productos</span>
           </button>
 
+          <button
+            onClick={() => setActiveView('combos')}
+            className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'combos' ? 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}
+            title="Armar un nuevo combo o set de regalo"
+          >
+            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'combos' ? 'bg-gradient-to-tr from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/30' : 'bg-pink-100 dark:bg-pink-950/60 text-pink-500'}`}>
+              <span className="material-symbols-outlined text-[18px]">featured_seasonal_and_gifts</span>
+            </span>
+            <span>Armar Combo / Set</span>
+          </button>
+
           {currentAdminRole === 'super_admin' && (
             <button
               id="btn-nav-sections"
@@ -1062,6 +1074,7 @@ export default function AdminDashboard() {
             <span className="capitalize truncate text-xs sm:text-sm">
               {activeView === 'dashboard' ? 'Panel de Control General' :
                activeView === 'products' ? 'Productos y Stock' :
+               activeView === 'combos' ? 'Armar Combos y Sets de Productos' :
                activeView === 'sections' ? 'Secciones y Banner' :
                activeView === 'compras' ? 'Compras de Proveedores' :
                activeView === 'ventas' ? 'Punto de Venta / Caja' :
@@ -1102,6 +1115,16 @@ export default function AdminDashboard() {
               </div>
             ) : activeView === 'products' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ProductosView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} currentAdminRole={currentAdminRole} isSuperAdmin={currentAdminRole === 'super_admin'} /></div>
+            ) : activeView === 'combos' ? (
+              <div className="w-full px-0 sm:px-2">
+                <ComboBuilderView
+                  showAlert={showAlert}
+                  apiKey={apiKey}
+                  apiUrl={API_URL}
+                  onComboCreated={() => setActiveView('products')}
+                  onCancel={() => setActiveView('products')}
+                />
+              </div>
             ) : (activeView === 'sections' && currentAdminRole === 'super_admin') ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <SeccionesView key={sectionsKey} apiKey={apiKey} apiUrl={API_URL} showAlert={showAlert} />
@@ -1896,6 +1919,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

@@ -100,6 +100,17 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
       'Pulseras',
       'Relojes'
     ]
+  },
+  {
+    grupo: 'Combos & Regalos',
+    variantGroupId: 'none',
+    opciones: [
+      'Set de Regalos',
+      'Ramos de Maquillaje',
+      'Cajas Sorpresa',
+      'Sets de Perfumería',
+      'Combos Especiales'
+    ]
   }
 ];
 
@@ -236,6 +247,15 @@ export interface ProductVariant {
   manualWholesalePrice?: number; // Precio mayorista manual por variante
 }
 
+export interface BundleComponent {
+  productId: string;
+  variantId: string;
+  productName: string;
+  variantInfo: string;
+  quantityPerBundle: number;
+  unitCost: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -248,6 +268,10 @@ export interface Product {
   notForPublicSale?: boolean;   // Si es true, producto cargado solo para inventario interno, no disponible para venta al público
   imageUrls?: string[];
   variants: ProductVariant[];
+  // Bundle / Set configuration
+  isBundle?: boolean;          // Indica si es un Combo / Set compuesto por otros productos
+  bundleComponents?: BundleComponent[]; // Desglose de productos componentes
+  suppliesCost?: number;       // Costo de insumos / packaging monetario (cajas, celofán, moños, etc.)
   // Descriptive / marketing fields
   description?: string;        // Descripción premium del producto
   tag?: string;                // Insignia: 'Alta Demanda', 'Recomendado', 'Nuevo', 'Edición Limitada', 'Más Vendido', 'Oferta'
@@ -516,6 +540,33 @@ export interface StockFlowState {
   deleteProduct: (productId: string) => void;
   deleteVariant: (productId: string, variantId: string) => void;
   updateProduct: (productId: string, data: Partial<Product>, variants?: ProductVariant[]) => void;
+
+  createBundleProduct: (data: {
+    name: string;
+    sku?: string;
+    categoryId?: string;
+    targetGender?: 'Hombre' | 'Mujer' | 'Unisex';
+    description?: string;
+    tag?: string;
+    showTag?: boolean;
+    imageUrls?: string[];
+    components: BundleComponent[];
+    suppliesCost: number;
+    quantityToProduce: number;
+    retailPrice: number;
+    wholesalePrice?: number;
+    notForPublicSale?: boolean;
+  }) => { success: boolean; error?: string; product?: Product };
+
+  produceMoreBundles: (
+    productId: string,
+    quantity: number
+  ) => { success: boolean; error?: string };
+
+  disassembleBundle: (
+    productId: string,
+    quantity: number
+  ) => { success: boolean; error?: string };
   
   invoiceSettings: InvoiceSettings;
   getNextInvoiceNumber: (ticketId?: string) => string;
@@ -1784,6 +1835,236 @@ export const useStockFlowStore = create<StockFlowState>()(
          });
       },
 
+      createBundleProduct: (data) => {
+        if (!data.name || !data.name.trim()) {
+          return { success: false, error: 'Debes indicar un nombre para el combo.' };
+        }
+        if (!data.components || data.components.length === 0) {
+          return { success: false, error: 'Debes agregar al menos un producto al combo.' };
+        }
+        const qtyToProduce = Math.max(1, Math.floor(Number(data.quantityToProduce) || 1));
+
+        let errorMsg: string | null = null;
+        const state = get();
+        const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+        const newPurchaseRecords: PurchaseRecord[] = [];
+
+        // 1. Validar stock suficiente de cada componente
+        for (const comp of data.components) {
+          const prod = updatedProducts.find(p => p.id === comp.productId);
+          if (!prod) {
+            errorMsg = `El producto componente "${comp.productName}" no fue encontrado.`;
+            break;
+          }
+          const variant = prod.variants.find(v => v.id === comp.variantId);
+          if (!variant) {
+            errorMsg = `La variante de "${comp.productName}" no fue encontrada.`;
+            break;
+          }
+          const needed = (Number(comp.quantityPerBundle) || 1) * qtyToProduce;
+          if ((Number(variant.stock) || 0) < needed) {
+            errorMsg = `Stock insuficiente de "${comp.productName}" (${comp.variantInfo || variant.size}). Disponible: ${variant.stock}, Requerido: ${needed}`;
+            break;
+          }
+        }
+
+        if (errorMsg) {
+          return { success: false, error: errorMsg };
+        }
+
+        // 2. Descontar stock físico de cada componente
+        for (const comp of data.components) {
+          const prod = updatedProducts.find(p => p.id === comp.productId)!;
+          const variant = prod.variants.find(v => v.id === comp.variantId)!;
+          const needed = (Number(comp.quantityPerBundle) || 1) * qtyToProduce;
+          variant.stock = Math.max(0, (Number(variant.stock) || 0) - needed);
+        }
+
+        // 3. Calcular costo unitario total = suma(costo componentes) + costo insumos
+        const componentsUnitCost = data.components.reduce(
+          (sum, c) => sum + (Number(c.unitCost) || 0) * (Number(c.quantityPerBundle) || 1),
+          0
+        );
+        const suppliesCost = Math.max(0, Number(data.suppliesCost) || 0);
+        const totalUnitCost = componentsUnitCost + suppliesCost;
+
+        const bundleId = 'bundle-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 5);
+        const variantId = 'v-bnd-' + Math.random().toString(36).substr(2, 9);
+
+        // Registrar costo de insumos en compras/finanzas si aplica
+        if (suppliesCost > 0) {
+          newPurchaseRecords.push({
+            id: 'pch-sup-' + Math.random().toString(36).substr(2, 9),
+            date: new Date().toISOString(),
+            productId: bundleId,
+            productName: `Insumos / Packaging (${data.name.trim()})`,
+            variantId,
+            size: 'Insumos',
+            color: 'Packaging',
+            quantity: qtyToProduce,
+            unitPurchasePrice: suppliesCost,
+            totalCost: suppliesCost * qtyToProduce,
+            purchaseCurrency: 'ARS',
+            unitCostOriginal: suppliesCost,
+            shippingPerUnitARS: 0,
+            exchangeRate: 1,
+          });
+        }
+
+        const newBundleProduct: Product = {
+          id: bundleId,
+          name: data.name.trim(),
+          sku: data.sku?.trim() || ('SET-' + Math.random().toString(36).substr(2, 6).toUpperCase()),
+          categoryId: data.categoryId || 'Set de Regalos',
+          targetGender: data.targetGender || 'Unisex',
+          purchasePrice: totalUnitCost,
+          salePrice: Number(data.retailPrice) || 0,
+          wholesalePrice: data.wholesalePrice !== undefined && Number(data.wholesalePrice) > 0 ? Number(data.wholesalePrice) : (Number(data.retailPrice) || 0),
+          notForPublicSale: Boolean(data.notForPublicSale),
+          imageUrls: data.imageUrls && data.imageUrls.length > 0 ? data.imageUrls : [],
+          description: data.description || '',
+          tag: data.tag,
+          showTag: data.showTag,
+          isBundle: true,
+          bundleComponents: data.components,
+          suppliesCost,
+          variants: [
+            {
+              id: variantId,
+              size: 'Set Completo',
+              color: 'Único',
+              stock: qtyToProduce,
+              unitPurchasePrice: totalUnitCost,
+              manualSalePrice: Number(data.retailPrice) || 0,
+              manualWholesalePrice: data.wholesalePrice !== undefined && Number(data.wholesalePrice) > 0 ? Number(data.wholesalePrice) : (Number(data.retailPrice) || 0)
+            }
+          ]
+        };
+
+        updatedProducts.unshift(newBundleProduct);
+
+        set((prev) => ({
+          products: updatedProducts,
+          purchases: newPurchaseRecords.length > 0 ? [...prev.purchases, ...newPurchaseRecords] : prev.purchases,
+        }));
+
+        return { success: true, product: newBundleProduct };
+      },
+
+      produceMoreBundles: (productId, quantity) => {
+        const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+        const state = get();
+        const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+        const bundle = updatedProducts.find(p => p.id === productId);
+
+        if (!bundle) return { success: false, error: 'Combo no encontrado' };
+        if (!bundle.isBundle || !bundle.bundleComponents || bundle.bundleComponents.length === 0) {
+          return { success: false, error: 'Este producto no es un combo o no tiene componentes definidos.' };
+        }
+
+        // Validar stock de cada componente
+        for (const comp of bundle.bundleComponents) {
+          const prod = updatedProducts.find(p => p.id === comp.productId);
+          if (!prod) return { success: false, error: `Componente "${comp.productName}" no encontrado.` };
+          const variant = prod.variants.find(v => v.id === comp.variantId);
+          if (!variant) return { success: false, error: `Variante de "${comp.productName}" no encontrada.` };
+          const needed = (Number(comp.quantityPerBundle) || 1) * qty;
+          if ((Number(variant.stock) || 0) < needed) {
+            return {
+              success: false,
+              error: `Stock insuficiente de "${comp.productName}" (${comp.variantInfo || variant.size}). Disponible: ${variant.stock}, Requerido: ${needed}`
+            };
+          }
+        }
+
+        // Descontar componentes
+        for (const comp of bundle.bundleComponents) {
+          const prod = updatedProducts.find(p => p.id === comp.productId)!;
+          const variant = prod.variants.find(v => v.id === comp.variantId)!;
+          variant.stock = Math.max(0, (Number(variant.stock) || 0) - (Number(comp.quantityPerBundle) || 1) * qty);
+        }
+
+        // Agregar al stock del combo
+        if (bundle.variants && bundle.variants.length > 0) {
+          bundle.variants[0].stock = (Number(bundle.variants[0].stock) || 0) + qty;
+        } else {
+          bundle.variants = [{
+            id: 'v-' + Math.random().toString(36).substr(2, 9),
+            size: 'Set Completo',
+            color: 'Único',
+            stock: qty,
+            unitPurchasePrice: bundle.purchasePrice,
+            manualSalePrice: bundle.salePrice,
+            manualWholesalePrice: bundle.wholesalePrice,
+          }];
+        }
+
+        const newPurchases: PurchaseRecord[] = [];
+        const suppliesCost = Math.max(0, Number(bundle.suppliesCost) || 0);
+        if (suppliesCost > 0) {
+          newPurchases.push({
+            id: 'pch-sup-' + Math.random().toString(36).substr(2, 9),
+            date: new Date().toISOString(),
+            productId: bundle.id,
+            productName: `Insumos / Packaging (${bundle.name})`,
+            variantId: bundle.variants[0].id,
+            size: 'Insumos',
+            color: 'Packaging',
+            quantity: qty,
+            unitPurchasePrice: suppliesCost,
+            totalCost: suppliesCost * qty,
+            purchaseCurrency: 'ARS',
+            unitCostOriginal: suppliesCost,
+            shippingPerUnitARS: 0,
+            exchangeRate: 1,
+          });
+        }
+
+        set((prev) => ({
+          products: updatedProducts,
+          purchases: newPurchases.length > 0 ? [...prev.purchases, ...newPurchases] : prev.purchases,
+        }));
+
+        return { success: true };
+      },
+
+      disassembleBundle: (productId, quantity) => {
+        const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+        const state = get();
+        const updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+        const bundle = updatedProducts.find(p => p.id === productId);
+
+        if (!bundle) return { success: false, error: 'Combo no encontrado' };
+        if (!bundle.isBundle || !bundle.bundleComponents || bundle.bundleComponents.length === 0) {
+          return { success: false, error: 'Este producto no es un combo configurado.' };
+        }
+
+        const currentStock = bundle.variants?.[0]?.stock || 0;
+        if (currentStock < qty) {
+          return {
+            success: false,
+            error: `Stock insuficiente en el combo para desarmar. Tienes ${currentStock} en stock e intentas desarmar ${qty}.`
+          };
+        }
+
+        // Restar del combo
+        bundle.variants[0].stock = Math.max(0, currentStock - qty);
+
+        // Restaurar a componentes individuales
+        for (const comp of bundle.bundleComponents) {
+          const prod = updatedProducts.find(p => p.id === comp.productId);
+          if (prod) {
+            const variant = prod.variants.find(v => v.id === comp.variantId);
+            if (variant) {
+              variant.stock = (Number(variant.stock) || 0) + (Number(comp.quantityPerBundle) || 1) * qty;
+            }
+          }
+        }
+
+        set({ products: updatedProducts });
+        return { success: true };
+      },
+
       importData: (data: any) => {
           set((state) => {
             const rawProducts = data.products ?? state.products;
@@ -1861,6 +2142,27 @@ export const useStockFlowStore = create<StockFlowState>()(
             ...DEFAULT_INVOICE_SETTINGS,
             ...state.invoiceSettings,
           };
+        }
+        if (Array.isArray(state.categoriesConfig)) {
+          let combosGroup = state.categoriesConfig.find(c => c.grupo === 'Combos & Regalos');
+          if (!combosGroup) {
+            combosGroup = {
+              grupo: 'Combos & Regalos',
+              variantGroupId: 'none',
+              opciones: [
+                'Set de Regalos',
+                'Ramos de Maquillaje',
+                'Cajas Sorpresa',
+                'Sets de Perfumería',
+                'Combos Especiales'
+              ]
+            };
+            state.categoriesConfig.push(combosGroup);
+          } else {
+            if (!combosGroup.opciones.includes('Set de Regalos')) {
+              combosGroup.opciones.unshift('Set de Regalos');
+            }
+          }
         }
         if (Array.isArray(state.products)) {
           state.products = state.products.map(p => ({

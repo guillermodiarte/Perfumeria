@@ -656,7 +656,9 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
         return;
     }
     
-    const displayName = `${selectedProduct.name} - ${variantItem.color} - Talle ${variantItem.size}`;
+    const displayName = selectedProduct.isBundle
+      ? `🎁 ${selectedProduct.name}`
+      : `${selectedProduct.name} - ${variantItem.color} - Talle ${variantItem.size}`;
 
     // Precio unitario: solo se permite precio personalizado manual si el cliente es Mayorista Especial.
     // Para Normal o Mayorista se usa SIEMPRE el precio de lista configurado.
@@ -1126,7 +1128,13 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                                         if (group) setSelectedParentCategory(group.grupo);
                                         setSelectedCategory(normalizedCat || found.categoryId);
                                         setSelectedProductId(found.id);
-                                        setSelectedVariantId('');
+                                        if (found.isBundle && found.variants.length === 1 && found.variants[0].stock > 0) {
+                                            setSelectedVariantId(found.variants[0].id);
+                                            const pr = getBasePrice(found, found.variants[0], clientType);
+                                            setCustomUnitPriceInput(pr > 0 ? String(pr) : String(found.salePrice || ''));
+                                        } else {
+                                            setSelectedVariantId('');
+                                        }
                                     }
                                 }}
                             />
@@ -1134,7 +1142,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                                 {products
                                     .filter(p => p.variants.some(v => v.stock > 0))
                                     .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
-                                    .map(p => <option key={p.id} value={p.name} />)}
+                                    .map(p => <option key={p.id} value={p.name} label={p.isBundle ? '🎁 Set/Combo' : undefined} />)}
                             </datalist>
                         </div>
                         {/* Botón para limpiar búsqueda y selección */}
@@ -1233,11 +1241,21 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                         className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 font-medium text-slate-800 dark:text-slate-200 shadow-sm disabled:opacity-50"
                         value={selectedProductId}
                         onChange={e => {
-                            setSelectedProductId(e.target.value);
-                            setSelectedVariantId('');
-                            // Also update search text to reflect selected product
-                            const p = products.find(x => x.id === e.target.value);
-                            if (p) setProductSearchText(p.name);
+                            const prodId = e.target.value;
+                            setSelectedProductId(prodId);
+                            const p = products.find(x => x.id === prodId);
+                            if (p) {
+                                setProductSearchText(p.name);
+                                if (p.isBundle && p.variants.length === 1 && p.variants[0].stock > 0) {
+                                    setSelectedVariantId(p.variants[0].id);
+                                    const pr = getBasePrice(p, p.variants[0], clientType);
+                                    setCustomUnitPriceInput(pr > 0 ? String(pr) : String(p.salePrice || ''));
+                                } else {
+                                    setSelectedVariantId('');
+                                }
+                            } else {
+                                setSelectedVariantId('');
+                            }
                         }}
                         disabled={!selectedCategory || availableProductsInCategory.length === 0}
                     >
@@ -1246,7 +1264,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             const remStock = getProductRemainingStock(p);
                             return (
                                 <option key={p.id} value={p.id} disabled={remStock <= 0}>
-                                    {p.name} {remStock > 0 ? `(${remStock} disp)` : '(SIN STOCK EN VENTA)'}
+                                    {p.isBundle ? '🎁 ' : ''}{p.name} {remStock > 0 ? `(${remStock} disp)` : '(SIN STOCK EN VENTA)'}
                                 </option>
                             );
                         })}
@@ -1278,9 +1296,12 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             {availableVariants.map(v => {
                                 const vPrice = getBasePrice(selectedProduct, v, clientType);
                                 const isOutOfStock = v.remainingStock <= 0;
+                                const label = selectedProduct?.isBundle
+                                    ? `🎁 ${v.color}`
+                                    : `${v.color} - Talle ${v.size}`;
                                 return (
                                     <option key={v.id} value={v.id} disabled={isOutOfStock}>
-                                        {v.color} - Talle {v.size} {isOutOfStock ? `(Agotado en venta - ${v.inCart} en carrito)` : `(Stock disp: ${v.remainingStock}${v.inCart > 0 ? ` de ${v.stock}` : ''})`} - ${vPrice.toLocaleString('es-AR')}
+                                        {label} {isOutOfStock ? `(Agotado en venta - ${v.inCart} en carrito)` : `(Stock disp: ${v.remainingStock}${v.inCart > 0 ? ` de ${v.stock}` : ''})`} - ${vPrice.toLocaleString('es-AR')}
                                     </option>
                                 );
                             })}

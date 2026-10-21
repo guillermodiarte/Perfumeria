@@ -217,13 +217,16 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
       if (variant) {
         addItem(product, variant.id, variant.size, variant.color, quantity);
         setAdded(true);
-        addToast(`${quantity}x ${product.name} (${variant.size}) añadido al carrito`, 'success');
+        const toastMsg = product.isBundle 
+          ? `${quantity}x 🎁 ${product.name} añadido al carrito`
+          : `${quantity}x ${product.name} (${variant.size}) añadido al carrito`;
+        addToast(toastMsg, 'success');
         setTimeout(() => setAdded(false), 2000);
         openCart();
       }
     };
-    if (uniqueSizes.length > 0 && !selectedSize) { alert('Por favor selecciona un talle.'); return; }
-    if (uniqueColors.length > 0 && !selectedColor) { alert('Por favor selecciona un color/variante.'); return; }
+    if (!product.isBundle && uniqueSizes.length > 0 && !selectedSize) { alert('Por favor selecciona un talle.'); return; }
+    if (!product.isBundle && uniqueColors.length > 0 && !selectedColor) { alert('Por favor selecciona un color/variante.'); return; }
     if (!user) { openModal('login', action); return; }
     action();
   };
@@ -406,7 +409,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                 </div>
 
                 {/* Color/Variante Selection — only for non-perfume categories */}
-                {colorLabel && uniqueColors.length > 0 && (
+                {!product.isBundle && colorLabel && uniqueColors.length > 0 && (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center text-sm">
                       <span className="font-bold text-slate-900 dark:text-white">{colorLabel}</span>
@@ -427,7 +430,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                 )}
 
                 {/* Size Selection */}
-                {uniqueSizes.length > 0 && (
+                {!product.isBundle && uniqueSizes.length > 0 && (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center text-sm">
                       <span className="font-bold text-slate-900 dark:text-white">
@@ -500,6 +503,37 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                     Consultar por WhatsApp
                   </a>
                 </div>
+
+                {/* Bundle / Combo Breakdown */}
+                {product.isBundle && product.bundleComponents && product.bundleComponents.length > 0 && (
+                  <div className="border border-pink-200 dark:border-pink-900/50 bg-gradient-to-br from-pink-50/50 to-rose-50/30 dark:from-pink-950/20 dark:to-rose-950/10 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center gap-2 text-pink-600 dark:text-pink-400 font-black text-sm">
+                      <span className="material-symbols-outlined text-lg">featured_seasonal_and_gifts</span>
+                      <span>¿Qué incluye este Set / Combo?</span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                      Este set exclusivo viene listo para regalar o disfrutar, incluyendo los siguientes productos seleccionados:
+                    </p>
+                    <div className="divide-y divide-pink-100 dark:divide-pink-900/30 pt-1">
+                      {product.bundleComponents.map((comp, idx) => (
+                        <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-pink-100 dark:bg-pink-900/60 text-pink-700 dark:text-pink-300 font-black text-[11px] flex items-center justify-center flex-shrink-0">
+                              {comp.quantityPerBundle}x
+                            </span>
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white">{comp.productName}</span>
+                              <span className="text-slate-400 dark:text-slate-500 ml-1.5 font-medium">({comp.variantInfo})</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950 px-2 py-0.5 rounded-full border border-pink-200/60 dark:border-pink-800/60">
+                            Incluido
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Description (expandable) */}
                 {product.description && product.description.trim() && (
