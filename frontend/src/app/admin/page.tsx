@@ -442,11 +442,12 @@ export default function AdminDashboard() {
         if (isAdminView) fetchAdmins(); else fetchUsers();
         setShowUserModal(false);
       } else {
-        const data = await res.json();
-        showAlert(data.detail || "Error guardando usuario");
+        const data = await res.json().catch(() => ({}));
+        showAlert(data.detail || data.message || "Error guardando usuario");
       }
-    } catch (e) {
-      showAlert("Falla de red.");
+    } catch (e: any) {
+      console.error("Error al guardar usuario:", e);
+      showAlert(e?.message || "Falla de red.");
     }
   };
 
@@ -1161,7 +1162,7 @@ export default function AdminDashboard() {
             />
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
             {/* Campana de Notificaciones */}
             <NotificationBell 
               apiKey={apiKey} 

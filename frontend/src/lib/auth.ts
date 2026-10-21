@@ -46,13 +46,23 @@ export async function getCurrentCustomer(req: NextRequest) {
   return customer;
 }
 
+export const PROTECTED_SUPER_ADMIN_EMAIL = 'guillermo.diarte@gmail.com';
+export const VALID_ADMIN_ROLES = ['super_admin', 'admin', 'empleado', 'viewer', 'editor'];
+
+export function isSuperAdmin(admin: { email?: string | null; role?: string | null } | null | undefined): boolean {
+  if (!admin) return false;
+  return admin.role === 'super_admin' || (admin.email || '').toLowerCase() === PROTECTED_SUPER_ADMIN_EMAIL;
+}
+
 // Get current admin from token
 export async function getCurrentAdmin(req: NextRequest) {
   const token = getTokenFromRequest(req);
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload) return null;
-  const isAdmin = payload.type === 'admin' || ['admin', 'super_admin', 'editor'].includes(payload.role as string);
+  const role = (payload.role as string) || '';
+  const email = ((payload.sub as string) || (payload.email as string) || '').toLowerCase();
+  const isAdmin = payload.type === 'admin' || VALID_ADMIN_ROLES.includes(role) || email === PROTECTED_SUPER_ADMIN_EMAIL;
   if (!isAdmin) return null;
   const sub = payload.sub as string;
   let admin = await prisma.admin.findUnique({ where: { email: sub } });
@@ -61,7 +71,7 @@ export async function getCurrentAdmin(req: NextRequest) {
       id: (payload.id as number) || 1,
       email: sub,
       name: (payload.name as string) || (payload.email as string) || 'Admin',
-      role: (payload.role as string) || 'admin',
+      role: (payload.role as string) || (email === PROTECTED_SUPER_ADMIN_EMAIL ? 'super_admin' : 'admin'),
       password_hash: '',
     } as any;
   }
