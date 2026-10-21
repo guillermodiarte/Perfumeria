@@ -26,7 +26,7 @@ export default function CheckoutPage() {
     delivery_enabled: true,
     delivery_cost: 0,
   });
-  const [shippingType, setShippingType] = useState<'delivery' | 'pickup'>('delivery');
+  const [shippingType, setShippingType] = useState<'delivery' | 'pickup' | 'national'>('delivery');
 
   useEffect(() => {
     setMounted(true);
@@ -123,6 +123,7 @@ export default function CheckoutPage() {
     return acc + Math.max(0, base - finalPrice) * item.quantity;
   }, 0);
 
+  // national = cost TBD (not added to total, informed later via message)
   const activeShippingCost = shippingType === 'delivery' && shippingConfig.delivery_enabled ? shippingConfig.delivery_cost : 0;
   const total = subtotal - totalDiscount + activeShippingCost;
 
@@ -134,20 +135,37 @@ export default function CheckoutPage() {
       return `• ${item.product.name} (${item.color ? item.color + ' - ' : ''}${item.size}) x${item.quantity} = $${(finalUnit * item.quantity).toLocaleString()}${discountLabel}`;
     });
     const greeting = company.whatsappMsgGreeting || '¡Hola! Quiero confirmar un pedido 🛒';
+    const isNational = shippingType === 'national';
+    const isLocalDelivery = shippingType === 'delivery';
+
     const msg = [
       greeting,
       ``,
       `*Cliente:* ${user.name}`,
       `*Teléfono:* ${user.phone}`,
-      `*Entrega:* ${shippingType === 'delivery' ? '🚚 Envío a Domicilio' : '🏪 Retiro en Local'}`,
-      shippingType === 'delivery' && user.address ? `*Dirección de entrega:* ${user.address}, ${user.city || ''}, ${user.province || ''} (CP: ${user.postal_code || '-'})` : '',
+      `*Método de Entrega:* ${
+        isNational 
+          ? '📦 ENVÍO NACIONAL (A COTIZAR)' 
+          : isLocalDelivery 
+          ? '🚚 Envío a Domicilio Local (Formosa Capital)' 
+          : '🏪 Retiro en Local'
+      }`,
+      (isLocalDelivery || isNational) && user.address 
+        ? `*Dirección de destino:* ${user.address}, ${user.city || ''}, ${user.province || ''} (CP: ${user.postal_code || '-'})` 
+        : '',
+      isNational 
+        ? `📍 *SOLICITUD DE COTIZACIÓN DE ENVÍO:* Por favor, cotizar el costo del envío nacional según peso, tamaño del paquete y localidad de destino (${user.city || ''}, ${user.province || ''} - CP: ${user.postal_code || '-'}).` 
+        : '',
       ``,
       `*Productos:*`,
       ...lines,
       ``,
       totalDiscount > 0 ? `*Descuento / Ahorro:* -$${totalDiscount.toLocaleString()}` : '',
-      shippingType === 'delivery' ? `*Costo de envío:* ${activeShippingCost === 0 ? 'Gratis' : `$${activeShippingCost.toLocaleString()}`}` : '',
-      `*Total: $${orderTotal.toLocaleString()}*`,
+      isLocalDelivery ? `*Costo de envío local:* ${activeShippingCost === 0 ? 'Gratis' : `$${activeShippingCost.toLocaleString()}`}` : '',
+      isNational ? `*Costo de envío:* ⚠️ A cotizar por este medio` : '',
+      isNational
+        ? `*Total productos:* $${orderTotal.toLocaleString()} (+ envío nacional a cotizar)`
+        : `*Total:* $${orderTotal.toLocaleString()}`,
       company.whatsappMsgFooter ? `\n${company.whatsappMsgFooter}` : '',
     ].filter(l => l !== null && l !== '').join('\n');
     return encodeURIComponent(msg);
@@ -194,8 +212,8 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (shippingType === 'delivery' && !user?.address?.trim()) {
-      setError("Por favor completa tu dirección en 'Mi Perfil' para solicitar envío a domicilio, o elige 'Retiro en Local'.");
+    if ((shippingType === 'delivery' || shippingType === 'national') && !user?.address?.trim()) {
+      setError("Por favor completa tu dirección en 'Mi Perfil' para solicitar envío, o elige 'Retiro en Local'.");
       return;
     }
 
@@ -222,10 +240,13 @@ export default function CheckoutPage() {
       }));
 
       // 1. Create order in Backend
-      const token = useAuthStore.getState().token;
+      const authStoreToken = useAuthStore.getState().token;
+      const adminToken = typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') : null;
+      const token = authStoreToken || adminToken;
+
       const orderRes = await fetchApi('/api/orders', {
         method: 'POST',
-        headers: { 'X-API-KEY': token || '' },
+        headers: token ? { 'X-API-KEY': token } : undefined,
         body: JSON.stringify({
           items: saleItems,
           shipping_type: shippingType,
@@ -255,11 +276,11 @@ export default function CheckoutPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 py-6 sm:py-12 px-3 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto flex flex-col lg:flex-row gap-6 sm:gap-8">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 py-6 sm:py-10 px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 2xl:px-16">
+      <div className="max-w-[1560px] w-full mx-auto flex flex-col lg:flex-row gap-6 sm:gap-8 xl:gap-10 items-start">
         
         {/* Cart Items */}
-        <div className="flex-1 bg-white dark:bg-slate-800 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 sm:p-6 md:p-8">
+        <div className="flex-1 w-full bg-white dark:bg-slate-800 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 sm:p-6 md:p-8 xl:p-10">
           <div className="flex items-center justify-between mb-6 sm:mb-8">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
               <span className="material-symbols-outlined text-primary text-2xl">shopping_cart</span>
@@ -276,11 +297,11 @@ export default function CheckoutPage() {
               <p className="text-slate-500 font-medium">Tu carrito está vacío.</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-4 sm:gap-6">
+            <div className="flex flex-col gap-4 sm:gap-5">
               {items.map((item, idx) => (
-                <div key={idx} className="relative flex flex-col sm:flex-row gap-3 sm:gap-4 p-3.5 sm:p-4 border border-slate-100 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-900/50">
-                  <div className="flex items-start gap-3 sm:gap-4 flex-1">
-                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-white overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700">
+                <div key={idx} className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-5 border border-slate-100 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-900/50 hover:border-slate-200 dark:hover:border-slate-600 transition-all">
+                  <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-xl bg-white overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700">
                       {item.product.imageUrls?.[0] ? (
                         <img
                           src={parseImageUrl(item.product.imageUrls[0])}
@@ -301,8 +322,8 @@ export default function CheckoutPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0 pr-6 sm:pr-0">
-                      <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-tight line-clamp-2">{item.product.name}</h3>
-                      <p className="text-xs text-slate-500 mt-1 capitalize">
+                      <h3 className="font-bold text-sm sm:text-base md:text-lg text-slate-900 dark:text-white leading-tight line-clamp-2">{item.product.name}</h3>
+                      <p className="text-xs sm:text-sm text-slate-500 mt-1 capitalize">
                         {item.product.isBundle ? '🎁 Set / Combo Especial' : `${item.color} - ${item.size}`}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5 sm:hidden">
@@ -315,40 +336,40 @@ export default function CheckoutPage() {
                   </div>
 
                   {/* Quantity and Price Section */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-0 border-slate-200/60 dark:border-slate-700">
-                    <div className="flex items-center gap-2.5 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-600">
-                      <button onClick={() => updateQuantity(item.product.id, item.variantId, Math.max(1, item.quantity - 1))} className="text-slate-400 hover:text-primary font-bold px-1 text-base">-</button>
-                      <span className="font-bold text-slate-900 dark:text-white w-5 text-center text-sm">{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.product.id, item.variantId, item.quantity + 1)} className="text-slate-400 hover:text-primary font-bold px-1 text-base">+</button>
+                  <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-6 pt-2 sm:pt-0 border-t sm:border-0 border-slate-200/60 dark:border-slate-700 shrink-0">
+                    <div className="flex items-center gap-2.5 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+                      <button onClick={() => updateQuantity(item.product.id, item.variantId, Math.max(1, item.quantity - 1))} className="text-slate-400 hover:text-primary font-bold px-1 text-base transition-colors">-</button>
+                      <span className="font-bold text-slate-900 dark:text-white w-6 text-center text-sm">{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.product.id, item.variantId, item.quantity + 1)} className="text-slate-400 hover:text-primary font-bold px-1 text-base transition-colors">+</button>
                     </div>
-                    <div className="text-right">
-                      <p className="font-black text-base sm:text-lg text-slate-900 dark:text-white">${(getItemFinalUnitPrice(item) * item.quantity).toLocaleString()}</p>
-                      <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
+                    <div className="text-right min-w-[100px]">
+                      <p className="font-black text-base sm:text-lg md:text-xl text-slate-900 dark:text-white">${(getItemFinalUnitPrice(item) * item.quantity).toLocaleString()}</p>
+                      <p className="text-[11px] sm:text-xs text-slate-400 font-medium hidden sm:block">
                         ${getItemFinalUnitPrice(item).toLocaleString()} c/u
                         {getItemFinalUnitPrice(item) < getItemUnitPrice(item) && (
                           <span className="line-through text-slate-300 ml-1">${getItemUnitPrice(item).toLocaleString()}</span>
                         )}
                       </p>
                       {Boolean(item.product?.promoEnabled && item.product?.promoPrice && getItemFinalUnitPrice(item) === item.product.promoPrice && getItemFinalUnitPrice(item) < getItemUnitPrice(item)) ? (
-                        <p className="text-[9px] font-bold text-orange-500 uppercase flex items-center justify-end gap-0.5">
+                        <p className="text-[9px] sm:text-[10px] font-bold text-orange-500 uppercase flex items-center justify-end gap-0.5">
                           🔥 {item.product?.promoLabel || 'Oferta'} (-${(getItemUnitPrice(item) - getItemFinalUnitPrice(item)).toLocaleString()})
                         </p>
                       ) : (isUserWholesale || item.quantity >= (wholesaleConfig?.minQuantity || 3)) && getItemFinalUnitPrice(item) < getItemUnitPrice(item) ? (
-                        <p className="text-[9px] font-bold text-green-500 uppercase">
+                        <p className="text-[9px] sm:text-[10px] font-bold text-green-500 uppercase">
                           Mayorista (-${(getItemUnitPrice(item) - getItemFinalUnitPrice(item)).toLocaleString()})
                         </p>
                       ) : null}
                     </div>
-                  </div>
 
-                  {/* Delete Button */}
-                  <button 
-                    onClick={() => removeItem(item.product.id, item.variantId)} 
-                    className="absolute top-2 right-2 sm:relative sm:top-auto sm:right-auto text-slate-400 hover:text-red-500 p-1.5 sm:p-2 shrink-0 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
-                    aria-label="Eliminar del carrito"
-                  >
-                    <span className="material-symbols-outlined text-[18px] sm:text-[20px]">delete</span>
-                  </button>
+                    {/* Delete Button */}
+                    <button 
+                      onClick={() => removeItem(item.product.id, item.variantId)} 
+                      className="absolute top-2 right-2 sm:relative sm:top-auto sm:right-auto text-slate-400 hover:text-red-500 p-1.5 sm:p-2 shrink-0 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                      aria-label="Eliminar del carrito"
+                    >
+                      <span className="material-symbols-outlined text-[18px] sm:text-[22px]">delete</span>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -356,8 +377,8 @@ export default function CheckoutPage() {
         </div>
 
         {/* Checkout Form */}
-        <div className="w-full lg:w-96 shrink-0">
-          <form onSubmit={handleConfirm} className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 md:p-8 sticky top-8">
+        <div className="w-full lg:w-[420px] xl:w-[460px] 2xl:w-[500px] shrink-0">
+          <form onSubmit={handleConfirm} className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 md:p-8 sticky top-24">
             <h2 className="text-xl font-black text-slate-900 dark:text-white mb-6">Resumen de Compra</h2>
             
             {/* Método de Entrega */}
@@ -367,31 +388,7 @@ export default function CheckoutPage() {
               </label>
 
               <div className="grid grid-cols-1 gap-2.5">
-                {shippingConfig.delivery_enabled && (
-                  <button
-                    type="button"
-                    onClick={() => setShippingType('delivery')}
-                    className={`p-3.5 rounded-2xl border text-left flex items-center justify-between transition-all ${
-                      shippingType === 'delivery'
-                        ? 'border-primary bg-primary/5 dark:bg-primary/10 ring-1 ring-primary'
-                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-xl ${shippingType === 'delivery' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                        <span className="material-symbols-outlined text-xl">local_shipping</span>
-                      </div>
-                      <div>
-                        <p className="font-bold text-sm text-slate-900 dark:text-white">Envío a Domicilio</p>
-                        <p className="text-[11px] text-slate-500">Entrega en tu dirección</p>
-                      </div>
-                    </div>
-                    <span className="font-bold text-xs text-primary">
-                      {shippingConfig.delivery_cost === 0 ? 'Gratis' : `$${shippingConfig.delivery_cost.toLocaleString('es-AR')}`}
-                    </span>
-                  </button>
-                )}
-
+                {/* Opción 1: Retiro en Local */}
                 <button
                   type="button"
                   onClick={() => setShippingType('pickup')}
@@ -410,10 +407,66 @@ export default function CheckoutPage() {
                       <p className="text-[11px] text-slate-500">Coordinamos horario</p>
                     </div>
                   </div>
-                  <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                    Gratis
-                  </span>
+                  <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400">Gratis</span>
                 </button>
+
+                {/* Opción 2: Envío Local (Formosa Capital) */}
+                {shippingConfig.delivery_enabled && (
+                  <button
+                    type="button"
+                    onClick={() => setShippingType('delivery')}
+                    className={`p-3.5 rounded-2xl border text-left flex items-center justify-between transition-all ${
+                      shippingType === 'delivery'
+                        ? 'border-primary bg-primary/5 dark:bg-primary/10 ring-1 ring-primary'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-xl ${shippingType === 'delivery' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                        <span className="material-symbols-outlined text-xl">local_shipping</span>
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-slate-900 dark:text-white">Envío a Domicilio</p>
+                        <p className="text-[11px] text-slate-500">Formosa Capital</p>
+                      </div>
+                    </div>
+                    <span className="font-bold text-xs text-primary">
+                      {shippingConfig.delivery_cost === 0 ? 'Gratis' : `$${shippingConfig.delivery_cost.toLocaleString('es-AR')}`}
+                    </span>
+                  </button>
+                )}
+
+                {/* Opción 3: Envío Nacional */}
+                <button
+                  type="button"
+                  onClick={() => setShippingType('national')}
+                  className={`p-3.5 rounded-2xl border text-left flex items-center justify-between transition-all ${
+                    shippingType === 'national'
+                      ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/20 ring-1 ring-amber-500'
+                      : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-xl ${shippingType === 'national' ? 'bg-amber-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                      <span className="material-symbols-outlined text-xl">local_post_office</span>
+                    </div>
+                    <div>
+                      <p className="font-bold text-sm text-slate-900 dark:text-white">Envío Nacional</p>
+                      <p className="text-[11px] text-slate-500">A todo el país</p>
+                    </div>
+                  </div>
+                  <span className="font-bold text-xs text-amber-600 dark:text-amber-400">A cotizar</span>
+                </button>
+
+                {/* Aviso Envío Nacional */}
+                {shippingType === 'national' && (
+                  <div className="flex items-start gap-2.5 p-3 bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/50 rounded-xl">
+                    <span className="material-symbols-outlined text-amber-500 text-base shrink-0 mt-0.5">info</span>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                      El costo del envío nacional depende del <strong>peso, distancia y empresa de correo</strong>. Una vez confirmado tu pedido, te informaremos el monto por WhatsApp antes de coordinar el pago.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -429,9 +482,11 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className="flex justify-between text-slate-500 font-medium">
-                <span>Envío ({shippingType === 'delivery' ? 'Domicilio' : 'Retiro en Local'})</span>
-                <span className="font-bold text-slate-800 dark:text-slate-200">
-                  {activeShippingCost === 0 ? 'Gratis' : `$${activeShippingCost.toLocaleString('es-AR')}`}
+                <span>Envío ({shippingType === 'delivery' ? 'Local Formosa' : shippingType === 'national' ? 'Nacional' : 'Retiro en Local'})</span>
+                <span className={`font-bold ${
+                  shippingType === 'national' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-200'
+                }`}>
+                  {shippingType === 'national' ? 'A cotizar' : activeShippingCost === 0 ? 'Gratis' : `$${activeShippingCost.toLocaleString('es-AR')}`}
                 </span>
               </div>
               <div className="flex justify-between font-black text-slate-900 dark:text-white text-xl pt-4 border-t border-slate-100 dark:border-slate-700 mt-1">
@@ -463,10 +518,10 @@ export default function CheckoutPage() {
                   <p className="text-sm text-slate-500 mt-2">
                     {user.address}, {user.city}, {user.province} (CP: {user.postal_code})
                   </p>
-                ) : shippingType === 'delivery' ? (
+                ) : (shippingType === 'delivery' || shippingType === 'national') ? (
                   <p className="text-xs text-amber-600 font-bold mt-2 flex items-center gap-1">
                     <span className="material-symbols-outlined text-sm">warning</span>
-                    No tenés dirección registrada para el envío a domicilio.
+                    No tenés dirección registrada para el envío.
                   </p>
                 ) : null}
                 <Link href="/profile" className="text-xs font-bold text-primary hover:underline block mt-3">

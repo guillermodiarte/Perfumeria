@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     });
 
     const itemsTotal = parsedItems.reduce((acc: number, i: any) => acc + i.quantity * i.price, 0);
-    const validatedShippingCost = shipping_type === 'pickup' ? 0 : Math.max(0, Number(shipping_cost || 0));
+    const validatedShippingCost = (shipping_type === 'pickup' || shipping_type === 'national') ? 0 : Math.max(0, Number(shipping_cost || 0));
     const total = itemsTotal + validatedShippingCost;
     const orderNumber = order_number || ('ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase());
 

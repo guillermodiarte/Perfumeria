@@ -11,20 +11,27 @@ export const parseImageUrl = (url?: string): string => {
 };
 
 export const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
-  const token = typeof window !== 'undefined' && localStorage.getItem('auth-storage') 
+  const customerToken = typeof window !== 'undefined' && localStorage.getItem('auth-storage') 
     ? JSON.parse(localStorage.getItem('auth-storage') as string)?.state?.token 
     : null;
+
+  const adminToken = typeof window !== 'undefined'
+    ? localStorage.getItem('lyg_api_key')
+    : null;
+
+  const token = customerToken || adminToken;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
+  if (token && !headers['X-API-KEY']) {
     headers['X-API-KEY'] = token;
   }
 
   const res = await fetch(`${API_URL}${endpoint}`, {
+    credentials: 'include',
     ...options,
     headers,
   });

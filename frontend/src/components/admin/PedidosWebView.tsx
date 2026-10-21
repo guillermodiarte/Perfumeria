@@ -919,7 +919,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
                 <div className="text-right">
                   <p className="text-slate-400 mb-0.5">Entrega</p>
                   <p className="font-bold text-slate-800 dark:text-white">
-                    {orderToApprove.shipping_type === 'pickup' ? '🏪 Retiro en Local' : '🚚 Envío a Domicilio'}
+                    {orderToApprove.shipping_type === 'pickup' ? '🏪 Retiro en Local' : orderToApprove.shipping_type === 'national' ? '🚛 Envío Nacional' : '🚚 Envío Local (Formosa)'}
                   </p>
                 </div>
               </div>
@@ -1120,7 +1120,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
                 {orderToReject.customer?.email && ` · ${orderToReject.customer.email}`}
               </p>
               <p className="text-slate-500">
-                {orderToReject.shipping_type === 'pickup' ? '🏪 Retiro en Local' : '🚚 Envío a Domicilio'}
+                {orderToReject.shipping_type === 'pickup' ? '🏪 Retiro en Local' : orderToReject.shipping_type === 'national' ? '🚛 Envío Nacional' : '🚚 Envío Local (Formosa)'}
               </p>
             </div>
 
@@ -1384,7 +1384,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-500">Modalidad:</span>
                 <span className="font-bold text-slate-800 dark:text-white">
-                  {orderDetail.shipping_type === 'pickup' ? '🏪 Retiro en Local' : '🚚 Envío a Domicilio'}
+                  {orderDetail.shipping_type === 'pickup' ? '🏪 Retiro en Local' : orderDetail.shipping_type === 'national' ? '🚛 Envío Nacional (a cotizar)' : '🚚 Envío Local (Formosa Capital)'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -1404,7 +1404,7 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
                     ? (orderDetail.shipping_type === 'pickup' ? '✓ Retirado' : '✓ Entregado')
                     : orderDetail.delivery_status === 'shipped'
                     ? '✈️ Despachado / Enviado'
-                    : (orderDetail.shipping_type === 'pickup' ? '📦 Espera Retiro' : '📦 Pendiente de Despacho')}
+                    : (orderDetail.shipping_type === 'pickup' ? '📦 Espera Retiro' : orderDetail.shipping_type === 'national' ? '🚛 Pendiente Env. Nacional' : '📦 Pendiente de Despacho')}
                 </span>
               </div>
               {orderDetail.customer?.address && (

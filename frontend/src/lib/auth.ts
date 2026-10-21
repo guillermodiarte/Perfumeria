@@ -26,6 +26,9 @@ export function verifyToken(token: string): Record<string, unknown> | null {
   }
 }
 
+import { getServerSession } from 'next-auth';
+import { authOptions } from './authOptions';
+
 // Extract token from X-API-KEY header or Authorization Bearer
 export function getTokenFromRequest(req: NextRequest): string | null {
   const apiKey = req.headers.get('x-api-key');
@@ -35,15 +38,57 @@ export function getTokenFromRequest(req: NextRequest): string | null {
   return null;
 }
 
-// Get current customer from token
-export async function getCurrentCustomer(req: NextRequest) {
-  const token = getTokenFromRequest(req);
-  if (!token) return null;
-  const payload = verifyToken(token);
-  if (!payload || payload.type !== 'customer') return null;
-  const sub = payload.sub as string;
-  const customer = await prisma.customer.findUnique({ where: { email: sub } });
-  return customer;
+// Get current customer from token or NextAuth session
+export async function getCurrentCustomer(req?: NextRequest) {
+  // 1. Check token in request headers
+  if (req) {
+    const token = getTokenFromRequest(req);
+    if (token) {
+      const payload = verifyToken(token);
+      if (payload) {
+        const email = ((payload.sub as string) || (payload.email as string) || '').toLowerCase().trim();
+        if (email) {
+          let customer = await prisma.customer.findUnique({ where: { email } });
+          // If it's an admin and no customer record exists, create one
+          if (!customer && (payload.type === 'admin' || email === PROTECTED_SUPER_ADMIN_EMAIL)) {
+            customer = await prisma.customer.create({
+              data: {
+                email,
+                name: (payload.name as string) || 'Admin',
+                is_approved: true,
+                email_verified: true,
+              },
+            });
+          }
+          if (customer) return customer;
+        }
+      }
+    }
+  }
+
+  // 2. Fallback: Check NextAuth session from cookies
+  try {
+    const session = await getServerSession(authOptions);
+    if (session?.user?.email) {
+      const email = session.user.email.toLowerCase().trim();
+      let customer = await prisma.customer.findUnique({ where: { email } });
+      if (!customer) {
+        customer = await prisma.customer.create({
+          data: {
+            email,
+            name: session.user.name || email.split('@')[0],
+            is_approved: true,
+            email_verified: true,
+          },
+        });
+      }
+      if (customer) return customer;
+    }
+  } catch {
+    // NextAuth session resolution not available in this context
+  }
+
+  return null;
 }
 
 export const PROTECTED_SUPER_ADMIN_EMAIL = 'guillermo.diarte@gmail.com';
