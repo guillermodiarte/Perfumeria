@@ -1286,7 +1286,7 @@ export default function AdminDashboard() {
               </div>
             ) : activeView === 'products' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><ProductosView showAlert={showAlert} apiKey={apiKey} apiUrl={API_URL} currentAdminRole={currentAdminRole} isSuperAdmin={currentAdminRole === 'super_admin'} /></div>
-            ) : activeView === 'combos' ? (
+            ) : (activeView === 'combos' && isManagerRole) ? (
               <div className="w-full px-0 sm:px-2">
                 <ComboBuilderView
                   showAlert={showAlert}
@@ -1690,7 +1690,7 @@ export default function AdminDashboard() {
             ) : activeView === 'cobros_pendientes' ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto"><CobrosPendientesView apiKey={apiKey} showAlert={showAlert} currentAdminRole={currentAdminRole} /></div>
             ) : (activeView === 'finanzas' && !isEmpleadoRole) ? (
-              <div className="max-w-[1600px] w-full px-2 mx-auto"><FinanzasView apiKey={apiKey} apiUrl={API_URL} /></div>
+              <div className="max-w-[1600px] w-full px-2 mx-auto"><FinanzasView apiKey={apiKey} apiUrl={API_URL} currentAdminRole={currentAdminRole} showAlert={showAlert} /></div>
             ) : (activeView === 'configuracion' && isSuperAdminRole) ? (
               <div className="max-w-[1600px] w-full px-2 mx-auto">
                 <ConfiguracionView

@@ -3,9 +3,14 @@ export const revalidate = 0;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentAdmin } from '@/lib/auth';
+import { getCurrentAdmin, isSuperAdmin } from '@/lib/auth';
 
 const DRAFT_KEY = 'admin_combo_draft';
+
+function canManageCombos(admin: any): boolean {
+  if (!admin) return false;
+  return isSuperAdmin(admin) || admin.role === 'admin';
+}
 
 // GET /api/admin/combos/draft
 // Obtiene el borrador compartido de combo cargado por cualquier administrador
@@ -13,6 +18,9 @@ export async function GET(req: NextRequest) {
   const admin = await getCurrentAdmin(req);
   if (!admin) {
     return NextResponse.json({ detail: 'No autorizado' }, { status: 401 });
+  }
+  if (!canManageCombos(admin)) {
+    return NextResponse.json({ detail: 'Acceso denegado: se requiere rol Administrador o Super Administrador' }, { status: 403 });
   }
 
   try {
@@ -59,6 +67,9 @@ export async function PUT(req: NextRequest) {
   const admin = await getCurrentAdmin(req);
   if (!admin) {
     return NextResponse.json({ detail: 'No autorizado' }, { status: 401 });
+  }
+  if (!canManageCombos(admin)) {
+    return NextResponse.json({ detail: 'Acceso denegado: se requiere rol Administrador o Super Administrador' }, { status: 403 });
   }
 
   try {
@@ -112,6 +123,9 @@ export async function DELETE(req: NextRequest) {
   const admin = await getCurrentAdmin(req);
   if (!admin) {
     return NextResponse.json({ detail: 'No autorizado' }, { status: 401 });
+  }
+  if (!canManageCombos(admin)) {
+    return NextResponse.json({ detail: 'Acceso denegado: se requiere rol Administrador o Super Administrador' }, { status: 403 });
   }
 
   try {

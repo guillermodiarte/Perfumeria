@@ -1532,8 +1532,9 @@ export default function ProductosView({
                                            </div>
                                          )}
 
-                                         {/* Quick Action buttons for combo stock */}
-                                         <div className="grid grid-cols-2 gap-2 pt-1">
+                                         {/* Quick Action buttons for combo stock (Solo Admins) */}
+                                         {canEditProducts && (
+                                           <div className="grid grid-cols-2 gap-2 pt-1">
                                            <button
                                              type="button"
                                              onClick={() => setStockManagerModal({ isOpen: true, product: p, mode: 'produce' })}
@@ -1552,6 +1553,7 @@ export default function ProductosView({
                                              Desarmar
                                            </button>
                                          </div>
+                                         )}
                                        </div>
                                      )}
                                  </div>

@@ -1,868 +1,1680 @@
 'use client';
-import { useMemo, useState, useEffect, useCallback } from 'react';
+
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useStockFlowStore } from '@/store/useStockStore';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
 
 function fmt(n: number) {
-    return Math.round(Number(n) || 0).toLocaleString('es-AR');
+  return Math.round(Number(n) || 0).toLocaleString('es-AR');
+}
+
+function fmtDec(n: number) {
+  return (Number(n) || 0).toLocaleString('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+const MONTHS = [
+  { value: '01', name: 'Enero', short: 'ene' },
+  { value: '02', name: 'Febrero', short: 'feb' },
+  { value: '03', name: 'Marzo', short: 'mar' },
+  { value: '04', name: 'Abril', short: 'abr' },
+  { value: '05', name: 'Mayo', short: 'may' },
+  { value: '06', name: 'Junio', short: 'jun' },
+  { value: '07', name: 'Julio', short: 'jul' },
+  { value: '08', name: 'Agosto', short: 'ago' },
+  { value: '09', name: 'Septiembre', short: 'sep' },
+  { value: '10', name: 'Octubre', short: 'oct' },
+  { value: '11', name: 'Noviembre', short: 'nov' },
+  { value: '12', name: 'Diciembre', short: 'dic' },
+];
+
+const YEARS = ['2026', '2027', '2028', '2029', '2030'];
+
+function parseYearMonth(dateStr?: string | null): { year: string; month: string } | null {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+  if (s.includes('-')) {
+    const parts = s.split('T')[0].split('-');
+    if (parts.length >= 2) {
+      return { year: parts[0], month: parts[1].padStart(2, '0') };
+    }
+  }
+  if (s.includes('/')) {
+    const parts = s.split('/');
+    if (parts.length === 3) {
+      return { year: parts[2].slice(0, 4), month: parts[1].padStart(2, '0') };
+    }
+  }
+  return null;
+}
+
+function formatDisplayDate(dateStr?: string | null): string {
+  if (!dateStr) return '—';
+  const s = String(dateStr).trim();
+  const ym = parseYearMonth(s);
+  if (!ym) return s;
+  let day = '01';
+  if (s.includes('-')) {
+    day = s.split('T')[0].split('-')[2] || '01';
+  } else if (s.includes('/')) {
+    day = s.split('/')[0] || '01';
+  }
+  return `${day.padStart(2, '0')}/${ym.month}`;
+}
+
+export interface ExpenseRecord {
+  id: number;
+  category: 'servicios' | 'insumos';
+  date: string;
+  title: string;
+  description?: string | null;
+  quantity?: number | null;
+  unit_price?: number | null;
+  amount: number;
+  payment_method?: string | null;
+  created_by?: string | null;
+  created_at?: string;
 }
 
 interface FinanzasViewProps {
-    apiKey?: string;
-    apiUrl?: string;
+  apiKey?: string;
+  apiUrl?: string;
+  currentAdminRole?: string;
+  showAlert?: (msg: string) => void;
 }
 
-interface TransactionItem {
-    id: string;
-    date: string;
-    type: 'Ingreso' | 'Gasto' | 'Pendiente';
-    amount: number;
-    totalAmount?: number;
-    paidAmount?: number;
-    pendingAmount?: number;
-    isPartial?: boolean;
-    isPendingOnly?: boolean;
-    installmentsCount?: number;
-    paymentType?: string;
-    installmentNote?: string;
-    productName: string;
-    quantity: number;
-    variant: string;
-    description: string;
-    extra: string;
-    shippingCost?: number;
-}
+const COMMON_CHIPS_SERVICIOS = [
+  'Luz Local',
+  'Alquiler',
+  'Agua / Expensas',
+  'Internet / Posnet',
+  'Monotributo',
+  'Ingresos Brutos / Rentas',
+  'Contador / Asesoría',
+  'Limpieza Local',
+  'Publicidad / Pauta',
+];
 
-export default function FinanzasView({ apiKey, apiUrl }: FinanzasViewProps) {
-    const localPurchases = useStockFlowStore(s => s.purchases);
-    const posSales = useStockFlowStore(s => s.sales);
+const COMMON_CHIPS_INSUMOS = [
+  'Bolsas con Logo',
+  'Atomizadores Decants 5ml',
+  'Atomizadores Decants 10ml',
+  'Cinta de Embalar',
+  'Papel de Seda / Viruta',
+  'Etiquetas / Stickers',
+  'Cajas para Envío',
+  'Mantenimiento / Iluminación',
+];
 
-    const [filterType, setFilterType] = useState<'all' | 'Ingreso' | 'Gasto' | 'Pendiente'>('all');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [loadingDb, setLoadingDb] = useState(true);
+export default function FinanzasView({
+  apiKey,
+  apiUrl,
+  currentAdminRole = '',
+  showAlert = (msg: string) => alert(msg),
+}: FinanzasViewProps) {
+  const localPurchases = useStockFlowStore((s) => s.purchases);
+  const posSales = useStockFlowStore((s) => s.sales);
 
-    const [dbBatches, setDbBatches] = useState<any[]>([]);
-    const [dbOrders, setDbOrders] = useState<any[]>([]);
+  const isViewer = currentAdminRole === 'viewer';
 
-    const effectiveApiUrl = apiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  // ── Filtros Temporales (Mes y Año 2026-2030) ─────────────────────────────
+  const now = new Date();
+  const currentMonthNum = String(now.getMonth() + 1).padStart(2, '0');
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthNum);
+  const [selectedYear, setSelectedYear] = useState<string>('2026');
 
-    const fetchData = useCallback(async () => {
-        setLoadingDb(true);
-        const token = apiKey || (typeof window !== 'undefined' ? (localStorage.getItem('lyg_api_key') || localStorage.getItem('adminToken') || '') : '');
-        const headers: Record<string, string> = {};
-        if (token) {
-            headers['X-API-KEY'] = token;
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+  // ── Datos Asíncronos ────────────────────────────────────────────────────
+  const [loadingDb, setLoadingDb] = useState(true);
+  const [dbBatches, setDbBatches] = useState<any[]>([]);
+  const [dbOrders, setDbOrders] = useState<any[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
-        try {
-            const [batchesRes, ordersRes] = await Promise.all([
-                fetch(`${effectiveApiUrl}/api/admin/purchase-batches?limit=100`, { headers }).catch(() => null),
-                fetch(`${effectiveApiUrl}/api/orders/admin/all`, { headers }).catch(() => null),
-            ]);
+  // ── Modales de Gastos ───────────────────────────────────────────────────
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null);
+  const [expenseFormCategory, setExpenseFormCategory] = useState<'servicios' | 'insumos'>('servicios');
+  const [expenseFormDate, setExpenseFormDate] = useState<string>(
+    `${selectedYear}-${selectedMonth}-${String(now.getDate()).padStart(2, '0')}`
+  );
+  const [expenseFormTitle, setExpenseFormTitle] = useState('');
+  const [expenseFormDesc, setExpenseFormDesc] = useState('');
+  const [expenseFormQty, setExpenseFormQty] = useState<string>('1');
+  const [expenseFormUnitPrice, setExpenseFormUnitPrice] = useState<string>('');
+  const [expenseFormTotal, setExpenseFormTotal] = useState<string>('');
+  const [expenseFormPayment, setExpenseFormPayment] = useState<string>('Transferencia');
+  const [savingExpense, setSavingExpense] = useState(false);
 
-            if (batchesRes && batchesRes.ok) {
-                const data = await batchesRes.json();
-                setDbBatches(data.batches || []);
-            }
-            if (ordersRes && ordersRes.ok) {
-                const data = await ordersRes.json();
-                setDbOrders(Array.isArray(data) ? data : []);
-            }
-        } catch (err) {
-            console.warn('[FinanzasView] Error al consultar datos reales del servidor:', err);
-        } finally {
-            setLoadingDb(false);
-        }
-    }, [apiKey, effectiveApiUrl]);
+  // Modal confirmación de borrado
+  const [deleteConfirmExpense, setDeleteConfirmExpense] = useState<ExpenseRecord | null>(null);
 
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+  // Acordeón de ventas detalladas
+  const [showSalesAccordion, setShowSalesAccordion] = useState(false);
 
-    // Combinar datos de finanzas: Gastos (Lotes DB o Compras locales) + Ingresos (Ventas Mostrador + Pedidos Web)
-    const transactions = useMemo<TransactionItem[]>(() => {
-        // 1. GASTOS (Compras / Lotes)
-        const expenseTransactions: TransactionItem[] = dbBatches.length > 0
-            ? dbBatches.flatMap((b: any) => {
-                const batchDate = b.purchase_date || b.created_at || new Date().toISOString();
-                if (Array.isArray(b.items) && b.items.length > 0) {
-                    return b.items.map((it: any) => {
-                        const totalItemARS = it.total_cost_per_unit_ars 
-                            ? it.total_cost_per_unit_ars * (it.quantity || 1)
-                            : ((it.unit_cost_ars || 0) + (it.shipping_per_unit_ars || 0)) * (it.quantity || 1);
-                        return {
-                            id: `batch-${b.id}-item-${it.id}`,
-                            date: batchDate,
-                            type: 'Gasto' as const,
-                            amount: totalItemARS,
-                            productName: it.product_name || 'Producto',
-                            quantity: it.quantity || 1,
-                            variant: it.variant_label || '',
-                            description: `Compra de ${it.quantity}x ${it.product_name}${it.variant_label ? ` (${it.variant_label})` : ''}`,
-                            extra: b.supplier_name ? `Proveedor: ${b.supplier_name}` : `Lote ${b.batch_number}`
-                        };
-                    });
-                } else {
-                    return [{
-                        id: `batch-${b.id}`,
-                        date: batchDate,
-                        type: 'Gasto' as const,
-                        amount: Number(b.total_cost_ars || 0),
-                        productName: `Lote ${b.batch_number}`,
-                        quantity: b.items_count || 1,
-                        variant: '',
-                        description: `Compra de Lote ${b.batch_number} (${b.items_count || 0} ítems)`,
-                        extra: b.supplier_name ? `Proveedor: ${b.supplier_name}` : 'Ingreso a stock'
-                    }];
-                }
-            })
-            : localPurchases.map(p => {
-                const variantParts = [p.color, p.size].filter(Boolean);
-                const variantText = variantParts.length > 0 ? ` (${variantParts.join(' - ')})` : '';
-                return {
-                    id: `local-pch-${p.id || Math.random()}`,
-                    date: p.date,
-                    type: 'Gasto' as const,
-                    amount: p.totalCost,
-                    productName: p.productName,
-                    quantity: p.quantity,
-                    variant: variantParts.join(' • '),
-                    description: `Compra de ${p.quantity}x ${p.productName}${variantText}`,
-                    extra: 'Ingreso a stock'
-                };
-            });
+  const effectiveApiUrl = apiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
 
-        // 2. INGRESOS Y COBROS PENDIENTES: Ventas Mostrador (del store POS)
-        const posTicketsMap = new Map<string, typeof posSales>();
-        posSales.forEach(s => {
-            if (s.ticketId && s.ticketId.startsWith('WEB-')) return;
-            const tId = s.ticketId || `TICK-${s.id}`;
-            if (!posTicketsMap.has(tId)) {
-                posTicketsMap.set(tId, []);
-            }
-            posTicketsMap.get(tId)!.push(s);
+  // ── Cargar Datos (Batches, Órdenes y Gastos) ────────────────────────────
+  const fetchData = useCallback(async () => {
+    setLoadingDb(true);
+    const token =
+      apiKey ||
+      (typeof window !== 'undefined'
+        ? localStorage.getItem('lyg_api_key') || localStorage.getItem('adminToken') || ''
+        : '');
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['X-API-KEY'] = token;
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    try {
+      const [batchesRes, ordersRes, expensesRes] = await Promise.all([
+        fetch(`${effectiveApiUrl}/api/admin/purchase-batches?limit=250`, { headers }).catch(() => null),
+        fetch(`${effectiveApiUrl}/api/orders/admin/all`, { headers }).catch(() => null),
+        fetch(`${effectiveApiUrl}/api/admin/expenses?year=${selectedYear}`, { headers }).catch(() => null),
+      ]);
+
+      if (batchesRes && batchesRes.ok) {
+        const data = await batchesRes.json();
+        setDbBatches(data.batches || []);
+      }
+      if (ordersRes && ordersRes.ok) {
+        const data = await ordersRes.json();
+        setDbOrders(Array.isArray(data) ? data : []);
+      }
+      if (expensesRes && expensesRes.ok) {
+        const expData = await expensesRes.json();
+        setExpenses(Array.isArray(expData) ? expData : []);
+      }
+    } catch (err) {
+      console.warn('[FinanzasView] Error al sincronizar datos:', err);
+    } finally {
+      setLoadingDb(false);
+    }
+  }, [apiKey, effectiveApiUrl, selectedYear]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Actualizar fecha del formulario al cambiar mes o año
+  useEffect(() => {
+    const today = new Date();
+    const dayStr = String(today.getDate()).padStart(2, '0');
+    setExpenseFormDate(`${selectedYear}-${selectedMonth}-${dayStr}`);
+  }, [selectedYear, selectedMonth]);
+
+  // ── Auto-cálculo de total para Insumos ───────────────────────────────────
+  useEffect(() => {
+    if (expenseFormCategory === 'insumos') {
+      const q = parseFloat(expenseFormQty) || 0;
+      const u = parseFloat(expenseFormUnitPrice) || 0;
+      if (q > 0 && u > 0) {
+        setExpenseFormTotal(String(Math.round(q * u)));
+      }
+    }
+  }, [expenseFormQty, expenseFormUnitPrice, expenseFormCategory]);
+
+  // ── 1. PROCESAR VENTAS (Mostrador + Pedidos Web) ─────────────────────────
+  const processedSales = useMemo(() => {
+    const list: Array<{
+      id: string;
+      date: string;
+      year: string;
+      month: string;
+      amount: number;
+      pendingAmount: number;
+      isWholesale: boolean;
+      channel: 'mostrador' | 'web';
+      clientName: string;
+      itemsSummary: string;
+    }> = [];
+
+    // Mostrador (POS)
+    const posTickets = new Map<string, typeof posSales>();
+    posSales.forEach((s) => {
+      if (s.ticketId && s.ticketId.startsWith('WEB-')) return;
+      const tId = s.ticketId || `TICK-${s.id}`;
+      if (!posTickets.has(tId)) posTickets.set(tId, []);
+      posTickets.get(tId)!.push(s);
+    });
+
+    posTickets.forEach((records, tId) => {
+      const first = records[0];
+      if (first.status === 'Cancelada') return;
+
+      const ym = parseYearMonth(first.date);
+      if (!ym) return;
+
+      const itemsRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
+      const isFullyPaid = first.status === 'Pagada' || first.paymentStatus === 'full';
+      const explicitPending = first.pendingAmount ?? first.remainingAmount;
+      const pendingClamped = isFullyPaid
+        ? 0
+        : explicitPending !== undefined
+        ? Math.max(0, Number(explicitPending))
+        : 0;
+
+      const paidClamped = isFullyPaid
+        ? itemsRev
+        : first.paidAmount !== undefined
+        ? Math.min(itemsRev, Math.max(0, Number(first.paidAmount)))
+        : Math.max(0, itemsRev - pendingClamped);
+
+      const isWholesale = Boolean(
+        first.isWholesale || records.some((r) => r.isWholesale || (r as any).saleType === 'mayorista')
+      );
+
+      list.push({
+        id: `pos-${tId}`,
+        date: first.date || '',
+        year: ym.year,
+        month: ym.month,
+        amount: paidClamped,
+        pendingAmount: pendingClamped,
+        isWholesale,
+        channel: 'mostrador',
+        clientName: first.clientName || 'Consumidor Final',
+        itemsSummary: records.map((r) => `${r.quantity}x ${r.productName}`).join(', '),
+      });
+    });
+
+    // Pedidos Web
+    dbOrders.forEach((o: any) => {
+      const st = (o.status || '').toLowerCase();
+      if (st.includes('cancel') || st.includes('rechaz')) return;
+
+      const ym = parseYearMonth(o.created_at || o.date);
+      if (!ym) return;
+
+      const totalItems = Array.isArray(o.items)
+        ? o.items.reduce((acc: number, it: any) => acc + ((it.price || 0) * (it.quantity || 1)), 0)
+        : Number(o.total || 0);
+
+      const isPaid = (o.payment_status || '').toLowerCase() === 'paid';
+      const paid = isPaid ? totalItems : Math.min(totalItems, Math.max(0, Number(o.paid_amount || 0)));
+      const pending = Math.max(0, totalItems - paid);
+
+      const isWholesale = Boolean(
+        o.is_wholesale || o.customer?.is_wholesale || (o.customer?.customer_type || '').includes('wholesale')
+      );
+
+      list.push({
+        id: `web-${o.order_number || o.id}`,
+        date: o.created_at || '',
+        year: ym.year,
+        month: ym.month,
+        amount: paid,
+        pendingAmount: pending,
+        isWholesale,
+        channel: 'web',
+        clientName: o.customer?.name || o.shipping_address_json?.name || 'Cliente Web',
+        itemsSummary: Array.isArray(o.items)
+          ? o.items.map((it: any) => `${it.quantity}x ${it.product_name}`).join(', ')
+          : `Orden #${o.order_number}`,
+      });
+    });
+
+    return list;
+  }, [posSales, dbOrders]);
+
+  // ── 2. PROCESAR COMPRAS DE MERCADERÍA ────────────────────────────────────
+  const processedPurchases = useMemo(() => {
+    const list: Array<{
+      id: string;
+      date: string;
+      year: string;
+      month: string;
+      supplier: string;
+      itemsCount: number;
+      totalCost: number;
+    }> = [];
+
+    if (dbBatches.length > 0) {
+      dbBatches.forEach((b: any) => {
+        const batchDate = b.purchase_date || b.created_at || '';
+        const ym = parseYearMonth(batchDate);
+        if (!ym) return;
+        const total = Number(b.total_cost_ars || 0);
+        list.push({
+          id: `batch-${b.id}`,
+          date: batchDate,
+          year: ym.year,
+          month: ym.month,
+          supplier: b.supplier?.name || b.supplier_name || `Lote ${b.batch_number}`,
+          itemsCount: b.items_count || (Array.isArray(b.items) ? b.items.length : 1),
+          totalCost: total,
         });
-
-        const posIncomeTransactions: TransactionItem[] = [];
-        posTicketsMap.forEach((records, tId) => {
-            const first = records[0];
-            if (first.status === 'Cancelada') return;
-
-            const itemsRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
-            const shippingCost = first.shippingCost || 0;
-            const totalClientCharge = itemsRev + shippingCost;
-
-            const isFullyPaid = first.status === 'Pagada' || (first.paymentStatus === 'full');
-            const explicitPending = first.pendingAmount ?? first.remainingAmount;
-            const actualPending = isFullyPaid ? 0 : (explicitPending !== undefined ? Number(explicitPending) : 0);
-            const actualPaid = isFullyPaid 
-                ? totalClientCharge 
-                : (first.paidAmount !== undefined ? Math.max(0, Number(first.paidAmount)) : Math.max(0, totalClientCharge - actualPending));
-
-            const paidClamped = Math.min(totalClientCharge, Math.max(0, actualPaid));
-            const pendingClamped = isFullyPaid ? 0 : Math.max(0, totalClientCharge - paidClamped);
-
-            // El ingreso real del negocio para cálculo de ganancia corresponde únicamente al producto vendido
-            const productPaid = Math.min(itemsRev, paidClamped);
-            const shippingPaid = Math.max(0, paidClamped - productPaid);
-
-            const totalQty = records.reduce((acc, r) => acc + (r.quantity || 1), 0);
-            const clientName = first.clientName || 'Consumidor Final';
-            const productsSummary = records.map(r => `${r.quantity}x ${r.productName}`).join(' • ');
-
-            // Generar detalle explicativo si es pago parcial / cuota
-            let installmentNote: string | undefined = undefined;
-            if (paidClamped > 0 && pendingClamped > 0) {
-                if (first.installmentsCount && first.installmentsCount > 1) {
-                    const monthly = first.installmentMonthlyAmount || Math.round(totalClientCharge / first.installmentsCount);
-                    const cuotaNum = Math.min(first.installmentsCount, Math.max(1, Math.round(paidClamped / (monthly || 1))));
-                    installmentNote = `${cuotaNum}° cuota pagada ($${fmt(paidClamped)} de $${fmt(totalClientCharge)} total)`;
-                } else {
-                    installmentNote = `Entrega / pago parcial de $${fmt(paidClamped)} de $${fmt(totalClientCharge)} total`;
-                }
-            }
-
-            if (paidClamped > 0) {
-                posIncomeTransactions.push({
-                    id: `pos-${tId}`,
-                    date: first.date || new Date().toISOString(),
-                    type: 'Ingreso' as const,
-                    amount: productPaid, // Solo mercadería genera ganancia/ingreso del negocio
-                    totalAmount: totalClientCharge,
-                    paidAmount: paidClamped,
-                    pendingAmount: pendingClamped,
-                    shippingCost: shippingPaid,
-                    isPartial: pendingClamped > 0,
-                    installmentsCount: first.installmentsCount,
-                    paymentType: first.paymentType,
-                    installmentNote,
-                    productName: productsSummary || `Ticket #${tId}`,
-                    quantity: totalQty,
-                    variant: '',
-                    description: shippingCost > 0
-                        ? `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
-                        : `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName}`,
-                    extra: `${clientName} • Mostrador`
-                });
-            } else if (pendingClamped > 0) {
-                // Venta con $0 cobrado (totalmente pendiente)
-                posIncomeTransactions.push({
-                    id: `pos-${tId}`,
-                    date: first.date || new Date().toISOString(),
-                    type: 'Pendiente' as const,
-                    amount: 0,
-                    totalAmount: totalClientCharge,
-                    paidAmount: 0,
-                    pendingAmount: pendingClamped,
-                    shippingCost: 0,
-                    isPendingOnly: true,
-                    installmentsCount: first.installmentsCount,
-                    paymentType: first.paymentType,
-                    productName: productsSummary || `Ticket #${tId}`,
-                    quantity: totalQty,
-                    variant: '',
-                    description: shippingCost > 0
-                        ? `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
-                        : `Venta Mostrador #${tId} (${totalQty} uds) a ${clientName}`,
-                    extra: `${clientName} • Mostrador (Pendiente de cobro)`
-                });
-            }
+      });
+    } else {
+      localPurchases.forEach((p) => {
+        const ym = parseYearMonth(p.date);
+        if (!ym) return;
+        list.push({
+          id: `local-pch-${p.id}`,
+          date: p.date,
+          year: ym.year,
+          month: ym.month,
+          supplier: p.supplierName || 'Ingreso a stock',
+          itemsCount: p.quantity || 1,
+          totalCost: p.totalCost || 0,
         });
+      });
+    }
 
-        // 3. INGRESOS Y COBROS PENDIENTES: Pedidos Web (de la base de datos o fallback)
-        const webIncomeTransactions: TransactionItem[] = [];
-        if (dbOrders.length > 0) {
-            dbOrders
-                .filter((o: any) => {
-                    const st = (o.status || '').toLowerCase();
-                    if (st.includes('cancel') || st.includes('rechaz')) return false;
-                    return true;
-                })
-                .forEach((o: any) => {
-                    const client = o.customer?.name || o.customer_name || 'Cliente Web';
-                    const tot = Number(o.total || 0);
-                    const shippingCost = Number(o.shipping_cost || 0);
-                    const itemsRev = Math.max(0, tot - shippingCost);
-                    const paid = Number(o.paid_amount || 0);
-                    const paySt = (o.payment_status || '').toLowerCase();
-                    const ordSt = (o.status || '').toLowerCase();
+    return list;
+  }, [dbBatches, localPurchases]);
 
-                    const isFullyPaid = paySt === 'full' || (paid >= tot && tot > 0) || (ordSt === 'entregado' && paySt !== 'pending') || (ordSt === 'completado');
-                    const actualPaid = isFullyPaid ? tot : Math.max(0, paid);
-                    const paidClamped = Math.min(tot, actualPaid);
-                    const pendingClamped = isFullyPaid ? 0 : Math.max(0, tot - paidClamped);
+  // ── 3. FILTRADO DEL MES SELECCIONADO ────────────────────────────────────
+  const currentMonthSales = useMemo(() => {
+    return processedSales.filter((s) => s.year === selectedYear && s.month === selectedMonth);
+  }, [processedSales, selectedYear, selectedMonth]);
 
-                    // El ingreso real del negocio corresponde únicamente al producto vendido
-                    const productPaid = Math.min(itemsRev, paidClamped);
-                    const shippingPaid = Math.max(0, paidClamped - productPaid);
+  const currentMonthPurchases = useMemo(() => {
+    return processedPurchases.filter((p) => p.year === selectedYear && p.month === selectedMonth);
+  }, [processedPurchases, selectedYear, selectedMonth]);
 
-                    const totalQty = Array.isArray(o.items) ? o.items.reduce((s: number, i: any) => s + (i.quantity || 1), 0) : 1;
-                    const productsSummary = Array.isArray(o.items) ? o.items.map((i: any) => `${i.quantity}x ${i.product_name || 'Producto'}`).join(' • ') : '';
+  const currentMonthExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      const ym = parseYearMonth(e.date);
+      return ym && ym.year === selectedYear && ym.month === selectedMonth;
+    });
+  }, [expenses, selectedYear, selectedMonth]);
 
-                    let installmentNote: string | undefined = undefined;
-                    if (paidClamped > 0 && pendingClamped > 0) {
-                        installmentNote = `Pago parcial recibido de $${fmt(paidClamped)} de $${fmt(tot)} total`;
-                    }
+  const currentMonthServicios = useMemo(() => {
+    return currentMonthExpenses.filter((e) => e.category === 'servicios');
+  }, [currentMonthExpenses]);
 
-                    if (paidClamped > 0) {
-                        webIncomeTransactions.push({
-                            id: `web-order-${o.id || o.order_number}`,
-                            date: o.created_at || new Date().toISOString(),
-                            type: 'Ingreso' as const,
-                            amount: productPaid, // Solo mercadería genera ganancia
-                            totalAmount: tot,
-                            paidAmount: paidClamped,
-                            pendingAmount: pendingClamped,
-                            shippingCost: shippingPaid,
-                            isPartial: pendingClamped > 0,
-                            installmentsCount: o.installments_count,
-                            paymentType: o.payment_type,
-                            installmentNote,
-                            productName: productsSummary || `Pedido #${o.order_number}`,
-                            quantity: totalQty,
-                            variant: '',
-                            description: shippingCost > 0
-                                ? `Venta Web #${o.order_number} (${totalQty} uds) a ${client} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
-                                : `Venta Web #${o.order_number} (${totalQty} uds) a ${client}`,
-                            extra: `${client} • Tienda Web`
-                        });
-                    } else if (pendingClamped > 0) {
-                        webIncomeTransactions.push({
-                            id: `web-order-${o.id || o.order_number}`,
-                            date: o.created_at || new Date().toISOString(),
-                            type: 'Pendiente' as const,
-                            amount: 0,
-                            totalAmount: tot,
-                            paidAmount: 0,
-                            pendingAmount: pendingClamped,
-                            shippingCost: 0,
-                            isPendingOnly: true,
-                            installmentsCount: o.installments_count,
-                            paymentType: o.payment_type,
-                            productName: productsSummary || `Pedido #${o.order_number}`,
-                            quantity: totalQty,
-                            variant: '',
-                            description: shippingCost > 0
-                                ? `Venta Web #${o.order_number} (${totalQty} uds) a ${client} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
-                                : `Venta Web #${o.order_number} (${totalQty} uds) a ${client}`,
-                            extra: `${client} • Tienda Web (Pendiente de pago)`
-                        });
-                    }
-                });
-        } else {
-            // Fallback a ventas web guardadas en posSales si no hay conexión al backend
-            const fallbackWebTickets = new Map<string, typeof posSales>();
-            posSales.forEach(s => {
-                if (!s.ticketId || !s.ticketId.startsWith('WEB-')) return;
-                if (!fallbackWebTickets.has(s.ticketId)) {
-                    fallbackWebTickets.set(s.ticketId, []);
-                }
-                fallbackWebTickets.get(s.ticketId)!.push(s);
-            });
+  const currentMonthInsumos = useMemo(() => {
+    return currentMonthExpenses.filter((e) => e.category === 'insumos');
+  }, [currentMonthExpenses]);
 
-            fallbackWebTickets.forEach((records, tId) => {
-                const first = records[0];
-                if (first.status === 'Cancelada') return;
-                const itemsRev = records.reduce((acc, r) => acc + (r.revenue || 0), 0);
-                const shippingCost = first.shippingCost || 0;
-                const totalClientCharge = itemsRev + shippingCost;
-                const isFullyPaid = first.status === 'Pagada' || (first.paymentStatus === 'full');
-                const explicitPending = first.pendingAmount ?? first.remainingAmount;
-                const actualPending = isFullyPaid ? 0 : (explicitPending !== undefined ? Number(explicitPending) : 0);
-                const actualPaid = isFullyPaid ? totalClientCharge : (first.paidAmount !== undefined ? Math.max(0, Number(first.paidAmount)) : Math.max(0, totalClientCharge - actualPending));
-                const paidClamped = Math.min(totalClientCharge, Math.max(0, actualPaid));
-                const pendingClamped = isFullyPaid ? 0 : Math.max(0, totalClientCharge - paidClamped);
-                const productPaid = Math.min(itemsRev, paidClamped);
-                const shippingPaid = Math.max(0, paidClamped - productPaid);
-                const totalQty = records.reduce((acc, r) => acc + (r.quantity || 1), 0);
-                const clientName = first.clientName || 'Cliente Web';
-                const productsSummary = records.map(r => `${r.quantity}x ${r.productName}`).join(' • ');
+  // ── 4. TOTALES Y KPIS DEL MES ───────────────────────────────────────────
+  const totalIncomeMonth = useMemo(() => {
+    return currentMonthSales.reduce((acc, s) => acc + s.amount, 0);
+  }, [currentMonthSales]);
 
-                if (paidClamped > 0) {
-                    webIncomeTransactions.push({
-                        id: `local-web-${tId}`,
-                        date: first.date || new Date().toISOString(),
-                        type: 'Ingreso' as const,
-                        amount: productPaid,
-                        totalAmount: totalClientCharge,
-                        paidAmount: paidClamped,
-                        pendingAmount: pendingClamped,
-                        shippingCost: shippingPaid,
-                        isPartial: pendingClamped > 0,
-                        productName: productsSummary || `Pedido #${tId}`,
-                        quantity: totalQty,
-                        variant: '',
-                        description: shippingCost > 0
-                            ? `Venta Web #${tId} (${totalQty} uds) a ${clientName} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
-                            : `Venta Web #${tId} (${totalQty} uds) a ${clientName}`,
-                        extra: `${clientName} • Tienda Web`
-                    });
-                } else if (pendingClamped > 0) {
-                    webIncomeTransactions.push({
-                        id: `local-web-${tId}`,
-                        date: first.date || new Date().toISOString(),
-                        type: 'Pendiente' as const,
-                        amount: 0,
-                        totalAmount: totalClientCharge,
-                        paidAmount: 0,
-                        pendingAmount: pendingClamped,
-                        shippingCost: 0,
-                        isPendingOnly: true,
-                        productName: productsSummary || `Pedido #${tId}`,
-                        quantity: totalQty,
-                        variant: '',
-                        description: shippingCost > 0
-                            ? `Venta Web #${tId} (${totalQty} uds) a ${clientName} • Envío $${fmt(shippingCost)} (a cargo del cliente)`
-                            : `Venta Web #${tId} (${totalQty} uds) a ${clientName}`,
-                        extra: `${clientName} • Tienda Web (Pendiente de pago)`
-                    });
-                }
-            });
-        }
+  const totalPendingMonth = useMemo(() => {
+    return currentMonthSales.reduce((acc, s) => acc + s.pendingAmount, 0);
+  }, [currentMonthSales]);
 
-        return [...expenseTransactions, ...posIncomeTransactions, ...webIncomeTransactions].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-        );
-    }, [dbBatches, dbOrders, posSales, localPurchases]);
+  const totalServiciosMonth = useMemo(() => {
+    return currentMonthServicios.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+  }, [currentMonthServicios]);
 
-    const totalExpenses = useMemo(() => {
-        return transactions.filter(t => t.type === 'Gasto').reduce((acc, t) => acc + t.amount, 0);
-    }, [transactions]);
+  const totalInsumosMonth = useMemo(() => {
+    return currentMonthInsumos.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+  }, [currentMonthInsumos]);
 
-    const totalRevenue = useMemo(() => {
-        // Solo sumamos los ingresos efectivos por venta de productos (sin fletes a terceros)
-        return transactions.filter(t => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
-    }, [transactions]);
+  const totalPurchasesMonth = useMemo(() => {
+    return currentMonthPurchases.reduce((acc, p) => acc + p.totalCost, 0);
+  }, [currentMonthPurchases]);
 
-    const totalShippingCollected = useMemo(() => {
-        // Total de fletes pagados por clientes (trasladados a empresas de envío)
-        return transactions.reduce((acc, t) => acc + (t.shippingCost || 0), 0);
-    }, [transactions]);
+  const totalExpensesMonth = useMemo(() => {
+    return totalServiciosMonth + totalInsumosMonth + totalPurchasesMonth;
+  }, [totalServiciosMonth, totalInsumosMonth, totalPurchasesMonth]);
 
-    const totalPending = useMemo(() => {
-        // Sumamos todos los saldos restantes pendientes de cobro
-        return transactions.reduce((acc, t) => acc + (t.pendingAmount || 0), 0);
-    }, [transactions]);
+  const netProfitMonth = totalIncomeMonth - totalExpensesMonth;
+  const netMarginPercent =
+    totalIncomeMonth > 0 ? ((netProfitMonth / totalIncomeMonth) * 100).toFixed(1) : '0';
 
-    const grossProfit = totalRevenue - totalExpenses;
+  // ── 5. DATOS PARA GRÁFICOS ──────────────────────────────────────────────
 
-    // Filtrar transacciones para la vista
-    const filteredTransactions = useMemo(() => {
-        return transactions.filter(t => {
-            if (filterType === 'Ingreso' && t.type !== 'Ingreso') return false;
-            if (filterType === 'Gasto' && t.type !== 'Gasto') return false;
-            if (filterType === 'Pendiente' && !(t.type === 'Pendiente' || (t.pendingAmount && t.pendingAmount > 0))) return false;
-            if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
-                return (
-                    t.description.toLowerCase().includes(q) ||
-                    (t.productName && t.productName.toLowerCase().includes(q)) ||
-                    (t.extra && t.extra.toLowerCase().includes(q)) ||
-                    (t.installmentNote && t.installmentNote.toLowerCase().includes(q))
-                );
-            }
-            return true;
-        });
-    }, [transactions, filterType, searchQuery]);
+  // A. Gastos por Tipo (Donut Chart)
+  const donutExpensesData = useMemo(() => {
+    const data = [
+      { name: 'Mercadería', value: Math.round(totalPurchasesMonth), color: '#a855f7' }, // Purple
+      { name: 'Impuestos / Servicios', value: Math.round(totalServiciosMonth), color: '#06b6d4' }, // Cyan
+      { name: 'Insumos / Mant.', value: Math.round(totalInsumosMonth), color: '#0284c7' }, // Blue
+    ];
+    return data.filter((d) => d.value > 0);
+  }, [totalPurchasesMonth, totalServiciosMonth, totalInsumosMonth]);
 
-    // Generar datos para el gráfico mensual (con barra amarilla de pendientes)
-    const chartData = useMemo(() => {
-        const dataMap: Record<string, { name: string, dateObj: Date, ingresos: number, gastos: number, pendientes: number }> = {};
+  // B. Canales de Venta del Mes
+  const channelsData = useMemo(() => {
+    let mostrador = 0;
+    let web = 0;
+    let mayorista = 0;
 
-        transactions.forEach(t => {
-            const d = new Date(t.date);
-            const monthStr = d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
-            const name = monthStr.charAt(0).toUpperCase() + monthStr.slice(1);
-            
-            if (!dataMap[name]) {
-                dataMap[name] = { name, dateObj: new Date(d.getFullYear(), d.getMonth(), 1), ingresos: 0, gastos: 0, pendientes: 0 };
-            }
-            if (t.type === 'Gasto') {
-                dataMap[name].gastos += t.amount;
-            } else if (t.type === 'Ingreso') {
-                dataMap[name].ingresos += (t.amount || 0);
-            }
-            if (t.pendingAmount && t.pendingAmount > 0) {
-                dataMap[name].pendientes += t.pendingAmount;
-            }
-        });
+    currentMonthSales.forEach((s) => {
+      if (s.isWholesale) {
+        mayorista += s.amount;
+      } else if (s.channel === 'web') {
+        web += s.amount;
+      } else {
+        mostrador += s.amount;
+      }
+    });
 
-        return Object.values(dataMap)
-            .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
-            .map(({ name, ingresos, gastos, pendientes }) => ({ name, ingresos, gastos, pendientes }));
-    }, [transactions]);
+    return [
+      { name: 'Mostrador', total: Math.round(mostrador), color: '#3b82f6' },
+      { name: 'Web', total: Math.round(web), color: '#10b981' },
+      { name: 'Mayorista', total: Math.round(mayorista), color: '#f59e0b' },
+    ];
+  }, [currentMonthSales]);
 
-    const countIngresos = transactions.filter(t => t.type === 'Ingreso').length;
-    const countGastos = transactions.filter(t => t.type === 'Gasto').length;
-    const countPendientes = transactions.filter(t => t.type === 'Pendiente' || (t.pendingAmount && t.pendingAmount > 0)).length;
+  // C. Global Anual (12 Meses Ene - Dic para el Año Seleccionado)
+  const annualComparisonData = useMemo(() => {
+    return MONTHS.map((m) => {
+      // Ingresos del mes m en selectedYear
+      const monthIncome = processedSales
+        .filter((s) => s.year === selectedYear && s.month === m.value)
+        .reduce((acc, s) => acc + s.amount, 0);
 
-    return (
-        <div className="space-y-4 sm:space-y-6">
+      // Compras de mercadería del mes m
+      const monthPurchases = processedPurchases
+        .filter((p) => p.year === selectedYear && p.month === m.value)
+        .reduce((acc, p) => acc + p.totalCost, 0);
 
-            {/* KPIs: 4 tarjetas simétricas */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 lg:gap-6">
-                {/* 1. Ingresos Totales (Efectivamente cobrados) */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center gap-2.5 sm:gap-4">
-                    <div className="size-10 sm:size-12 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center flex-shrink-0">
-                        <span className="material-symbols-outlined text-xl sm:text-2xl">account_balance_wallet</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Ventas de Mercadería</p>
-                        <p className="text-base sm:text-xl lg:text-2xl font-black text-slate-900 dark:text-white truncate font-mono mt-0.5">
-                            ${fmt(totalRevenue)}
-                        </p>
-                        {totalShippingCollected > 0 && (
-                            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate mt-0.5" title="Monto de flete cobrado al comprador para transporte">
-                                + ${fmt(totalShippingCollected)} fletes traslado
-                            </p>
-                        )}
-                    </div>
-                </div>
+      // Gastos del mes m
+      const monthOtherExpenses = expenses
+        .filter((e) => {
+          const ym = parseYearMonth(e.date);
+          return ym && ym.year === selectedYear && ym.month === m.value;
+        })
+        .reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
 
-                {/* 2. Cobros Pendientes (En amarillo/ámbar) */}
-                <div className="bg-amber-50/70 dark:bg-amber-950/20 rounded-2xl p-3.5 sm:p-5 shadow-sm border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row items-start sm:items-center gap-2.5 sm:gap-4">
-                    <div className="size-10 sm:size-12 bg-amber-500/15 text-amber-600 dark:text-amber-400 rounded-2xl flex items-center justify-center flex-shrink-0">
-                        <span className="material-symbols-outlined text-xl sm:text-2xl">pending_actions</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <p className="text-[10px] sm:text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider truncate">Cobros Pendientes</p>
-                        <p className="text-base sm:text-xl lg:text-2xl font-black text-amber-900 dark:text-amber-200 truncate font-mono mt-0.5">
-                            ${fmt(totalPending)}
-                        </p>
-                    </div>
-                </div>
+      const monthExpenses = monthPurchases + monthOtherExpenses;
 
-                {/* 3. Gastos (Compras) */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center gap-2.5 sm:gap-4">
-                    <div className="size-10 sm:size-12 bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-2xl flex items-center justify-center flex-shrink-0">
-                        <span className="material-symbols-outlined text-xl sm:text-2xl">shopping_cart</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Gastos (Compras)</p>
-                        <p className="text-base sm:text-xl lg:text-2xl font-black text-slate-900 dark:text-white truncate font-mono mt-0.5">
-                            ${fmt(totalExpenses)}
-                        </p>
-                    </div>
-                </div>
+      return {
+        name: m.short,
+        fullName: m.name,
+        ingresos: Math.round(monthIncome),
+        gastos: Math.round(monthExpenses),
+      };
+    });
+  }, [selectedYear, processedSales, processedPurchases, expenses]);
 
-                {/* 4. Ganancia Real Efectiva */}
-                <div className={`bg-white dark:bg-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm border ${
-                    grossProfit >= 0 ? 'border-primary/30 dark:border-primary/40' : 'border-rose-300 dark:border-rose-800'
-                } flex flex-col sm:flex-row items-start sm:items-center gap-2.5 sm:gap-4`}>
-                    <div className={`size-10 sm:size-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${
-                        grossProfit >= 0 ? 'bg-primary/10 text-primary' : 'bg-rose-100 dark:bg-rose-950/40 text-rose-600'
-                    }`}>
-                        <span className="material-symbols-outlined text-xl sm:text-2xl">monitoring</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Ganancia Real</p>
-                            {totalRevenue > 0 && (
-                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md ${
-                                    grossProfit >= 0 
-                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' 
-                                        : 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
-                                }`}>
-                                    {((grossProfit / totalRevenue) * 100).toFixed(0)}%
-                                </span>
-                            )}
-                        </div>
-                        <p className={`text-base sm:text-xl lg:text-2xl font-black font-mono truncate mt-0.5 ${
-                            grossProfit >= 0 ? 'text-primary' : 'text-rose-600 dark:text-rose-400'
-                        }`}>
-                            ${fmt(grossProfit)}
-                        </p>
-                    </div>
-                </div>
-            </div>
+  // ── 6. HANDLERS PARA AGREGAR / EDITAR / ELIMINAR GASTOS ─────────────────
+  const openNewExpenseModal = (category: 'servicios' | 'insumos' = 'servicios') => {
+    setEditingExpense(null);
+    setExpenseFormCategory(category);
+    const dayStr = String(now.getDate()).padStart(2, '0');
+    setExpenseFormDate(`${selectedYear}-${selectedMonth}-${dayStr}`);
+    setExpenseFormTitle('');
+    setExpenseFormDesc('');
+    setExpenseFormQty('1');
+    setExpenseFormUnitPrice('');
+    setExpenseFormTotal('');
+    setExpenseFormPayment('Transferencia');
+    setIsModalOpen(true);
+  };
 
-            {/* Gráfico Recharts con 3 barras: Ingresos Cobrados, Cobros Pendientes y Gastos */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                <div className="flex items-center justify-between mb-4 sm:mb-6">
-                    <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <span className="material-symbols-outlined text-primary text-xl">bar_chart</span>
-                        Comparativa: Ingresos vs Pendientes vs Gastos
-                    </h3>
-                    {loadingDb && (
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                            <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                            Sincronizando...
-                        </span>
-                    )}
-                </div>
-                <div className="h-60 sm:h-80 w-full">
-                    {chartData.length === 0 ? (
-                        <div className="h-full flex items-center justify-center text-slate-400 text-xs">
-                            No hay datos para mostrar en el gráfico.
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                                data={chartData}
-                                margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.15} />
-                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} dy={8} />
-                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} dx={-5} tickFormatter={(val) => `$${Math.round(val / 1000)}k`} />
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', color: '#fff', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', fontSize: '12px' }}
-                                    itemStyle={{ fontWeight: 'bold' }}
-                                    formatter={(value, name) => [`$${fmt(Number(value ?? 0))}`, name]}
-                                />
-                                <Legend iconType="circle" wrapperStyle={{ paddingTop: '15px', fontSize: '12px' }} />
-                                <Bar dataKey="ingresos" name="Ingresos (Cobrados)" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={38} />
-                                <Bar dataKey="pendientes" name="Cobros Pendientes" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={38} />
-                                <Bar dataKey="gastos" name="Gastos (Compras)" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={38} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    )}
-                </div>
-            </div>
+  const openEditExpenseModal = (exp: ExpenseRecord) => {
+    setEditingExpense(exp);
+    setExpenseFormCategory(exp.category);
+    setExpenseFormDate(exp.date ? exp.date.slice(0, 10) : `${selectedYear}-${selectedMonth}-01`);
+    setExpenseFormTitle(exp.title || '');
+    setExpenseFormDesc(exp.description || '');
+    setExpenseFormQty(String(exp.quantity || 1));
+    setExpenseFormUnitPrice(exp.unit_price ? String(exp.unit_price) : '');
+    setExpenseFormTotal(String(exp.amount || ''));
+    setExpenseFormPayment(exp.payment_method || 'Transferencia');
+    setIsModalOpen(true);
+  };
 
-            {/* Historial de Transacciones */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
-                
-                {/* Cabecera con título y filtros */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-primary text-xl">history</span>
-                        <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-white">
-                            Historial de Transacciones
-                        </h3>
-                        <span className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold px-2 py-0.5 rounded-full">
-                            {filteredTransactions.length}
-                        </span>
-                    </div>
+  const handleSaveExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expenseFormTitle.trim()) {
+      showAlert('Por favor ingresa un detalle o concepto para el gasto');
+      return;
+    }
 
-                    {/* Filtros Tipo (Todos / Ingresos / Cobros Pendientes / Gastos) */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-                        <button
-                            type="button"
-                            onClick={() => setFilterType('all')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
-                                filterType === 'all'
-                                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
-                                    : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                            }`}
-                        >
-                            Todos ({transactions.length})
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setFilterType('Ingreso')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
-                                filterType === 'Ingreso'
-                                    ? 'bg-emerald-600 text-white shadow-sm'
-                                    : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
-                            }`}
-                        >
-                            <span className="size-1.5 rounded-full bg-emerald-400"></span>
-                            Ingresos Cobrados ({countIngresos})
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setFilterType('Pendiente')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
-                                filterType === 'Pendiente'
-                                    ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50'
-                            }`}
-                        >
-                            <span className="size-1.5 rounded-full bg-amber-500"></span>
-                            Cobros Pendientes ({countPendientes})
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setFilterType('Gasto')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
-                                filterType === 'Gasto'
-                                    ? 'bg-rose-600 text-white shadow-sm'
-                                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/50'
-                            }`}
-                        >
-                            <span className="size-1.5 rounded-full bg-rose-400"></span>
-                            Gastos ({countGastos})
-                        </button>
-                    </div>
-                </div>
+    const totalNum = parseFloat(expenseFormTotal);
+    if (isNaN(totalNum) || totalNum <= 0) {
+      showAlert('El monto total debe ser mayor a 0');
+      return;
+    }
 
-                {/* Buscador rápido */}
-                <div className="relative">
-                    <span className="material-symbols-outlined absolute left-3 top-2.5 text-slate-400 text-lg">search</span>
-                    <input
-                        type="text"
-                        placeholder="Buscar por producto, cliente, lote..."
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    />
-                    {searchQuery && (
-                        <button
-                            type="button"
-                            onClick={() => setSearchQuery('')}
-                            className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                        >
-                            <span className="material-symbols-outlined text-sm">close</span>
-                        </button>
-                    )}
-                </div>
+    setSavingExpense(true);
+    const token =
+      apiKey ||
+      (typeof window !== 'undefined'
+        ? localStorage.getItem('lyg_api_key') || localStorage.getItem('adminToken') || ''
+        : '');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['X-API-KEY'] = token;
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
-                {/* VISTA MOBILE: Tarjetas de transacciones (md:hidden) */}
-                <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredTransactions.length === 0 ? (
-                        <div className="py-8 text-center text-slate-400 text-xs">
-                            No hay movimientos que coincidan con los filtros.
-                        </div>
-                    ) : (
-                        filteredTransactions.map((t) => (
-                            <div key={t.id} className="py-3 flex items-start justify-between gap-2.5">
-                                <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                                    {/* Icono de tipo */}
-                                    <div className={`size-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                                        t.type === 'Ingreso'
-                                            ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400'
-                                            : t.type === 'Pendiente'
-                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400'
-                                            : 'bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400'
-                                    }`}>
-                                        <span className="material-symbols-outlined text-base">
-                                            {t.type === 'Ingreso' ? 'arrow_downward' : t.type === 'Pendiente' ? 'schedule' : 'arrow_upward'}
-                                        </span>
-                                    </div>
+    const payload = {
+      category: expenseFormCategory,
+      date: expenseFormDate,
+      title: expenseFormTitle.trim(),
+      description: expenseFormDesc.trim() || null,
+      quantity: expenseFormCategory === 'insumos' ? parseFloat(expenseFormQty) || 1 : null,
+      unit_price: expenseFormCategory === 'insumos' ? parseFloat(expenseFormUnitPrice) || 0 : null,
+      amount: totalNum,
+      payment_method: expenseFormPayment,
+    };
 
-                                    {/* Contenido principal */}
-                                    <div className="min-w-0 flex-1 space-y-1">
-                                        <p className="font-bold text-xs text-slate-800 dark:text-slate-200 leading-snug">
-                                            {t.description}
-                                        </p>
-                                        {t.installmentNote && (
-                                            <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                                                ✓ {t.installmentNote}
-                                            </p>
-                                        )}
-                                        {t.pendingAmount && t.pendingAmount > 0 && (
-                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                                Resta cobrar: ${fmt(t.pendingAmount)}
-                                            </span>
-                                        )}
-                                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 pt-0.5">
-                                            <span>{new Date(t.date).toLocaleDateString('es-AR')}</span>
-                                            <span>•</span>
-                                            <span>{new Date(t.date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
-                                            <span className={`px-1.5 py-0.2 rounded font-black uppercase text-[8px] tracking-wider ${
-                                                t.type === 'Ingreso'
-                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                                                    : t.type === 'Pendiente'
-                                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-                                                    : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
-                                            }`}>
-                                                {t.isPartial ? 'Cobro Parcial' : t.type}
-                                            </span>
-                                            {t.extra && (
-                                                <span className="text-slate-400 truncate max-w-[140px]">
-                                                    • {t.extra}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
+    try {
+      const url = editingExpense
+        ? `${effectiveApiUrl}/api/admin/expenses/${editingExpense.id}`
+        : `${effectiveApiUrl}/api/admin/expenses`;
+      const method = editingExpense ? 'PUT' : 'POST';
 
-                                {/* Monto */}
-                                <div className="text-right flex-shrink-0 pt-0.5 font-mono">
-                                    {t.type === 'Gasto' && (
-                                        <span className="text-xs sm:text-sm font-black text-rose-600 dark:text-rose-400 block">
-                                            -${fmt(t.amount)}
-                                        </span>
-                                    )}
-                                    {t.type === 'Ingreso' && (
-                                        <div>
-                                            <span className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400 block">
-                                                +${fmt(t.amount)}
-                                            </span>
-                                            {t.isPartial && t.pendingAmount && (
-                                                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 font-sans block">
-                                                    Resta: ${fmt(t.pendingAmount)}
-                                                </span>
-                                            )}
-                                        </div>
-                                    )}
-                                    {t.type === 'Pendiente' && (
-                                        <div>
-                                            <span className="text-[10px] text-slate-400 font-sans block">$0 cobrado</span>
-                                            <span className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 block">
-                                                ${fmt(t.pendingAmount || 0)}
-                                            </span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: JSON.stringify(payload),
+      });
 
-                {/* VISTA DESKTOP: Tabla completa (hidden md:block) */}
-                <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead>
-                            <tr className="border-b border-slate-100 dark:border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
-                                <th className="pb-3 font-bold w-44">Fecha / Hora</th>
-                                <th className="pb-3 font-bold w-28">Tipo</th>
-                                <th className="pb-3 font-bold">Detalle de Transacción</th>
-                                <th className="pb-3 font-bold text-right w-44">Monto</th>
-                            </tr>
-                        </thead>
-                        <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-800">
-                            {filteredTransactions.length === 0 ? (
-                                <tr>
-                                    <td colSpan={4} className="py-8 text-center text-slate-500">
-                                        No hay movimientos financieros que coincidan.
-                                    </td>
-                                </tr>
-                            ) : (
-                                filteredTransactions.map((t) => (
-                                    <tr key={t.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors">
-                                        <td className="py-3.5 text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
-                                            {new Date(t.date).toLocaleDateString('es-AR')} {new Date(t.date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                                        </td>
-                                        <td className="py-3.5">
-                                            {t.type === 'Gasto' && (
-                                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
-                                                    Gasto
-                                                </span>
-                                            )}
-                                            {t.type === 'Ingreso' && !t.isPartial && (
-                                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                                                    Ingreso
-                                                </span>
-                                            )}
-                                            {t.type === 'Ingreso' && t.isPartial && (
-                                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                                                    Cobro Parcial
-                                                </span>
-                                            )}
-                                            {t.type === 'Pendiente' && (
-                                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                                    Pendiente
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="py-3.5 font-medium text-slate-800 dark:text-slate-200 text-xs sm:text-sm">
-                                            <div>{t.description}</div>
-                                            {t.installmentNote && (
-                                                <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                                                        ✓ {t.installmentNote}
-                                                    </span>
-                                                    {t.pendingAmount && t.pendingAmount > 0 && (
-                                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                                            <span className="material-symbols-outlined text-[13px]">schedule</span>
-                                                            Saldo restante: ${fmt(t.pendingAmount)}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {t.isPendingOnly && t.pendingAmount && t.pendingAmount > 0 && (
-                                                <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                                        <span className="material-symbols-outlined text-[13px]">schedule</span>
-                                                        Total adeudado: ${fmt(t.pendingAmount)} (Pendiente de cobro)
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td className="py-3.5 text-right font-black font-mono text-sm">
-                                            {t.type === 'Gasto' && (
-                                                <span className="text-rose-600 dark:text-rose-400">-${fmt(t.amount)}</span>
-                                            )}
-                                            {t.type === 'Ingreso' && (
-                                                <div>
-                                                    <span className="text-emerald-600 dark:text-emerald-400">+${fmt(t.amount)}</span>
-                                                    {t.isPartial && t.pendingAmount && t.pendingAmount > 0 && (
-                                                        <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 block font-sans">
-                                                            Resta: ${fmt(t.pendingAmount)}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {t.type === 'Pendiente' && (
-                                                <div>
-                                                    <span className="text-slate-400 text-xs font-semibold block font-sans">$0 cobrado</span>
-                                                    <span className="text-amber-600 dark:text-amber-400 text-sm font-black block">
-                                                        ${fmt(t.pendingAmount || 0)}
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Error al guardar el gasto');
+      }
 
-            </div>
+      setIsModalOpen(false);
+      showAlert(editingExpense ? 'Gasto actualizado con éxito' : 'Gasto registrado correctamente');
+      fetchData();
+    } catch (err: any) {
+      showAlert(err.message || 'Error de conexión');
+    } finally {
+      setSavingExpense(false);
+    }
+  };
+
+  const handleDeleteExpense = async () => {
+    if (!deleteConfirmExpense) return;
+    const token =
+      apiKey ||
+      (typeof window !== 'undefined'
+        ? localStorage.getItem('lyg_api_key') || localStorage.getItem('adminToken') || ''
+        : '');
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['X-API-KEY'] = token;
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    try {
+      const res = await fetch(`${effectiveApiUrl}/api/admin/expenses/${deleteConfirmExpense.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Error al eliminar el gasto');
+      }
+
+      setDeleteConfirmExpense(null);
+      showAlert('Gasto eliminado');
+      fetchData();
+    } catch (err: any) {
+      showAlert(err.message || 'Error de conexión');
+    }
+  };
+
+  // ── 7. EXPORTAR REPORTE CSV ─────────────────────────────────────────────
+  const exportMonthReportCsv = () => {
+    const monthObj = MONTHS.find((m) => m.value === selectedMonth);
+    const monthName = monthObj ? monthObj.name : selectedMonth;
+
+    let csv = `\uFEFFReporte de Finanzas — ${monthName} ${selectedYear}\n\n`;
+    csv += `RESUMEN DEL MES\n`;
+    csv += `Ingresos Totales (Cobrados);$${fmtDec(totalIncomeMonth)}\n`;
+    csv += `Cobros Pendientes;$${fmtDec(totalPendingMonth)}\n`;
+    csv += `Gastos en Compras de Mercadería;$${fmtDec(totalPurchasesMonth)}\n`;
+    csv += `Gastos en Impuestos y Servicios;$${fmtDec(totalServiciosMonth)}\n`;
+    csv += `Gastos en Insumos y Mantenimiento;$${fmtDec(totalInsumosMonth)}\n`;
+    csv += `GASTOS TOTALES;-$${fmtDec(totalExpensesMonth)}\n`;
+    csv += `GANANCIA NETA;$${fmtDec(netProfitMonth)} (${netMarginPercent}%)\n\n`;
+
+    csv += `IMPUESTOS Y SERVICIOS\n`;
+    csv += `Fecha;Detalle;Forma de Pago;Total\n`;
+    currentMonthServicios.forEach((e) => {
+      csv += `${formatDisplayDate(e.date)};"${e.title}";"${e.payment_method || ''}";$${fmtDec(e.amount)}\n`;
+    });
+    csv += `TOTAL SERVICIOS;;;-$${fmtDec(totalServiciosMonth)}\n\n`;
+
+    csv += `INSUMOS Y MANTENIMIENTO\n`;
+    csv += `Fecha;Detalle;Cantidad;P. Unitario;Total\n`;
+    currentMonthInsumos.forEach((e) => {
+      csv += `${formatDisplayDate(e.date)};"${e.title}";${e.quantity || 1};$${fmtDec(e.unit_price || 0)};$${fmtDec(e.amount)}\n`;
+    });
+    csv += `TOTAL INSUMOS;;;;-$${fmtDec(totalInsumosMonth)}\n\n`;
+
+    csv += `COMPRAS DE MERCADERÍA / PROVEEDORES\n`;
+    csv += `Fecha;Proveedor / Lote;Ítems;Total Costo\n`;
+    currentMonthPurchases.forEach((p) => {
+      csv += `${formatDisplayDate(p.date)};"${p.supplier}";${p.itemsCount};$${fmtDec(p.totalCost)}\n`;
+    });
+    csv += `TOTAL MERCADERÍA;;;-$${fmtDec(totalPurchasesMonth)}\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Finanzas_${monthName}_${selectedYear}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const selectedMonthObj = MONTHS.find((m) => m.value === selectedMonth);
+
+  return (
+    <div className="space-y-6 pb-16 animate-in fade-in duration-300">
+      {/* ═══ CABECERA Y FILTROS TEMPORALES ═══ */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+              Finanzas
+            </h1>
+            {loadingDb && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary bg-primary/10 px-2.5 py-0.5 rounded-full animate-pulse">
+                <span className="material-symbols-outlined text-[14px] animate-spin">sync</span>
+                Sincronizando
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Balance operativo, control de ingresos, gastos y márgenes netos
+          </p>
         </div>
-    );
-}
 
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Selector de Mes */}
+          <div className="relative">
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="appearance-none pl-3.5 pr-8 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 dark:hover:bg-slate-700/80 text-slate-800 dark:text-slate-100 text-xs sm:text-sm font-bold rounded-2xl border border-slate-200 dark:border-slate-700 transition cursor-pointer focus:ring-2 focus:ring-primary focus:outline-none"
+            >
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-base">
+              expand_more
+            </span>
+          </div>
+
+          {/* Selector de Año (2026 - 2030) */}
+          <div className="relative">
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="appearance-none pl-3.5 pr-8 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 dark:hover:bg-slate-700/80 text-slate-800 dark:text-slate-100 text-xs sm:text-sm font-bold rounded-2xl border border-slate-200 dark:border-slate-700 transition cursor-pointer focus:ring-2 focus:ring-primary focus:outline-none"
+            >
+              {YEARS.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-base">
+              expand_more
+            </span>
+          </div>
+
+          {/* Exportar Reporte */}
+          <button
+            type="button"
+            onClick={exportMonthReportCsv}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs sm:text-sm rounded-2xl border border-slate-200 dark:border-slate-700 transition"
+            title="Exportar resumen de finanzas a CSV/Excel"
+          >
+            <span className="material-symbols-outlined text-base">download</span>
+            <span>Exportar</span>
+          </button>
+
+          {/* Botón Principal: + Agregar Gasto */}
+          {!isViewer && (
+            <button
+              type="button"
+              onClick={() => openNewExpenseModal('servicios')}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-black dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-950 font-bold text-xs sm:text-sm rounded-2xl shadow-sm hover:shadow transition"
+            >
+              <span className="material-symbols-outlined text-base">add</span>
+              <span>Agregar Gasto</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ═══ FILA 1: TARJETAS KPIS DEL MES ═══ */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* 1. Ingresos Totales (Mes) */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-emerald-300 dark:hover:border-emerald-800/60 transition">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Ingresos Totales ({selectedMonthObj?.name})
+            </span>
+            <span className="size-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <span className="material-symbols-outlined text-lg">trending_up</span>
+            </span>
+          </div>
+          <div className="mt-3">
+            <span className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
+              +${fmtDec(totalIncomeMonth)}
+            </span>
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <span>{currentMonthSales.length} ventas cobradas</span>
+            {totalPendingMonth > 0 && (
+              <span className="text-amber-600 dark:text-amber-400 font-bold" title="Pendiente de cobro en cuotas o saldo">
+                +${fmt(totalPendingMonth)} pend.
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* 2. Gastos Totales (Mes) */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-rose-300 dark:hover:border-rose-800/60 transition">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Gastos Totales ({selectedMonthObj?.name})
+            </span>
+            <span className="size-8 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+              <span className="material-symbols-outlined text-lg">trending_down</span>
+            </span>
+          </div>
+          <div className="mt-3">
+            <span className="text-2xl sm:text-3xl font-black text-rose-600 dark:text-rose-400 tracking-tight">
+              -${fmtDec(totalExpensesMonth)}
+            </span>
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <span>Mercadería + Servicios + Insumos</span>
+            <span className="font-bold text-slate-700 dark:text-slate-300">
+              {currentMonthExpenses.length + currentMonthPurchases.length} operaciones
+            </span>
+          </div>
+        </div>
+
+        {/* 3. Ganancia Neta (Mes) */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-blue-300 dark:hover:border-blue-800/60 transition">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Ganancia Neta ({selectedMonthObj?.name})
+            </span>
+            <span className="size-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+              <span className="material-symbols-outlined text-lg">account_balance_wallet</span>
+            </span>
+          </div>
+          <div className="mt-3">
+            <span
+              className={`text-2xl sm:text-3xl font-black tracking-tight ${
+                netProfitMonth >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'
+              }`}
+            >
+              {netProfitMonth >= 0 ? '$ ' : '-$ '}
+              {fmtDec(Math.abs(netProfitMonth))}
+            </span>
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <span>Margen sobre ventas</span>
+            <span className="font-extrabold text-blue-600 dark:text-blue-400">
+              {netMarginPercent}% neto
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ FILA 2: GRÁFICOS Y ANÁLISIS ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Gráfico 1: Ingresos por Canal (Mes) */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white">
+                Ingresos por Canal ({selectedMonthObj?.name})
+              </h3>
+              <p className="text-[11px] text-slate-400">Distribución de facturación por canal</p>
+            </div>
+            <span className="material-symbols-outlined text-slate-400 text-lg">storefront</span>
+          </div>
+
+          <div className="h-48 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={channelsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.15} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#64748b', fontSize: 10 }}
+                  tickFormatter={(val) => `$${Math.round(val / 1000)}k`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#0f172a',
+                    border: 'none',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    fontSize: '11px',
+                  }}
+                  formatter={(val: any) => [`$${fmt(Number(val))}`, 'Total']}
+                />
+                <Bar dataKey="total" radius={[8, 8, 0, 0]} maxBarSize={38}>
+                  {channelsData.map((entry, index) => (
+                    <Cell key={`channel-cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1 pt-3 border-t border-slate-100 dark:border-slate-800 text-center">
+            {channelsData.map((c) => (
+              <div key={c.name} className="px-1">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold block">{c.name}</span>
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  ${fmt(c.total)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Gráfico 2: Gastos por Tipo (Mes) [Donut Chart] */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white">
+                Gastos por Tipo ({selectedMonthObj?.name})
+              </h3>
+              <p className="text-[11px] text-slate-400">Desglose de egresos operativos</p>
+            </div>
+            <span className="material-symbols-outlined text-slate-400 text-lg">pie_chart</span>
+          </div>
+
+          <div className="h-48 w-full relative flex items-center justify-center">
+            {donutExpensesData.length === 0 ? (
+              <div className="text-center text-slate-400 text-xs">
+                No hay gastos registrados en {selectedMonthObj?.name} {selectedYear}
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={donutExpensesData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={75}
+                      paddingAngle={3}
+                    >
+                      {donutExpensesData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        border: 'none',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        fontSize: '11px',
+                      }}
+                      formatter={(val: any, name: any) => [`$${fmt(Number(val))}`, name]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Total</span>
+                  <span className="text-sm font-black text-slate-800 dark:text-slate-100">
+                    ${fmt(totalExpensesMonth)}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-full bg-purple-500"></span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">Mercadería</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-full bg-cyan-500"></span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">Impuestos / Servicios</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-full bg-blue-500"></span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">Insumos / Mant.</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Gráfico 3: Global Anual (Ingresos vs Gastos) */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white">
+                Global Anual ({selectedYear})
+              </h3>
+              <p className="text-[11px] text-slate-400">Evolución de Ingresos vs Gastos en 12 meses</p>
+            </div>
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
+                <span className="size-2 rounded-full bg-emerald-500"></span> Ingresos
+              </span>
+              <span className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold">
+                <span className="size-2 rounded-full bg-rose-500"></span> Gastos
+              </span>
+            </div>
+          </div>
+
+          <div className="h-48 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={annualComparisonData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.15} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#64748b', fontSize: 9 }}
+                  tickFormatter={(val) => `$${Math.round(val / 1000)}k`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#0f172a',
+                    border: 'none',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    fontSize: '11px',
+                  }}
+                  formatter={(val: any, name: any) => [
+                    `$${fmt(Number(val))}`,
+                    name === 'ingresos' ? 'Ingresos' : 'Gastos',
+                  ]}
+                  labelFormatter={(l: any, payload: any) => {
+                    const it = payload && payload[0] ? payload[0].payload : null;
+                    return it ? `${it.fullName} ${selectedYear}` : l;
+                  }}
+                />
+                <Bar dataKey="gastos" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={12} />
+                <Bar dataKey="ingresos" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={12} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
+            <span>Mes activo: <b className="text-slate-800 dark:text-white">{selectedMonthObj?.name}</b></span>
+            <span>Año: <b className="text-slate-800 dark:text-white">{selectedYear}</b></span>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ FILA 3: TABLAS DE GASTOS DESGLOSADAS ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ── TABLA A: Impuestos y Servicios ── */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="size-8 rounded-xl bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-lg">receipt</span>
+                </span>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                    Impuestos y Servicios
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Luz, alquiler, internet, tributos y servicios fijos
+                  </p>
+                </div>
+              </div>
+
+              {!isViewer && (
+                <button
+                  type="button"
+                  onClick={() => openNewExpenseModal('servicios')}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-950/60 dark:hover:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 font-bold text-xs transition border border-cyan-200 dark:border-cyan-800"
+                >
+                  <span className="material-symbols-outlined text-sm">add</span>
+                  <span>Agregar</span>
+                </button>
+              )}
+            </div>
+
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-100 dark:border-slate-800">
+                    <th className="py-2 px-2 font-bold">Fecha</th>
+                    <th className="py-2 px-2 font-bold">Detalle</th>
+                    <th className="py-2 px-2 font-bold text-right">Total</th>
+                    {!isViewer && <th className="py-2 px-2 font-bold text-center w-16">Acciones</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {currentMonthServicios.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={isViewer ? 3 : 4}
+                        className="py-8 text-center text-slate-400 text-xs italic"
+                      >
+                        No hay impuestos ni servicios cargados en {selectedMonthObj?.name} {selectedYear}
+                      </td>
+                    </tr>
+                  ) : (
+                    currentMonthServicios.map((exp) => (
+                      <tr key={exp.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                        <td className="py-2.5 px-2 font-semibold text-slate-500 whitespace-nowrap">
+                          {formatDisplayDate(exp.date)}
+                        </td>
+                        <td className="py-2.5 px-2">
+                          <span className="font-bold text-slate-800 dark:text-slate-100 block">
+                            {exp.title}
+                          </span>
+                          {exp.payment_method && (
+                            <span className="inline-block text-[10px] text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-950/50 px-1.5 py-0.2 rounded font-medium mt-0.5">
+                              {exp.payment_method}
+                            </span>
+                          )}
+                          {exp.description && (
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate max-w-xs">
+                              {exp.description}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-black text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                          ${fmt(exp.amount)}
+                        </td>
+                        {!isViewer && (
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEditExpenseModal(exp)}
+                                className="size-7 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition"
+                                title="Editar"
+                              >
+                                <span className="material-symbols-outlined text-sm">edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmExpense(exp)}
+                                className="size-7 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 flex items-center justify-center transition"
+                                title="Eliminar"
+                              >
+                                <span className="material-symbols-outlined text-sm">delete</span>
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-500">Subtotal Servicios:</span>
+            <span className="font-black text-rose-600 dark:text-rose-400 text-sm">
+              -${fmt(totalServiciosMonth)}
+            </span>
+          </div>
+        </div>
+
+        {/* ── TABLA B: Insumos y Mantenimiento ── */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="size-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-lg">inventory_2</span>
+                </span>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                    Insumos y Mantenimiento
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Bolsas, atomizadores para decants, packaging y arreglos
+                  </p>
+                </div>
+              </div>
+
+              {!isViewer && (
+                <button
+                  type="button"
+                  onClick={() => openNewExpenseModal('insumos')}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold text-xs transition border border-blue-200 dark:border-blue-800"
+                >
+                  <span className="material-symbols-outlined text-sm">add</span>
+                  <span>Agregar</span>
+                </button>
+              )}
+            </div>
+
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-100 dark:border-slate-800">
+                    <th className="py-2 px-2 font-bold">Fecha</th>
+                    <th className="py-2 px-2 font-bold">Detalle</th>
+                    <th className="py-2 px-2 font-bold text-center">Cant.</th>
+                    <th className="py-2 px-2 font-bold text-right">P. Unit</th>
+                    <th className="py-2 px-2 font-bold text-right">Total</th>
+                    {!isViewer && <th className="py-2 px-2 font-bold text-center w-16">Acciones</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {currentMonthInsumos.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={isViewer ? 5 : 6}
+                        className="py-8 text-center text-slate-400 text-xs italic"
+                      >
+                        No hay insumos ni mantenimiento cargados en {selectedMonthObj?.name} {selectedYear}
+                      </td>
+                    </tr>
+                  ) : (
+                    currentMonthInsumos.map((exp) => (
+                      <tr key={exp.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                        <td className="py-2.5 px-2 font-semibold text-slate-500 whitespace-nowrap">
+                          {formatDisplayDate(exp.date)}
+                        </td>
+                        <td className="py-2.5 px-2">
+                          <span className="font-bold text-slate-800 dark:text-slate-100 block">
+                            {exp.title}
+                          </span>
+                          {exp.payment_method && (
+                            <span className="inline-block text-[10px] text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded font-medium mt-0.5">
+                              {exp.payment_method}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-bold text-slate-600 dark:text-slate-300">
+                          {exp.quantity || 1}
+                        </td>
+                        <td className="py-2.5 px-2 text-right text-slate-500 whitespace-nowrap">
+                          {exp.unit_price ? `$${fmt(exp.unit_price)}` : '—'}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-black text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                          ${fmt(exp.amount)}
+                        </td>
+                        {!isViewer && (
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEditExpenseModal(exp)}
+                                className="size-7 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition"
+                                title="Editar"
+                              >
+                                <span className="material-symbols-outlined text-sm">edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmExpense(exp)}
+                                className="size-7 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 flex items-center justify-center transition"
+                                title="Eliminar"
+                              >
+                                <span className="material-symbols-outlined text-sm">delete</span>
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-500">Subtotal Insumos:</span>
+            <span className="font-black text-rose-600 dark:text-rose-400 text-sm">
+              -${fmt(totalInsumosMonth)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ FILA 4: COMPRAS DE MERCADERÍA / PROVEEDORES DEL MES ═══ */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="size-8 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+              <span className="material-symbols-outlined text-lg">local_shipping</span>
+            </span>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                Compras de Mercadería y Stock ({selectedMonthObj?.name})
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Lotes ingresados de perfumes, combos y productos
+              </p>
+            </div>
+          </div>
+          <span className="text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 px-2.5 py-1 rounded-xl">
+            {currentMonthPurchases.length} lotes
+          </span>
+        </div>
+
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-100 dark:border-slate-800">
+                <th className="py-2 px-2 font-bold">Fecha</th>
+                <th className="py-2 px-2 font-bold">Proveedor / Lote</th>
+                <th className="py-2 px-2 font-bold text-center">Unidades / Ítems</th>
+                <th className="py-2 px-2 font-bold text-right">Total Invertido</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+              {currentMonthPurchases.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-6 text-center text-slate-400 text-xs italic">
+                    No hay ingresos de mercadería registrados en {selectedMonthObj?.name} {selectedYear}
+                  </td>
+                </tr>
+              ) : (
+                currentMonthPurchases.map((pch) => (
+                  <tr key={pch.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                    <td className="py-2.5 px-2 font-semibold text-slate-500 whitespace-nowrap">
+                      {formatDisplayDate(pch.date)}
+                    </td>
+                    <td className="py-2.5 px-2 font-bold text-slate-800 dark:text-slate-100">
+                      {pch.supplier}
+                    </td>
+                    <td className="py-2.5 px-2 text-center text-slate-600 dark:text-slate-300 font-bold">
+                      {pch.itemsCount} uds.
+                    </td>
+                    <td className="py-2.5 px-2 text-right font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                      -${fmt(pch.totalCost)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+          <span className="font-bold text-slate-500">Subtotal Mercadería del Mes:</span>
+          <span className="font-black text-rose-600 dark:text-rose-400 text-sm">
+            -${fmt(totalPurchasesMonth)}
+          </span>
+        </div>
+      </div>
+
+      {/* ═══ FILA 5: VENTAS DETALLADAS DEL MES (ACORDEÓN DESPLEGABLE) ═══ */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setShowSalesAccordion(!showSalesAccordion)}
+          className="w-full flex items-center justify-between text-left group"
+        >
+          <div className="flex items-center gap-2">
+            <span className="size-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <span className="material-symbols-outlined text-lg">receipt_long</span>
+            </span>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white group-hover:text-primary transition">
+                Detalle de Ventas Cobradas ({selectedMonthObj?.name})
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                {currentMonthSales.length} operaciones registradas en el período
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
+              +${fmt(totalIncomeMonth)}
+            </span>
+            <span
+              className={`material-symbols-outlined text-slate-400 transition-transform ${
+                showSalesAccordion ? 'rotate-180' : ''
+              }`}
+            >
+              expand_more
+            </span>
+          </div>
+        </button>
+
+        {showSalesAccordion && (
+          <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-100 dark:border-slate-800">
+                  <th className="py-2 px-2 font-bold">Fecha</th>
+                  <th className="py-2 px-2 font-bold">Canal</th>
+                  <th className="py-2 px-2 font-bold">Cliente</th>
+                  <th className="py-2 px-2 font-bold">Ítems</th>
+                  <th className="py-2 px-2 font-bold text-right">Cobrado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                {currentMonthSales.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-6 text-center text-slate-400 text-xs italic">
+                      No hay ventas cobradas en este mes
+                    </td>
+                  </tr>
+                ) : (
+                  currentMonthSales.map((s) => (
+                    <tr key={s.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                      <td className="py-2 px-2 font-semibold text-slate-500 whitespace-nowrap">
+                        {formatDisplayDate(s.date)}
+                      </td>
+                      <td className="py-2 px-2">
+                        <span
+                          className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                            s.channel === 'web'
+                              ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          }`}
+                        >
+                          {s.channel === 'web' ? 'Web' : 'Caja'}
+                        </span>
+                        {s.isWholesale && (
+                          <span className="ml-1 inline-block text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">
+                            Mayorista
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 font-bold text-slate-800 dark:text-slate-200">
+                        {s.clientName}
+                      </td>
+                      <td className="py-2 px-2 text-slate-500 text-[11px] truncate max-w-xs">
+                        {s.itemsSummary}
+                      </td>
+                      <td className="py-2 px-2 text-right font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                        +${fmt(s.amount)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ═══ MODAL CREAR / EDITAR GASTO ═══ */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Cabecera del Modal */}
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="size-9 rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-lg">
+                    {editingExpense ? 'edit' : 'add'}
+                  </span>
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    {editingExpense ? 'Editar Gasto' : 'Registrar Nuevo Gasto'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Se sumará a la tabla de gastos de {selectedMonthObj?.name} {selectedYear}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="size-8 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveExpense} className="p-5 space-y-4">
+              {/* Selector de Categoría (Tabs) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Categoría de Gasto
+                </label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setExpenseFormCategory('servicios')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+                      expenseFormCategory === 'servicios'
+                        ? 'bg-white dark:bg-slate-900 text-cyan-600 dark:text-cyan-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-sm">receipt</span>
+                    <span>Impuestos y Servicios</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExpenseFormCategory('insumos')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+                      expenseFormCategory === 'insumos'
+                        ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-sm">inventory_2</span>
+                    <span>Insumos y Mantenimiento</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Chips de Sugerencia Rápida */}
+              <div>
+                <span className="block text-[11px] font-bold text-slate-400 mb-1">
+                  Sugerencias rápidas:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(expenseFormCategory === 'servicios'
+                    ? COMMON_CHIPS_SERVICIOS
+                    : COMMON_CHIPS_INSUMOS
+                  ).map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setExpenseFormTitle(chip)}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Detalle y Fecha */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Detalle / Concepto *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={expenseFormTitle}
+                    onChange={(e) => setExpenseFormTitle(e.target.value)}
+                    placeholder="Ej: Luz Local, Bolsas Kraft x500..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-800 dark:text-slate-100 font-medium focus:ring-2 focus:ring-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Fecha *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={expenseFormDate}
+                    onChange={(e) => setExpenseFormDate(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-800 dark:text-slate-100 font-medium focus:ring-2 focus:ring-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Campos específicos para Insumos (Cantidad y P. Unitario) */}
+              {expenseFormCategory === 'insumos' && (
+                <div className="grid grid-cols-2 gap-3 p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-2xl border border-blue-100 dark:border-blue-900/40">
+                  <div>
+                    <label className="block text-xs font-bold text-blue-900 dark:text-blue-300 mb-1">
+                      Cantidad
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      value={expenseFormQty}
+                      onChange={(e) => setExpenseFormQty(e.target.value)}
+                      placeholder="1"
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 rounded-xl border border-blue-200 dark:border-blue-800 text-xs sm:text-sm text-slate-800 dark:text-slate-100 font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-blue-900 dark:text-blue-300 mb-1">
+                      Precio Unitario ($)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={expenseFormUnitPrice}
+                      onChange={(e) => setExpenseFormUnitPrice(e.target.value)}
+                      placeholder="0"
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 rounded-xl border border-blue-200 dark:border-blue-800 text-xs sm:text-sm text-slate-800 dark:text-slate-100 font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Monto Total y Forma de Pago */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Monto Total ($ ARS) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                      $
+                    </span>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      step="any"
+                      value={expenseFormTotal}
+                      onChange={(e) => setExpenseFormTotal(e.target.value)}
+                      placeholder="0"
+                      className="w-full pl-8 pr-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-black text-rose-600 dark:text-rose-400 focus:ring-2 focus:ring-primary focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Forma de Pago
+                  </label>
+                  <select
+                    value={expenseFormPayment}
+                    onChange={(e) => setExpenseFormPayment(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-800 dark:text-slate-100 font-medium focus:ring-2 focus:ring-primary focus:outline-none"
+                  >
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Tarjeta de Débito">Tarjeta de Débito</option>
+                    <option value="Tarjeta de Crédito">Tarjeta de Crédito</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Descripción / Nota opcional */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Nota / Detalle adicional (opcional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={expenseFormDesc}
+                  onChange={(e) => setExpenseFormDesc(e.target.value)}
+                  placeholder="Ej: Factura Nº, número de operación, etc."
+                  className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:outline-none"
+                />
+              </div>
+
+              {/* Botones de Acción */}
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingExpense}
+                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-black dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-950 text-xs font-bold shadow-md transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {savingExpense && (
+                    <span className="material-symbols-outlined text-sm animate-spin">
+                      progress_activity
+                    </span>
+                  )}
+                  <span>{editingExpense ? 'Actualizar Gasto' : 'Guardar Gasto'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL CONFIRMAR ELIMINACIÓN ═══ */}
+      {deleteConfirmExpense && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-sm p-5 shadow-2xl border border-slate-200 dark:border-slate-800 text-center animate-in fade-in zoom-in-95 duration-200">
+            <div className="size-12 rounded-2xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 mx-auto flex items-center justify-center mb-3">
+              <span className="material-symbols-outlined text-2xl">delete_forever</span>
+            </div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              ¿Eliminar este gasto?
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Se eliminará <b>{deleteConfirmExpense.title}</b> por un total de{' '}
+              <b className="text-rose-600">${fmt(deleteConfirmExpense.amount)}</b>.
+            </p>
+            <div className="mt-5 flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmExpense(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteExpense}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition shadow-sm"
+              >
+                Confirmar Eliminación
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
