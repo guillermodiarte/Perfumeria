@@ -149,9 +149,9 @@ export default function Header() {
               Hombre
               <span className="absolute -bottom-2 left-1/2 w-0 h-0.5 bg-primary transition-all group-hover:w-1/2 group-hover:-translate-x-1/2"></span>
             </Link>
-            <Link href="/catalog?category=Combos %26 Regalos" className="text-pink-600 dark:text-pink-400 hover:text-pink-700 transition-colors text-sm font-black relative group uppercase tracking-widest flex items-center gap-1.5">
-              <span>Combos & Regalos</span>
-              <span className="absolute -bottom-2 left-1/2 w-0 h-0.5 bg-pink-500 transition-all group-hover:w-1/2 group-hover:-translate-x-1/2"></span>
+            <Link href="/catalog?category=Combos %26 Regalos" className="text-slate-900 dark:text-slate-100 hover:text-primary transition-colors text-sm font-bold relative group uppercase tracking-widest">
+              Combos & Regalos
+              <span className="absolute -bottom-2 left-1/2 w-0 h-0.5 bg-primary transition-all group-hover:w-1/2 group-hover:-translate-x-1/2"></span>
             </Link>
             <Link href="/donde-estamos" className="text-slate-900 dark:text-slate-100 hover:text-primary transition-colors text-sm font-bold relative group uppercase tracking-widest">
               ¿Dónde estamos?
@@ -461,13 +461,13 @@ export default function Header() {
             <Link
               href="/catalog?category=Combos %26 Regalos"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between p-3 rounded-2xl text-pink-600 dark:text-pink-400 font-black hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors text-sm"
+              className="flex items-center justify-between p-3 rounded-2xl text-slate-800 dark:text-slate-200 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-primary transition-colors text-sm"
             >
               <span className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-pink-500 text-xl">featured_seasonal_and_gifts</span>
                 Combos & Regalos
               </span>
-              <ChevronRight className="w-4 h-4 text-pink-400" />
+              <ChevronRight className="w-4 h-4 text-slate-400" />
             </Link>
 
             <Link

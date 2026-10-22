@@ -210,6 +210,101 @@ export default function AdminDashboard() {
   // Pending customers badge count
   const [pendingCount, setPendingCount] = useState(0);
 
+  // ═══ MENÚ EDITABLE (Super Admin) ═══
+  type MenuItemId = 'dashboard' | 'products' | 'combos' | 'sections' | 'compras' | 'ventas' | 'ventas_realizadas' | 'pedidos_web' | 'cobros_pendientes' | 'users' | 'admins' | 'finanzas' | 'media' | 'configuracion';
+  interface MenuItem {
+    id: MenuItemId;
+    label: string;
+    icon: string;
+    colorActive: string;
+    colorIcon: string;
+    colorBg: string;
+  }
+  const DEFAULT_MENU_ITEMS: MenuItem[] = [
+    { id: 'dashboard',         label: 'Dashboard',           icon: 'space_dashboard',           colorActive: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300',   colorIcon: 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30',  colorBg: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-500'    },
+    { id: 'products',          label: 'Productos',            icon: 'grid_view',                 colorActive: 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300',   colorIcon: 'bg-violet-500 text-white shadow-md shadow-violet-500/30',  colorBg: 'bg-violet-100 dark:bg-violet-950/60 text-violet-500'    },
+    { id: 'combos',            label: 'Armar Combo / Set',   icon: 'featured_seasonal_and_gifts', colorActive: 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300',           colorIcon: 'bg-gradient-to-tr from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/30', colorBg: 'bg-pink-100 dark:bg-pink-950/60 text-pink-500' },
+    { id: 'sections',          label: 'Secciones',            icon: 'web',                       colorActive: 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300',           colorIcon: 'bg-pink-500 text-white shadow-md shadow-pink-500/30',      colorBg: 'bg-pink-100 dark:bg-pink-950/60 text-pink-500'          },
+    { id: 'compras',           label: 'Compras',              icon: 'local_shipping',            colorActive: 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300',   colorIcon: 'bg-orange-500 text-white shadow-md shadow-orange-500/30',  colorBg: 'bg-orange-100 dark:bg-orange-950/60 text-orange-500'    },
+    { id: 'ventas',            label: 'Vender (Caja)',        icon: 'point_of_sale',             colorActive: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300',           colorIcon: 'bg-rose-500 text-white shadow-md shadow-rose-500/30',      colorBg: 'bg-rose-100 dark:bg-rose-950/60 text-rose-500'          },
+    { id: 'ventas_realizadas', label: 'Ventas Realizadas',   icon: 'receipt_long',              colorActive: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300', colorIcon: 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30', colorBg: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-500' },
+    { id: 'pedidos_web',       label: 'Pedidos Web',         icon: 'language',                  colorActive: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300',           colorIcon: 'bg-blue-500 text-white shadow-md shadow-blue-500/30',      colorBg: 'bg-blue-100 dark:bg-blue-950/60 text-blue-500'          },
+    { id: 'cobros_pendientes', label: 'Cobros Pendientes',   icon: 'account_balance_wallet',    colorActive: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300',       colorIcon: 'bg-amber-500 text-white shadow-md shadow-amber-500/30',    colorBg: 'bg-amber-100 dark:bg-amber-950/60 text-amber-500'       },
+    { id: 'users',             label: 'Clientes',             icon: 'group',                     colorActive: 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300',               colorIcon: 'bg-sky-500 text-white shadow-md shadow-sky-500/30',        colorBg: 'bg-sky-100 dark:bg-sky-950/60 text-sky-500'             },
+    { id: 'admins',            label: 'Administradores',      icon: 'admin_panel_settings',      colorActive: 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300',   colorIcon: 'bg-purple-500 text-white shadow-md shadow-purple-500/30',  colorBg: 'bg-purple-100 dark:bg-purple-950/60 text-purple-500'    },
+    { id: 'finanzas',          label: 'Finanzas',             icon: 'payments',                  colorActive: 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300',           colorIcon: 'bg-teal-500 text-white shadow-md shadow-teal-500/30',      colorBg: 'bg-teal-100 dark:bg-teal-950/60 text-teal-500'          },
+    { id: 'media',             label: 'Biblioteca',           icon: 'folder_special',            colorActive: 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300',           colorIcon: 'bg-cyan-500 text-white shadow-md shadow-cyan-500/30',      colorBg: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-500'          },
+    { id: 'configuracion',     label: 'Configuración',        icon: 'settings',                  colorActive: 'bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-200',      colorIcon: 'bg-slate-500 text-white shadow-md shadow-slate-500/30',    colorBg: 'bg-slate-200 dark:bg-slate-700 text-slate-500'          },
+  ];
+  const MENU_CONFIG_KEY = 'lyg_menu_config';
+  const loadMenuConfig = (): { order: MenuItemId[]; labels: Partial<Record<MenuItemId, string>> } => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem(MENU_CONFIG_KEY) : null;
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return { order: DEFAULT_MENU_ITEMS.map(i => i.id), labels: {} };
+  };
+  const [menuConfig, setMenuConfig] = useState<{ order: MenuItemId[]; labels: Partial<Record<MenuItemId, string>> }>(
+    () => loadMenuConfig()
+  );
+  const [isEditingMenu, setIsEditingMenu] = useState(false);
+  const [editMenuLabels, setEditMenuLabels] = useState<Partial<Record<MenuItemId, string>>>({});
+  const [editMenuOrder, setEditMenuOrder] = useState<MenuItemId[]>([]);
+  const [dragOverId, setDragOverId] = useState<MenuItemId | null>(null);
+  const dragItemId = useRef<MenuItemId | null>(null);
+
+  // Build ordered visible menu items based on saved config
+  const orderedMenuItems = useMemo(() => {
+    const savedOrder = menuConfig.order;
+    const knownIds = DEFAULT_MENU_ITEMS.map(i => i.id);
+    // Merge: use saved order, append any new items not yet in saved order
+    const merged = [
+      ...savedOrder.filter(id => knownIds.includes(id)),
+      ...knownIds.filter(id => !savedOrder.includes(id)),
+    ];
+    return merged.map(id => {
+      const base = DEFAULT_MENU_ITEMS.find(i => i.id === id)!;
+      return { ...base, label: menuConfig.labels[id] || base.label };
+    });
+  }, [menuConfig]);
+
+  const saveMenuConfig = (newConfig: { order: MenuItemId[]; labels: Partial<Record<MenuItemId, string>> }) => {
+    setMenuConfig(newConfig);
+    try { localStorage.setItem(MENU_CONFIG_KEY, JSON.stringify(newConfig)); } catch {}
+  };
+
+  const openMenuEditor = () => {
+    setEditMenuOrder([...orderedMenuItems.map(i => i.id)]);
+    setEditMenuLabels({ ...menuConfig.labels });
+    setIsEditingMenu(true);
+  };
+
+  const saveMenuEdit = () => {
+    saveMenuConfig({ order: editMenuOrder, labels: editMenuLabels });
+    setIsEditingMenu(false);
+  };
+
+  const resetMenuConfig = () => {
+    const def = { order: DEFAULT_MENU_ITEMS.map(i => i.id), labels: {} };
+    saveMenuConfig(def);
+    setEditMenuOrder(def.order);
+    setEditMenuLabels({});
+  };
+
+  // Returns whether a menu item should be visible for current role
+  const isItemVisible = (id: MenuItemId): boolean => {
+    if (id === 'combos') return isManagerRole;
+    if (id === 'sections') return isSuperAdminRole;
+    if (id === 'compras') return !isViewerRole;
+    if (id === 'ventas') return !isViewerRole;
+    if (id === 'users') return isManagerRole;
+    if (id === 'admins') return isSuperAdminRole;
+    if (id === 'finanzas') return !isEmpleadoRole;
+    if (id === 'media') return !isViewerRole;
+    if (id === 'configuracion') return isSuperAdminRole;
+    return true; // dashboard, ventas_realizadas, pedidos_web, cobros_pendientes
+  };
+
   useEffect(() => {
     const initialView = getSavedView();
     setActiveViewState(initialView);
@@ -927,142 +1022,132 @@ export default function AdminDashboard() {
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
           <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-3 mb-3 mt-2">Menú Principal</div>
 
-          <button onClick={() => setActiveView('dashboard')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'dashboard' ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'dashboard' ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30' : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">space_dashboard</span>
-            </span>
-            <span>Dashboard</span>
-          </button>
+          {/* ── MODO NORMAL: items ordenados y con labels personalizados ── */}
+          {!isEditingMenu && orderedMenuItems
+            .filter(item => isItemVisible(item.id))
+            .map(item => {
+              const isActive = activeView === item.id || (item.id === 'ventas_realizadas' && activeView === 'ventas_mostrador');
+              return (
+                <button
+                  key={item.id}
+                  id={item.id === 'sections' ? 'btn-nav-sections' : undefined}
+                  onClick={() => {
+                    if (item.id === 'sections') { setActiveView('sections'); setSectionsKey(k => k + 1); }
+                    else if (item.id === 'compras') { setActiveView('compras'); setComprasResetKey(k => k + 1); }
+                    else setActiveView(item.id as ViewId);
+                  }}
+                  className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${
+                    isActive ? item.colorActive : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'
+                  }`}
+                >
+                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${
+                    isActive ? item.colorIcon : item.colorBg
+                  }`}>
+                    <span className="material-symbols-outlined text-[18px]">{item.icon}</span>
+                  </span>
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.id === 'users' && pendingCount > 0 && (
+                    <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-black animate-pulse">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })
+          }
 
-          <button onClick={() => setActiveView('products')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'products' ? 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'products' ? 'bg-violet-500 text-white shadow-md shadow-violet-500/30' : 'bg-violet-100 dark:bg-violet-950/60 text-violet-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">grid_view</span>
-            </span>
-            <span>Productos</span>
-          </button>
-
-          {/* Armar Combo / Set - Solo Super Admin y Admin */}
-          {isManagerRole && (
-            <button
-              onClick={() => setActiveView('combos')}
-              className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'combos' ? 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}
-              title="Armar un nuevo combo o set de regalo"
-            >
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'combos' ? 'bg-gradient-to-tr from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/30' : 'bg-pink-100 dark:bg-pink-950/60 text-pink-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">featured_seasonal_and_gifts</span>
-              </span>
-              <span>Armar Combo / Set</span>
-            </button>
-          )}
-
-          {/* Secciones y Banner - Solo Super Admin */}
-          {isSuperAdminRole && (
-            <button
-              id="btn-nav-sections"
-              onClick={() => { setActiveView('sections'); setSectionsKey(k => k + 1); }}
-              className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'sections' ? 'bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}
-            >
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'sections' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/30' : 'bg-pink-100 dark:bg-pink-950/60 text-pink-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">web</span>
-              </span>
-              <span>Secciones</span>
-            </button>
-          )}
-
-          {/* Compras - Super Admin, Admin y Empleado (NO viewer) */}
-          {!isViewerRole && (
-            <button onClick={() => { setActiveView('compras'); setComprasResetKey(k => k + 1); }} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'compras' ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'compras' ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">local_shipping</span>
-              </span>
-              <span>Compras</span>
-            </button>
-          )}
-
-          {/* Vender (Caja) - Super Admin, Admin y Empleado (NO viewer) */}
-          {!isViewerRole && (
-            <button onClick={() => setActiveView('ventas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'ventas' ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'ventas' ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30' : 'bg-rose-100 dark:bg-rose-950/60 text-rose-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">point_of_sale</span>
-              </span>
-              <span>Vender (Caja)</span>
-            </button>
-          )}
-
-          <button onClick={() => setActiveView('ventas_realizadas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'ventas_realizadas' || activeView === 'ventas_mostrador' ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">receipt_long</span>
-            </span>
-            <span>Ventas Realizadas</span>
-          </button>
-
-          <button onClick={() => setActiveView('pedidos_web')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'pedidos_web' ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'pedidos_web' ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30' : 'bg-blue-100 dark:bg-blue-950/60 text-blue-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">language</span>
-            </span>
-            <span>Pedidos Web</span>
-          </button>
-
-          <button onClick={() => setActiveView('cobros_pendientes')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'cobros_pendientes' ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'cobros_pendientes' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-500'}`}>
-              <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
-            </span>
-            <span>Cobros Pendientes</span>
-          </button>
-
-          {/* Clientes - Solo Super Admin y Admin */}
-          {isManagerRole && (
-            <button onClick={() => setActiveView('users')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'users' ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'users' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/30' : 'bg-sky-100 dark:bg-sky-950/60 text-sky-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">group</span>
-              </span>
-              <span>Clientes</span>
-              {pendingCount > 0 && (
-                <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-black animate-pulse">
-                  {pendingCount}
-                </span>
-              )}
-            </button>
-          )}
-
-          {/* Administradores - Exclusivo Super Admin */}
-          {isSuperAdminRole && (
-            <button onClick={() => setActiveView('admins')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'admins' ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'admins' ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30' : 'bg-purple-100 dark:bg-purple-950/60 text-purple-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">admin_panel_settings</span>
-              </span>
-              <span>Administradores</span>
-            </button>
-          )}
-
-          {/* Finanzas - Super Admin, Admin y Viewer (NO empleado) */}
-          {!isEmpleadoRole && (
-            <button onClick={() => setActiveView('finanzas')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'finanzas' ? 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'finanzas' ? 'bg-teal-500 text-white shadow-md shadow-teal-500/30' : 'bg-teal-100 dark:bg-teal-950/60 text-teal-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">payments</span>
-              </span>
-              <span>Finanzas</span>
-            </button>
-          )}
-
-          {/* Biblioteca de Medios - Super Admin, Admin y Empleado (NO viewer) */}
-          {!isViewerRole && (
-            <button onClick={() => setActiveView('media')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'media' ? 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'media' ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/30' : 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">folder_special</span>
-              </span>
-              <span>Biblioteca</span>
-            </button>
-          )}
-
-          {/* Configuración - Exclusivo Super Admin */}
-          {isSuperAdminRole && (
-            <button onClick={() => setActiveView('configuracion')} className={`flex w-full text-left items-center gap-3 px-3 py-2 rounded-xl font-semibold transition-all text-sm ${activeView === 'configuracion' ? 'bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-200' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/70'}`}>
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${activeView === 'configuracion' ? 'bg-slate-500 text-white shadow-md shadow-slate-500/30' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
-                <span className="material-symbols-outlined text-[18px]">settings</span>
-              </span>
-              <span>Configuración</span>
-            </button>
+          {/* ── MODO EDICIÓN: drag & drop + rename ── */}
+          {isEditingMenu && (
+            <>
+              <div className="mb-2 px-3 py-2 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-xl">
+                <p className="text-[11px] font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-sm">drag_indicator</span>
+                  Arrastrá para reordenar • Hacé clic en el nombre para editar
+                </p>
+              </div>
+              {editMenuOrder
+                .map(id => DEFAULT_MENU_ITEMS.find(i => i.id === id)!)
+                .filter(Boolean)
+                .map(item => (
+                  <div
+                    key={item.id}
+                    draggable
+                    onDragStart={() => { dragItemId.current = item.id; }}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverId(item.id); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const from = dragItemId.current;
+                      const to = item.id;
+                      if (!from || from === to) { setDragOverId(null); return; }
+                      setEditMenuOrder(prev => {
+                        const arr = [...prev];
+                        const fi = arr.indexOf(from);
+                        const ti = arr.indexOf(to);
+                        arr.splice(fi, 1);
+                        arr.splice(ti, 0, from);
+                        return arr;
+                      });
+                      setDragOverId(null);
+                      dragItemId.current = null;
+                    }}
+                    onDragEnd={() => { setDragOverId(null); dragItemId.current = null; }}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-xl border-2 transition-all cursor-grab active:cursor-grabbing select-none ${
+                      dragOverId === item.id
+                        ? 'border-purple-400 bg-purple-50 dark:bg-purple-950/40 scale-[1.02] shadow-md'
+                        : 'border-transparent hover:border-slate-200 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                    }`}
+                  >
+                    {/* Drag handle */}
+                    <span className="material-symbols-outlined text-slate-300 dark:text-slate-600 text-lg shrink-0">drag_indicator</span>
+                    {/* Icon preview */}
+                    <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${item.colorBg} opacity-80`}>
+                      <span className="material-symbols-outlined text-[15px]">{item.icon}</span>
+                    </span>
+                    {/* Editable label */}
+                    <input
+                      type="text"
+                      value={editMenuLabels[item.id] !== undefined ? editMenuLabels[item.id] : item.label}
+                      onChange={e => setEditMenuLabels(prev => ({ ...prev, [item.id]: e.target.value }))}
+                      onBlur={e => {
+                        // If empty, revert to default
+                        if (!e.target.value.trim()) {
+                          setEditMenuLabels(prev => { const n = { ...prev }; delete n[item.id]; return n; });
+                        }
+                      }}
+                      className="flex-1 min-w-0 text-xs font-semibold bg-transparent border-b border-dashed border-slate-300 dark:border-slate-600 focus:outline-none focus:border-purple-400 text-slate-700 dark:text-slate-200 py-0.5"
+                      onClick={e => e.stopPropagation()}
+                    />
+                    {/* Visible/hidden indicator */}
+                    <span className={`text-[10px] font-bold shrink-0 ${
+                      isItemVisible(item.id) ? 'text-emerald-500' : 'text-slate-300 dark:text-slate-600'
+                    }`} title={isItemVisible(item.id) ? 'Visible para tu rol' : 'Oculto por tu rol'}>
+                      <span className="material-symbols-outlined text-sm">{isItemVisible(item.id) ? 'visibility' : 'visibility_off'}</span>
+                    </span>
+                  </div>
+                ))
+              }
+              {/* Edit mode action buttons */}
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={saveMenuEdit}
+                  className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-md shadow-purple-500/20"
+                >
+                  <span className="material-symbols-outlined text-sm">check</span> Guardar
+                </button>
+                <button
+                  onClick={() => setIsEditingMenu(false)}
+                  className="flex-1 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-sm">close</span> Cancelar
+                </button>
+              </div>
+              <button
+                onClick={resetMenuConfig}
+                className="mt-1 w-full py-1.5 rounded-xl text-[11px] font-bold text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 transition-colors cursor-pointer flex items-center justify-center gap-1"
+              >
+                <span className="material-symbols-outlined text-sm">restart_alt</span> Restablecer al original
+              </button>
+            </>
           )}
 
           <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-3 mb-3 mt-6">Sistema</div>
@@ -1072,6 +1157,18 @@ export default function AdminDashboard() {
             </span>
             <span>Ver Tienda</span>
           </Link>
+
+          {/* ── Botón Editar Menú (Solo Super Admin) ── */}
+          {isSuperAdminRole && !isEditingMenu && (
+            <button
+              onClick={openMenuEditor}
+              title="Editar nombres y orden del menú"
+              className="mt-4 flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-300 dark:hover:border-purple-700 hover:bg-purple-50/50 dark:hover:bg-purple-950/20 transition-all text-[11px] font-bold cursor-pointer group"
+            >
+              <span className="material-symbols-outlined text-sm group-hover:rotate-12 transition-transform">edit</span>
+              Personalizar menú
+            </button>
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-200 dark:border-slate-800">

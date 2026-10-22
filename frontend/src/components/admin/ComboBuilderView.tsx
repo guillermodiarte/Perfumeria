@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { useStockFlowStore, BundleComponent, Product } from '@/store/useStockStore';
 
@@ -11,6 +11,8 @@ interface ComboBuilderViewProps {
   onComboCreated?: () => void;
   onCancel?: () => void;
 }
+
+const DRAFT_COMBOS_KEY = 'lyg_draft_combo';
 
 export default function ComboBuilderView({
   showAlert,
@@ -37,7 +39,7 @@ export default function ComboBuilderView({
   const [isUploading, setIsUploading] = useState(false);
 
   // Asegurar que 'Set de Regalos' siempre exista en categoriesConfig
-  React.useEffect(() => {
+  useEffect(() => {
     const exists = categoriesConfig.some((g) => g.opciones.includes('Set de Regalos'));
     if (!exists) {
       const state = useStockFlowStore.getState();
@@ -79,6 +81,244 @@ export default function ComboBuilderView({
   const [wholesalePrice, setWholesalePrice] = useState<number | ''>('');
   const [quantityToProduce, setQuantityToProduce] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ═══ DRAFT / BORRADOR COMPARTIDO ═══
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [draftUpdatedAt, setDraftUpdatedAt] = useState<string | null>(null);
+  const [draftUpdatedBy, setDraftUpdatedBy] = useState<string | null>(null);
+  const [isDraftLoaded, setIsDraftLoaded] = useState(false);
+  const [isSyncingServerDraft, setIsSyncingServerDraft] = useState(false);
+  const [showClearComboModal, setShowClearComboModal] = useState(false);
+
+  // Verifica si hay algún dato cargado
+  const hasDraftData = Boolean(
+    name.trim().length > 0 ||
+    selectedComponents.length > 0 ||
+    imageUrls.length > 0 ||
+    description.trim().length > 0 ||
+    (typeof suppliesCost === 'number' && suppliesCost > 0) ||
+    (typeof retailPrice === 'number' && retailPrice > 0)
+  );
+
+  // Helper para obtener token de autenticación
+  const getAuthToken = useCallback(() => {
+    return apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') || '' : '');
+  }, [apiKey]);
+
+  // Consulta el borrador compartido desde el servidor
+  const fetchServerDraft = useCallback(async (isManual = false) => {
+    try {
+      if (isManual) setIsSyncingServerDraft(true);
+      const token = getAuthToken();
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/combos/draft` : '/api/admin/combos/draft';
+      const res = await fetch(endpoint, {
+        headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.draft) {
+          const parsed = data.draft;
+          if (parsed.name !== undefined) setName(parsed.name);
+          if (parsed.targetGender) setTargetGender(parsed.targetGender);
+          if (parsed.description !== undefined) setDescription(parsed.description);
+          if (parsed.tag !== undefined) setTag(parsed.tag);
+          if (parsed.showTag !== undefined) setShowTag(parsed.showTag);
+          if (parsed.notForPublicSale !== undefined) setNotForPublicSale(parsed.notForPublicSale);
+          if (Array.isArray(parsed.imageUrls)) setImageUrls(parsed.imageUrls);
+          if (Array.isArray(parsed.selectedComponents) && parsed.selectedComponents.length > 0) {
+            setSelectedComponents(parsed.selectedComponents);
+          }
+          if (parsed.suppliesCost !== undefined) setSuppliesCost(parsed.suppliesCost);
+          if (parsed.retailPrice !== undefined) setRetailPrice(parsed.retailPrice);
+          if (parsed.wholesalePrice !== undefined) setWholesalePrice(parsed.wholesalePrice);
+          if (parsed.quantityToProduce !== undefined) setQuantityToProduce(parsed.quantityToProduce);
+          try {
+            localStorage.setItem(DRAFT_COMBOS_KEY, JSON.stringify(parsed));
+          } catch {}
+          if (data.updated_at) setDraftUpdatedAt(data.updated_at);
+          if (data.updated_by) setDraftUpdatedBy(data.updated_by);
+          setCloudSyncStatus('saved');
+          if (isManual) showAlert('✅ Borrador compartido sincronizado correctamente.');
+          return true;
+        } else {
+          return false;
+        }
+      }
+    } catch (e) {
+      console.error('Error al consultar borrador del servidor:', e);
+      if (isManual) showAlert('⚠️ No se pudo conectar al servidor para sincronizar.');
+    } finally {
+      if (isManual) setIsSyncingServerDraft(false);
+    }
+    return false;
+  }, [apiUrl, getAuthToken, showAlert]);
+
+  // Guarda el borrador en el servidor
+  const saveServerDraft = useCallback(async (draftData: any) => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/combos/draft` : '/api/admin/combos/draft';
+      setCloudSyncStatus('saving');
+      const res = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': token,
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ draft: draftData })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCloudSyncStatus('saved');
+        if (data.updated_at) setDraftUpdatedAt(data.updated_at);
+        if (data.updated_by) setDraftUpdatedBy(data.updated_by);
+      } else {
+        setCloudSyncStatus('error');
+      }
+    } catch (e) {
+      console.error('Error al guardar borrador en el servidor:', e);
+      setCloudSyncStatus('error');
+    }
+  }, [apiUrl, getAuthToken]);
+
+  // Elimina el borrador del servidor
+  const clearServerDraft = useCallback(async () => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      const endpoint = apiUrl ? `${apiUrl}/api/admin/combos/draft` : '/api/admin/combos/draft';
+      await fetch(endpoint, {
+        method: 'DELETE',
+        headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` }
+      });
+    } catch (e) {
+      console.error('Error al eliminar borrador del servidor:', e);
+    }
+  }, [apiUrl, getAuthToken]);
+
+  // Cargar borrador al montar: primero local para respuesta rápida, luego servidor para datos compartidos
+  useEffect(() => {
+    let isMounted = true;
+    const initDraft = async () => {
+      let localDraft: any = null;
+      try {
+        const saved = localStorage.getItem(DRAFT_COMBOS_KEY);
+        if (saved) {
+          localDraft = JSON.parse(saved);
+          if (localDraft.name !== undefined) setName(localDraft.name);
+          if (localDraft.targetGender) setTargetGender(localDraft.targetGender);
+          if (localDraft.description !== undefined) setDescription(localDraft.description);
+          if (localDraft.tag !== undefined) setTag(localDraft.tag);
+          if (localDraft.showTag !== undefined) setShowTag(localDraft.showTag);
+          if (localDraft.notForPublicSale !== undefined) setNotForPublicSale(localDraft.notForPublicSale);
+          if (Array.isArray(localDraft.imageUrls)) setImageUrls(localDraft.imageUrls);
+          if (Array.isArray(localDraft.selectedComponents) && localDraft.selectedComponents.length > 0) {
+            setSelectedComponents(localDraft.selectedComponents);
+          }
+          if (localDraft.suppliesCost !== undefined) setSuppliesCost(localDraft.suppliesCost);
+          if (localDraft.retailPrice !== undefined) setRetailPrice(localDraft.retailPrice);
+          if (localDraft.wholesalePrice !== undefined) setWholesalePrice(localDraft.wholesalePrice);
+          if (localDraft.quantityToProduce !== undefined) setQuantityToProduce(localDraft.quantityToProduce);
+        }
+      } catch (e) {
+        console.error('Error al cargar borrador local de combo:', e);
+      }
+
+      // Sincronizar con el servidor (siempre tiene prioridad sobre el local)
+      const foundOnServer = await fetchServerDraft(false);
+
+      // Si no había en el servidor pero sí local, respaldarlo al servidor para que otros admins lo vean
+      if (!foundOnServer && localDraft && isMounted) {
+        saveServerDraft(localDraft);
+      }
+
+      if (isMounted) {
+        setIsDraftLoaded(true);
+      }
+    };
+
+    initDraft();
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchServerDraft, saveServerDraft]);
+
+  // Guardar borrador automáticamente al cambiar datos con debounce de 800ms
+  useEffect(() => {
+    if (!isDraftLoaded) return;
+    const timer = setTimeout(() => {
+      try {
+        if (hasDraftData) {
+          const draft = {
+            name,
+            targetGender,
+            description,
+            tag,
+            showTag,
+            notForPublicSale,
+            imageUrls,
+            selectedComponents,
+            suppliesCost,
+            retailPrice,
+            wholesalePrice,
+            quantityToProduce,
+          };
+          localStorage.setItem(DRAFT_COMBOS_KEY, JSON.stringify(draft));
+          saveServerDraft(draft);
+        } else {
+          localStorage.removeItem(DRAFT_COMBOS_KEY);
+          clearServerDraft();
+          setCloudSyncStatus('idle');
+          setDraftUpdatedAt(null);
+          setDraftUpdatedBy(null);
+        }
+      } catch (e) {
+        console.error('Error al guardar borrador de combo:', e);
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [
+    isDraftLoaded, hasDraftData,
+    name, targetGender, description, tag, showTag, notForPublicSale,
+    imageUrls, selectedComponents, suppliesCost, retailPrice, wholesalePrice, quantityToProduce,
+    saveServerDraft, clearServerDraft,
+  ]);
+
+  // Al volver el foco a la ventana, sincronizar con el servidor
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      if (isDraftLoaded) {
+        fetchServerDraft(false);
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+    return () => window.removeEventListener('focus', handleWindowFocus);
+  }, [isDraftLoaded, fetchServerDraft]);
+
+  // Limpiar / Descartar borrador - resetea todos los campos
+  const handleClearDraft = () => {
+    setName('');
+    setTargetGender('Unisex');
+    setDescription('');
+    setTag('Edición Especial');
+    setShowTag(true);
+    setNotForPublicSale(false);
+    setImageUrls([]);
+    setSelectedComponents([]);
+    setSuppliesCost(0);
+    setRetailPrice('');
+    setWholesalePrice('');
+    setQuantityToProduce(1);
+    setCloudSyncStatus('idle');
+    setDraftUpdatedAt(null);
+    setDraftUpdatedBy(null);
+    try { localStorage.removeItem(DRAFT_COMBOS_KEY); } catch {}
+    clearServerDraft();
+    setShowClearComboModal(false);
+  };
 
   // Filter available products for adding to combo (ALL products, including notForPublicSale, but exclude bundles)
   const availableProducts = useMemo(() => {
@@ -323,6 +563,13 @@ export default function ComboBuilderView({
         console.warn('Error sincronizando DB al crear combo:', e);
       }
 
+      // Limpiar borrador al crear combo exitosamente
+      try { localStorage.removeItem(DRAFT_COMBOS_KEY); } catch {}
+      clearServerDraft();
+      setCloudSyncStatus('idle');
+      setDraftUpdatedAt(null);
+      setDraftUpdatedBy(null);
+
       showAlert(
         `🎉 ¡Combo "${name}" creado con éxito! Se armaron ${qty} unidades en stock y se descontaron los componentes del inventario.`
       );
@@ -357,16 +604,65 @@ export default function ComboBuilderView({
           </div>
         </div>
 
-        {onCancel && (
+        {/* Botones de control del borrador + Volver */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Indicador de estado cloud */}
+          {cloudSyncStatus === 'saving' && (
+            <span className="text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-100/70 dark:bg-amber-950/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5 animate-pulse">
+              <span className="material-symbols-outlined text-sm animate-spin">sync</span> Guardando en la nube...
+            </span>
+          )}
+          {hasDraftData && cloudSyncStatus === 'saved' && (
+            <span
+              className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5"
+              title="Este borrador está sincronizado en la base de datos y visible para todos los administradores en cualquier dispositivo"
+            >
+              <span className="material-symbols-outlined text-sm">cloud_done</span>
+              Borrador compartido {draftUpdatedBy ? `(${draftUpdatedBy})` : ''}
+            </span>
+          )}
+          {cloudSyncStatus === 'error' && (
+            <span className="text-xs font-medium text-red-700 dark:text-red-400 bg-red-100/70 dark:bg-red-950/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm">cloud_off</span> Error al guardar
+            </span>
+          )}
+
+          {/* Botón Sincronizar */}
           <button
             type="button"
-            onClick={onCancel}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs text-slate-700 dark:text-slate-300 transition-colors shrink-0 cursor-pointer"
+            onClick={() => fetchServerDraft(true)}
+            disabled={isSyncingServerDraft}
+            title="Consultar si otro administrador actualizó este borrador en otro dispositivo"
+            className="text-xs font-semibold text-pink-700 dark:text-pink-300 bg-pink-100/80 hover:bg-pink-200/80 dark:bg-pink-900/50 dark:hover:bg-pink-800/60 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
           >
-            <span className="material-symbols-outlined text-base">arrow_back</span>
-            <span>Volver a Productos</span>
+            <span className={`material-symbols-outlined text-sm ${isSyncingServerDraft ? 'animate-spin' : ''}`}>sync</span>
+            {isSyncingServerDraft ? 'Sincronizando...' : 'Sincronizar'}
           </button>
-        )}
+
+          {/* Botón Descartar Borrador */}
+          {hasDraftData && (
+            <button
+              type="button"
+              onClick={() => setShowClearComboModal(true)}
+              title="Limpiar todos los campos y descartar el borrador guardado"
+              className="text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-100/80 hover:bg-rose-200/80 dark:bg-rose-900/50 dark:hover:bg-rose-800/60 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-sm">delete_sweep</span>
+              Limpiar Borrador
+            </button>
+          )}
+
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-base">arrow_back</span>
+              <span>Volver a Productos</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main Responsive Grid Layout: Left Column (Components & Info), Right Column (Financials, Pricing & Production) */}
@@ -933,6 +1229,46 @@ export default function ComboBuilderView({
         </div>
 
       </form>
+
+      {/* Modal de confirmación: Limpiar borrador */}
+      {showClearComboModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-md w-full p-6 sm:p-8 border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/50 flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-rose-600 dark:text-rose-400 text-2xl">delete_sweep</span>
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 dark:text-white text-base">¿Descartar el borrador?</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Esta acción limpiará todos los campos y eliminará el borrador compartido del servidor.</p>
+              </div>
+            </div>
+            {draftUpdatedBy && (
+              <div className="mb-4 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm">warning</span>
+                <span>Este borrador fue guardado por <strong>{draftUpdatedBy}</strong>. Al descartarlo, se eliminará para todos los administradores.</span>
+              </div>
+            )}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowClearComboModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-sm cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleClearDraft}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-base">delete_sweep</span>
+                Sí, descartar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
