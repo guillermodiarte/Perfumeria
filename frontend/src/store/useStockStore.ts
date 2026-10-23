@@ -114,6 +114,26 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   }
 ];
 
+/**
+ * Verifica si un nombre de categoría o grupo comienza con la palabra "Combo" (o "Combos"),
+ * de forma insensible a mayúsculas, espacios y acentos.
+ * Casos contemplados: "Combo", "Combos", "Combos & Regalos", "Combos y Regalos",
+ * "Combo y Set", "Combos y Set de Regalos", "Combos Especiales", etc.
+ */
+export function isComboCategoryName(name?: string | null): boolean {
+  if (!name) return false;
+  const clean = name.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return clean.startsWith('combo');
+}
+
+/**
+ * Busca en categoriesConfig un grupo que comience con la palabra "Combo"
+ */
+export function findComboCategoryGroup(categoriesConfig?: CategoryConfig[]): CategoryConfig | undefined {
+  if (!Array.isArray(categoriesConfig)) return undefined;
+  return categoriesConfig.find(c => isComboCategoryName(c?.grupo));
+}
+
 export function getVariantGroupForCategory(
   catId: string | undefined,
   categoriesConfig: CategoryConfig[],
@@ -1911,11 +1931,14 @@ export const useStockFlowStore = create<StockFlowState>()(
           });
         }
 
+        const comboGrp = findComboCategoryGroup(state.categoriesConfig);
+        const defaultCat = comboGrp?.opciones?.[0] || comboGrp?.grupo || 'Set de Regalos';
+
         const newBundleProduct: Product = {
           id: bundleId,
           name: data.name.trim(),
           sku: data.sku?.trim() || ('SET-' + Math.random().toString(36).substr(2, 6).toUpperCase()),
-          categoryId: data.categoryId || 'Set de Regalos',
+          categoryId: data.categoryId?.trim() || defaultCat,
           targetGender: data.targetGender || 'Unisex',
           purchasePrice: totalUnitCost,
           salePrice: Number(data.retailPrice) || 0,
@@ -2144,7 +2167,7 @@ export const useStockFlowStore = create<StockFlowState>()(
           };
         }
         if (Array.isArray(state.categoriesConfig)) {
-          let combosGroup = state.categoriesConfig.find(c => c.grupo === 'Combos & Regalos');
+          let combosGroup = state.categoriesConfig.find(c => isComboCategoryName(c?.grupo));
           if (!combosGroup) {
             combosGroup = {
               grupo: 'Combos & Regalos',
@@ -2159,8 +2182,10 @@ export const useStockFlowStore = create<StockFlowState>()(
             };
             state.categoriesConfig.push(combosGroup);
           } else {
-            if (!combosGroup.opciones.includes('Set de Regalos')) {
-              combosGroup.opciones.unshift('Set de Regalos');
+            // Ya existe una categoría que comienza con la palabra "Combo" (ej. "Combos & Regalos", "Combos", etc.)
+            // No creamos otra categoría. Aseguramos que tenga al menos una opción válida si estuviera vacía.
+            if (!Array.isArray(combosGroup.opciones) || combosGroup.opciones.length === 0) {
+              combosGroup.opciones = ['Set de Regalos'];
             }
           }
         }

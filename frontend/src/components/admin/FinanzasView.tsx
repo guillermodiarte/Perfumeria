@@ -301,7 +301,7 @@ export default function FinanzasView({
         : Math.max(0, itemsRev - pendingClamped);
 
       const isWholesale = Boolean(
-        first.isWholesale || records.some((r) => r.isWholesale || (r as any).saleType === 'mayorista')
+        (first as any).isWholesale || records.some((r: any) => r.isWholesale || r.saleType === 'mayorista')
       );
 
       let installmentNote: string | undefined = undefined;

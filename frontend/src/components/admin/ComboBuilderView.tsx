@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
-import { useStockFlowStore, BundleComponent, Product } from '@/store/useStockStore';
+import { useStockFlowStore, BundleComponent, Product, isComboCategoryName, findComboCategoryGroup } from '@/store/useStockStore';
 
 interface ComboBuilderViewProps {
   showAlert: (msg: string) => void;
@@ -28,7 +28,7 @@ export default function ComboBuilderView({
 
   // Form states
   const [name, setName] = useState('');
-  const [categoryId, setCategoryId] = useState('Set de Regalos');
+  const [categoryId, setCategoryId] = useState('');
   const [targetGender, setTargetGender] = useState<'Hombre' | 'Mujer' | 'Unisex'>('Unisex');
   const [description, setDescription] = useState('');
   const [tag, setTag] = useState('Edición Especial');
@@ -38,33 +38,50 @@ export default function ComboBuilderView({
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [isUploading, setIsUploading] = useState(false);
 
-  // Asegurar que 'Set de Regalos' siempre exista en categoriesConfig
+  // Obtener el grupo de categoría de combos existente (cualquiera que comience con la palabra "Combo")
+  const comboGroup = useMemo(() => {
+    return findComboCategoryGroup(categoriesConfig);
+  }, [categoriesConfig]);
+
+  // Sincronizar categoryId con las opciones del grupo de combos existente
   useEffect(() => {
-    const exists = categoriesConfig.some((g) => g.opciones.includes('Set de Regalos'));
-    if (!exists) {
-      const state = useStockFlowStore.getState();
-      const current = JSON.parse(JSON.stringify(state.categoriesConfig));
-      const group = current.find((g: any) => g.grupo === 'Combos & Regalos');
-      if (group) {
-        if (!group.opciones.includes('Set de Regalos')) {
-          group.opciones.unshift('Set de Regalos');
+    if (comboGroup) {
+      const opts = comboGroup.opciones || [];
+      if (opts.length > 0) {
+        if (!categoryId || !opts.includes(categoryId)) {
+          setCategoryId(opts.includes('Set de Regalos') ? 'Set de Regalos' : opts[0]);
         }
       } else {
+        if (!categoryId) setCategoryId(comboGroup.grupo);
+      }
+    } else {
+      if (!categoryId) setCategoryId('Set de Regalos');
+    }
+  }, [comboGroup, categoryId]);
+
+  // Asegurar que exista una categoría de combos SOLO si ninguna categoría comienza con la palabra "Combo"
+  useEffect(() => {
+    // Si ya existe alguna categoría cuyo grupo comience con "Combo" (ej. "Combos", "Combo", "Combos & Regalos", "Combo y Set", "Combos y Set de Regalos", etc.), NO crear nada nuevo.
+    const hasComboCategory = categoriesConfig.some((g) => isComboCategoryName(g.grupo));
+    if (!hasComboCategory) {
+      const state = useStockFlowStore.getState();
+      const current = JSON.parse(JSON.stringify(state.categoriesConfig));
+      if (!current.some((g: any) => isComboCategoryName(g.grupo))) {
         current.push({
           grupo: 'Combos & Regalos',
           variantGroupId: 'none',
           opciones: ['Set de Regalos', 'Ramos de Maquillaje', 'Cajas Sorpresa', 'Sets de Perfumería', 'Combos Especiales'],
         });
+        state.setCategoriesConfig(current);
+        fetch('/api/store/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...state,
+            categoriesConfig: current,
+          }),
+        }).catch((err) => console.warn('Error sync categories:', err));
       }
-      state.setCategoriesConfig(current);
-      fetch('/api/store/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...state,
-          categoriesConfig: current,
-        }),
-      }).catch((err) => console.warn('Error sync categories:', err));
     }
   }, [categoriesConfig]);
 
@@ -119,6 +136,7 @@ export default function ComboBuilderView({
         if (data.draft) {
           const parsed = data.draft;
           if (parsed.name !== undefined) setName(parsed.name);
+          if (parsed.categoryId) setCategoryId(parsed.categoryId);
           if (parsed.targetGender) setTargetGender(parsed.targetGender);
           if (parsed.description !== undefined) setDescription(parsed.description);
           if (parsed.tag !== undefined) setTag(parsed.tag);
@@ -208,6 +226,7 @@ export default function ComboBuilderView({
         if (saved) {
           localDraft = JSON.parse(saved);
           if (localDraft.name !== undefined) setName(localDraft.name);
+          if (localDraft.categoryId) setCategoryId(localDraft.categoryId);
           if (localDraft.targetGender) setTargetGender(localDraft.targetGender);
           if (localDraft.description !== undefined) setDescription(localDraft.description);
           if (localDraft.tag !== undefined) setTag(localDraft.tag);
@@ -253,6 +272,7 @@ export default function ComboBuilderView({
         if (hasDraftData) {
           const draft = {
             name,
+            categoryId,
             targetGender,
             description,
             tag,
@@ -521,9 +541,10 @@ export default function ComboBuilderView({
 
     setIsSubmitting(true);
     try {
+      const chosenCategory = categoryId || comboGroup?.opciones?.[0] || comboGroup?.grupo || 'Set de Regalos';
       const res = createBundleProduct({
         name: name.trim(),
-        categoryId: 'Set de Regalos',
+        categoryId: chosenCategory,
         targetGender,
         description: description.trim(),
         tag: showTag ? tag : undefined,
@@ -726,13 +747,36 @@ export default function ComboBuilderView({
                     Fijada para Combos
                   </span>
                 </label>
-                <div className="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-pink-500 text-base">featured_seasonal_and_gifts</span>
-                    <span>Set de Regalos</span>
+                {comboGroup && comboGroup.opciones && comboGroup.opciones.length > 1 ? (
+                  <div className="relative">
+                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-pink-500">
+                      <span className="material-symbols-outlined text-base">featured_seasonal_and_gifts</span>
+                    </div>
+                    <select
+                      value={categoryId || comboGroup.opciones[0]}
+                      onChange={(e) => setCategoryId(e.target.value)}
+                      className="w-full pl-10 pr-28 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-pink-500 outline-none appearance-none cursor-pointer"
+                    >
+                      {comboGroup.opciones.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+                      <span className="text-xs text-slate-400 font-normal">{comboGroup.grupo}</span>
+                      <span className="material-symbols-outlined text-slate-400 text-sm">expand_more</span>
+                    </div>
                   </div>
-                  <span className="text-xs text-slate-400 font-normal">Combos & Regalos</span>
-                </div>
+                ) : (
+                  <div className="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-pink-500 text-base">featured_seasonal_and_gifts</span>
+                      <span>{categoryId || comboGroup?.opciones?.[0] || 'Set de Regalos'}</span>
+                    </div>
+                    <span className="text-xs text-slate-400 font-normal">{comboGroup?.grupo || 'Combos & Regalos'}</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
