@@ -179,5 +179,6 @@ class PurchaseBatchItem(Base):
     shipping_per_unit_ars = Column(Float, default=0.0)  # envío proporcional ÷ cantidad
     total_cost_per_unit_ars = Column(Float, default=0.0) # unit_cost_ars + shipping_per_unit_ars
     sale_price = Column(Float, default=0.0)              # PV final ingresado por el admin
+    wholesale_price = Column(Float, default=0.0)         # Precio mayorista ingresado o autocalculado
 
     batch = relationship("PurchaseBatch", back_populates="items")

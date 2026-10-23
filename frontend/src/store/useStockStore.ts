@@ -447,6 +447,8 @@ export interface StockFlowState {
       shippingPerUnitARS: number;
       totalCostPerUnitARS: number;
       salePrice: number;
+      manualWholesalePrice?: number;
+      wholesalePrice?: number;
       // Datos del producto para crear/actualizar en el store
       newProductName?: string;
       newProductSku?: string;
@@ -1103,10 +1105,19 @@ export const useStockFlowStore = create<StockFlowState>()(
                     : (existingProd.variants[varIndex].manualSalePrice || finalSalePrice));
                 if (existingProd.notForPublicSale) {
                   existingProd.variants[varIndex].manualWholesalePrice = undefined;
+                } else if (item.manualWholesalePrice !== undefined && item.manualWholesalePrice > 0) {
+                  existingProd.variants[varIndex].manualWholesalePrice = item.manualWholesalePrice;
+                } else if (item.wholesalePrice !== undefined && item.wholesalePrice > 0) {
+                  existingProd.variants[varIndex].manualWholesalePrice = item.wholesalePrice;
                 }
                 targetVariantId = existingProd.variants[varIndex].id;
               } else {
                 targetVariantId = 'v-' + Math.random().toString(36).substr(2, 9);
+                const finalVariantWholesale = existingProd.notForPublicSale
+                  ? undefined
+                  : (item.manualWholesalePrice && item.manualWholesalePrice > 0
+                    ? item.manualWholesalePrice
+                    : (item.wholesalePrice && item.wholesalePrice > 0 ? item.wholesalePrice : undefined));
                 existingProd.variants.push({
                   id: targetVariantId,
                   size: item.size,
@@ -1114,6 +1125,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                   stock: item.quantity,
                   unitPurchasePrice: item.totalCostPerUnitARS,
                   manualSalePrice: existingProd.notForPublicSale ? 0 : finalSalePrice,
+                  manualWholesalePrice: finalVariantWholesale,
                 });
               }
 
@@ -1130,6 +1142,10 @@ export const useStockFlowStore = create<StockFlowState>()(
                 if (allValidSalePrices.length > 0) {
                   existingProd.salePrice = Math.min(...allValidSalePrices);
                 }
+                const allValidWholesalePrices = existingProd.variants.map(v => v.manualWholesalePrice).filter((p): p is number => !!p && p > 0);
+                if (allValidWholesalePrices.length > 0) {
+                  existingProd.wholesalePrice = Math.min(...allValidWholesalePrices);
+                }
               }
               const allValidCostPrices = existingProd.variants.map(v => v.unitPurchasePrice).filter((p): p is number => !!p && p > 0);
               if (allValidCostPrices.length > 0) {
@@ -1143,6 +1159,12 @@ export const useStockFlowStore = create<StockFlowState>()(
               targetVariantId = 'v-' + Math.random().toString(36).substr(2, 9);
 
               const isNotForSale = Boolean(item.notForPublicSale);
+              const newProductWholesale = isNotForSale
+                ? undefined
+                : (item.manualWholesalePrice && item.manualWholesalePrice > 0
+                  ? item.manualWholesalePrice
+                  : (item.wholesalePrice && item.wholesalePrice > 0 ? item.wholesalePrice : undefined));
+
               const newProduct: Product = {
                 id: createdId,
                 name: targetProductName,
@@ -1152,6 +1174,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                 targetGender: item.targetGender || 'Unisex',
                 purchasePrice: item.totalCostPerUnitARS,
                 salePrice: isNotForSale ? 0 : finalSalePrice,
+                wholesalePrice: newProductWholesale,
                 notForPublicSale: isNotForSale,
                 imageUrls: item.newProductImageUrls || [],
                 description: item.description,
@@ -1169,6 +1192,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                   stock: item.quantity,
                   unitPurchasePrice: item.totalCostPerUnitARS,
                   manualSalePrice: isNotForSale ? 0 : finalSalePrice,
+                  manualWholesalePrice: newProductWholesale,
                 }],
               };
 

@@ -58,6 +58,8 @@ export function syncBatchItemsToStore(batch: any, registerPurchaseBatch: (batchD
       shippingPerUnitARS: shippingARS,
       totalCostPerUnitARS: totalCostARS,
       salePrice: salePrice,
+      wholesalePrice: (it.wholesale_price && Number(it.wholesale_price) > 0) ? Number(it.wholesale_price) : undefined,
+      manualWholesalePrice: (it.wholesale_price && Number(it.wholesale_price) > 0) ? Number(it.wholesale_price) : undefined,
       categoryId: meta.cat,
       targetGender: meta.gender,
       newProductImageUrls: [],

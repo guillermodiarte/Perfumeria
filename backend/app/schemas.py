@@ -118,6 +118,7 @@ class PurchaseBatchItemCreateSchema(BaseModel):
     shipping_per_unit_ars: float
     total_cost_per_unit_ars: float
     sale_price: float
+    wholesale_price: Optional[float] = 0.0
 
 class PurchaseBatchItemSchema(PurchaseBatchItemCreateSchema):
     id: int

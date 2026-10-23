@@ -31,6 +31,7 @@ const formatOrigCost = (amount: number, currency: string = 'ARS') => {
 
 export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { showAlert: (msg: string) => void; apiKey: string; apiUrl: string; resetKey?: number }) {
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
+  const wholesaleConfig = useStockFlowStore(s => s.wholesaleConfig);
   const registerPurchaseBatch = useStockFlowStore(s => s.registerPurchaseBatch);
   const deletePurchaseBatch = useStockFlowStore(s => s.deletePurchaseBatch);
   const updatePurchaseBatch = useStockFlowStore(s => s.updatePurchaseBatch);
@@ -144,6 +145,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     pIdx: number; vIdx: number; productName: string; variantLabel: string; quantity: number;
     unitCostOriginal: number; unitCostARS: number; shippingPerUnitARS: number; totalCostPerUnitARS: number;
     suggestedSalePrice: number; salePrice: number;
+    suggestedWholesalePrice: number; wholesalePrice: number;
     existingProd: any | null; existingVariant: any | null;
     salePriceConflict: 'update' | 'keep' | 'custom' | null; customSalePrice: number;
     notForPublicSale?: boolean;
@@ -787,6 +789,28 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           ? 0
           : (globalMarkupPrc > 0 ? Math.round(totalCostPerUnitARS * (1 + globalMarkupPrc / 100)) : 0);
 
+        const userSalePrice = (variant as any).manualSalePrice !== undefined && (variant as any).manualSalePrice !== ''
+          ? Number((variant as any).manualSalePrice)
+          : undefined;
+
+        const finalSalePrice = isNotForSale
+          ? 0
+          : (userSalePrice !== undefined ? userSalePrice : suggestedSalePrice);
+
+        const suggestedWholesalePrice = isNotForSale
+          ? 0
+          : (finalSalePrice > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0
+            ? Math.round(finalSalePrice * (1 - (wholesaleConfig.discountPercentage / 100)))
+            : 0);
+
+        const userWholesalePrice = (variant as any).manualWholesalePrice !== undefined && (variant as any).manualWholesalePrice !== ''
+          ? Number((variant as any).manualWholesalePrice)
+          : undefined;
+
+        const finalWholesalePrice = isNotForSale
+          ? 0
+          : (userWholesalePrice !== undefined ? userWholesalePrice : suggestedWholesalePrice);
+
         let sizeLabel = 'Único';
         if (variantGroup) { const opt = variantGroup.options[variant.sizeIndex || 0]; if (opt) sizeLabel = opt.description ? `${opt.value} - ${opt.description}` : opt.value; }
         const variantLabel = `${sizeLabel}${(variant as any).description ? ` – ${(variant as any).description}` : ''}`;
@@ -824,11 +848,13 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           shippingPerUnitARS,
           totalCostPerUnitARS,
           suggestedSalePrice,
-          salePrice: isNotForSale ? 0 : suggestedSalePrice,
+          salePrice: finalSalePrice,
+          suggestedWholesalePrice,
+          wholesalePrice: finalWholesalePrice,
           existingProd: existingProd || null,
           existingVariant: existingVariant || null,
           salePriceConflict: hasConflict ? null : 'update',
-          customSalePrice: isNotForSale ? 0 : suggestedSalePrice,
+          customSalePrice: finalSalePrice,
           notForPublicSale: isNotForSale
         });
       });
@@ -893,7 +919,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
           const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
           const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
-          return { product_id: prod.productId, variant_id: `v-new`, product_name: row.productName, variant_label: row.variantLabel, quantity: row.quantity, unit_cost_original: row.unitCostOriginal, unit_cost_ars: row.unitCostARS, shipping_per_unit_ars: row.shippingPerUnitARS, total_cost_per_unit_ars: row.totalCostPerUnitARS, sale_price: finalSalePrice };
+          const finalWholesalePrice = isNotForSale ? 0 : (row.wholesalePrice || 0);
+          return { product_id: prod.productId, variant_id: `v-new`, product_name: row.productName, variant_label: row.variantLabel, quantity: row.quantity, unit_cost_original: row.unitCostOriginal, unit_cost_ars: row.unitCostARS, shipping_per_unit_ars: row.shippingPerUnitARS, total_cost_per_unit_ars: row.totalCostPerUnitARS, sale_price: finalSalePrice, wholesale_price: finalWholesalePrice };
         }),
       };
       const res = await fetch(`${apiUrl}/api/admin/purchase-batches`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
@@ -919,7 +946,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
           const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
           const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
-          return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, notForPublicSale: isNotForSale, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
+          const finalWholesalePrice = isNotForSale ? undefined : (row.wholesalePrice && row.wholesalePrice > 0 ? row.wholesalePrice : undefined);
+          return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, manualWholesalePrice: finalWholesalePrice, wholesalePrice: finalWholesalePrice, notForPublicSale: isNotForSale, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
         }),
       });
 
@@ -1379,6 +1407,52 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                           {purchaseCurrency !== 'ARS' && (
                             <div className="text-xs text-slate-500 whitespace-nowrap self-end pb-2">→ <span className="font-bold text-slate-700 dark:text-slate-300">${fmt(unitCostARS)}</span></div>
                           )}
+                          {/* P. Venta sugerido */}
+                          {!(prod as any).notForPublicSale && (() => {
+                            const costARS = (Number(variant.unitPurchasePrice) || 0) * effectiveExchangeRate;
+                            const sugPV = globalMarkupPrc > 0 ? Math.round(costARS * (1 + globalMarkupPrc / 100)) : 0;
+                            const manualPV = (variant as any).manualSalePrice;
+                            const displayPV = manualPV !== undefined && manualPV !== '' ? Number(manualPV) : sugPV;
+                            const manualWP = (variant as any).manualWholesalePrice;
+                            const autoWP = (displayPV > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0)
+                              ? Math.round(displayPV * (1 - wholesaleConfig.discountPercentage / 100))
+                              : 0;
+                            const displayWP = manualWP !== undefined && manualWP !== '' ? Number(manualWP) : autoWP;
+                            return (
+                              <>
+                                <div className="w-[110px]">
+                                  <label className="block text-[10px] text-center font-bold text-emerald-600 dark:text-emerald-400 mb-1 leading-none">P. Venta ($)</label>
+                                  <input
+                                    type="number" step="1" min="0" placeholder={sugPV > 0 ? String(sugPV) : '0'}
+                                    className="w-full text-center bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-1 py-1 text-sm text-emerald-700 dark:text-emerald-300 font-bold h-9"
+                                    value={displayPV || ''}
+                                    onChange={e => {
+                                      const pv = Number(e.target.value) || 0;
+                                      updateVariant(pIdx, vIdx, 'manualSalePrice', pv);
+                                      // Recalculate wholesale automatically unless manually set
+                                      if ((variant as any)._wholesaleManual) return;
+                                      const newWP = (pv > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0)
+                                        ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100))
+                                        : 0;
+                                      updateVariant(pIdx, vIdx, 'manualWholesalePrice', newWP);
+                                    }}
+                                  />
+                                </div>
+                                <div className="w-[110px]">
+                                  <label className="block text-[10px] text-center font-bold text-indigo-500 dark:text-indigo-400 mb-1 leading-none">P. Mayorista ($)</label>
+                                  <input
+                                    type="number" step="1" min="0" placeholder={autoWP > 0 ? String(autoWP) : '0'}
+                                    className="w-full text-center bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-300 dark:border-indigo-700 rounded-lg px-1 py-1 text-sm text-indigo-600 dark:text-indigo-300 font-bold h-9"
+                                    value={displayWP || ''}
+                                    onChange={e => {
+                                      updateVariant(pIdx, vIdx, 'manualWholesalePrice', Number(e.target.value) || 0);
+                                      updateVariant(pIdx, vIdx, '_wholesaleManual', true);
+                                    }}
+                                  />
+                                </div>
+                              </>
+                            );
+                          })()}
                           <button onClick={() => removeVariant(pIdx, vIdx)} className={`h-9 px-2 rounded-lg transition-colors flex items-center justify-center ${prod.variants.length > 1 ? 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-slate-300 opacity-50 cursor-not-allowed'}`} disabled={prod.variants.length <= 1}>
                             <span className="material-symbols-outlined text-[20px]">delete</span>
                           </button>
@@ -1756,7 +1830,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                       <th className="pb-2 pr-3 text-right">Envío/u</th>
                       <th className="pb-2 pr-3 text-right">Total/u</th>
                       <th className="pb-2 pr-3 text-right font-black text-slate-900 dark:text-white">Total</th>
-                      <th className="pb-2 text-right min-w-[130px]">Precio de Venta ✏️</th>
+                      <th className="pb-2 pr-3 text-right min-w-[120px] text-emerald-600 dark:text-emerald-400">P. Venta ✏️</th>
+                      <th className="pb-2 text-right min-w-[120px] text-indigo-500 dark:text-indigo-400">P. Mayorista ✏️</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1809,14 +1884,36 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                           <td className="py-2 pr-3 text-right font-mono text-green-600 dark:text-green-400">${fmt(row.shippingPerUnitARS)}</td>
                           <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(row.totalCostPerUnitARS)}</td>
                           <td className="py-2 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white">${fmt(row.totalCostPerUnitARS * row.quantity)}</td>
-                          <td className="py-2 text-right">
+                          <td className="py-2 pr-3 text-right">
                             {row.notForPublicSale ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 px-2.5 py-1 rounded-lg">
                                 <span className="material-symbols-outlined text-[13px]">visibility_off</span>
                                 Sin venta
                               </span>
                             ) : (
-                              <input type="number" step="1" min="0" className={`w-28 text-right bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-green-300 dark:border-green-700 text-green-700 dark:text-green-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`} value={displaySalePrice || ''} onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }} disabled={row.salePriceConflict === 'keep'} />
+                              <input type="number" step="1" min="0" className={`w-28 text-right bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`} value={displaySalePrice || ''} onChange={e => {
+                                const pv = Number(e.target.value);
+                                updateSummaryRow(idx, 'salePrice', pv);
+                                if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', pv);
+                                // Recalculate wholesale from new sale price
+                                if (wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0) {
+                                  updateSummaryRow(idx, 'wholesalePrice', pv > 0 ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100)) : 0);
+                                }
+                              }} disabled={row.salePriceConflict === 'keep'} />
+                            )}
+                          </td>
+                          <td className="py-2 text-right">
+                            {row.notForPublicSale ? (
+                              <span className="text-[11px] text-purple-400">—</span>
+                            ) : (
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                className={`w-28 text-right bg-indigo-50 dark:bg-indigo-950/30 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${row.wholesalePrice > 0 ? 'border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-500'}`}
+                                value={row.wholesalePrice || ''}
+                                onChange={e => updateSummaryRow(idx, 'wholesalePrice', Number(e.target.value))}
+                              />
                             )}
                           </td>
                         </tr>
@@ -1834,7 +1931,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                       <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(shippingCostARS)}</td>
                       <td className="py-2.5 pr-3 text-right font-mono text-slate-400">—</td>
                       <td className="py-2.5 pr-3 text-right font-mono font-black text-slate-900 dark:text-white">${fmt(totalCostFinalSummary)}</td>
-                      <td className="py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400 font-black">${fmt(totalSaleValueSummary)}</td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-emerald-600 dark:text-emerald-400 font-black">${fmt(totalSaleValueSummary)}</td>
+                      <td className="py-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400 font-black">—</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1871,21 +1969,40 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                               Sin venta
                             </span>
                           ) : (
-                            <>
-                              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-0.5">P. Venta ✏️</span>
-                              <div className="relative">
-                                <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
-                                <input
-                                  type="number"
-                                  step="1"
-                                  min="0"
-                                  className={`w-28 pl-5 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
-                                  value={displaySalePrice || ''}
-                                  onChange={e => { updateSummaryRow(idx, 'salePrice', Number(e.target.value)); if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', Number(e.target.value)); }}
-                                  disabled={row.salePriceConflict === 'keep'}
-                                />
+                            <div className="flex flex-col items-end gap-1">
+                              <div>
+                                <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-0.5 block">P. Venta ✏️</span>
+                                <div className="relative">
+                                  <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
+                                  <input
+                                    type="number" step="1" min="0"
+                                    className={`w-28 pl-5 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
+                                    value={displaySalePrice || ''}
+                                    onChange={e => {
+                                      const pv = Number(e.target.value);
+                                      updateSummaryRow(idx, 'salePrice', pv);
+                                      if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', pv);
+                                      if (wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0) {
+                                        updateSummaryRow(idx, 'wholesalePrice', pv > 0 ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100)) : 0);
+                                      }
+                                    }}
+                                    disabled={row.salePriceConflict === 'keep'}
+                                  />
+                                </div>
                               </div>
-                            </>
+                              <div>
+                                <span className="text-[9px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider mb-0.5 block">P. Mayorista ✏️</span>
+                                <div className="relative">
+                                  <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
+                                  <input
+                                    type="number" step="1" min="0"
+                                    className={`w-28 pl-5 pr-2 py-1 text-right bg-indigo-50 dark:bg-indigo-950/30 border rounded-xl text-xs font-black transition-colors ${row.wholesalePrice > 0 ? 'border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-500'}`}
+                                    value={row.wholesalePrice || ''}
+                                    onChange={e => updateSummaryRow(idx, 'wholesalePrice', Number(e.target.value))}
+                                  />
+                                </div>
+                              </div>
+                            </div>
                           )}
                         </div>
                       </div>

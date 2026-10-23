@@ -88,6 +88,12 @@ def _ensure_sqlite_columns():
                 if "total_products_ars" not in cols_pb:
                     conn.execute(text("ALTER TABLE purchase_batches ADD COLUMN total_products_ars FLOAT DEFAULT 0"))
 
+            # purchase_batch_items table columns
+            res_pbi = conn.execute(text("PRAGMA table_info(purchase_batch_items)")).fetchall()
+            cols_pbi = [r[1] for r in res_pbi]
+            if cols_pbi and "wholesale_price" not in cols_pbi:
+                conn.execute(text("ALTER TABLE purchase_batch_items ADD COLUMN wholesale_price FLOAT DEFAULT 0"))
+
             conn.commit()
     except Exception as err:
         print("SQLite column check notice:", err)
@@ -847,6 +853,7 @@ def get_purchase_batch(batch_id: int, db: Session = Depends(get_db), current_adm
                 "shipping_per_unit_ars": it.shipping_per_unit_ars,
                 "total_cost_per_unit_ars": it.total_cost_per_unit_ars,
                 "sale_price": it.sale_price,
+                "wholesale_price": getattr(it, "wholesale_price", 0.0) or 0.0,
             }
             for it in batch.items
         ],
@@ -916,6 +923,7 @@ def create_purchase_batch(data: PurchaseBatchCreateSchema, db: Session = Depends
             shipping_per_unit_ars=it.shipping_per_unit_ars,
             total_cost_per_unit_ars=it.total_cost_per_unit_ars,
             sale_price=it.sale_price,
+            wholesale_price=it.wholesale_price or 0.0,
         )
         db.add(item)
 
