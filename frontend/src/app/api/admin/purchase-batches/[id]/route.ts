@@ -111,12 +111,24 @@ export async function PUT(
 
     // 3. Actualizar items si se proporcionaron
     if (Array.isArray(body.items)) {
+      const incomingIds = body.items.filter((it: any) => it.id).map((it: any) => it.id);
+      // Eliminar items que fueron quitados de la compra
+      await prisma.purchaseBatchItem.deleteMany({
+        where: {
+          batch_id: id,
+          id: { notIn: incomingIds }
+        }
+      });
+
       for (const it of body.items) {
         if (it.id) {
           await prisma.purchaseBatchItem.update({
             where: { id: it.id },
             data: {
+              product_id: it.product_id !== undefined ? String(it.product_id) : undefined,
+              variant_id: it.variant_id !== undefined ? String(it.variant_id) : undefined,
               product_name: it.product_name !== undefined ? it.product_name : undefined,
+              variant_label: it.variant_label !== undefined ? it.variant_label : undefined,
               quantity: it.quantity !== undefined ? Number(it.quantity) : undefined,
               sale_price: it.sale_price !== undefined ? Number(it.sale_price) : undefined,
               unit_cost_original: it.unit_cost_original !== undefined ? Number(it.unit_cost_original) : undefined,
@@ -124,6 +136,23 @@ export async function PUT(
               shipping_per_unit_ars: it.shipping_per_unit_ars !== undefined ? Number(it.shipping_per_unit_ars) : undefined,
               total_cost_per_unit_ars: it.total_cost_per_unit_ars !== undefined ? Number(it.total_cost_per_unit_ars) : undefined,
             },
+          });
+        } else {
+          // Nuevo item agregado al lote durante la edición
+          await prisma.purchaseBatchItem.create({
+            data: {
+              batch_id: id,
+              product_id: it.product_id ? String(it.product_id) : '',
+              variant_id: it.variant_id ? String(it.variant_id) : 'v-new',
+              product_name: it.product_name || '',
+              variant_label: it.variant_label || '',
+              quantity: Number(it.quantity) || 1,
+              sale_price: Number(it.sale_price) || 0,
+              unit_cost_original: Number(it.unit_cost_original) || 0,
+              unit_cost_ars: Number(it.unit_cost_ars) || 0,
+              shipping_per_unit_ars: Number(it.shipping_per_unit_ars) || 0,
+              total_cost_per_unit_ars: Number(it.total_cost_per_unit_ars) || 0,
+            }
           });
         }
       }
@@ -146,6 +175,10 @@ export async function PUT(
       data: {
         supplier_id: supplierId,
         purchase_date: purchaseDate,
+        currency: body.currency !== undefined ? body.currency : existing.currency,
+        exchange_rate: body.exchange_rate !== undefined ? Number(body.exchange_rate) : existing.exchange_rate,
+        shipping_currency: body.shipping_currency !== undefined ? body.shipping_currency : existing.shipping_currency,
+        shipping_cost_original: body.shipping_cost_original !== undefined ? Number(body.shipping_cost_original) : existing.shipping_cost_original,
         notes: body.notes !== undefined ? body.notes : existing.notes,
         shipping_cost_ars: shippingCostARS,
         total_products_ars: totalProductsARS,

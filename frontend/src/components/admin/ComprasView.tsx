@@ -165,10 +165,13 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
   const [deleteModalBatch, setDeleteModalBatch] = useState<any | null>(null);
   const [deletingBatch, setDeletingBatch] = useState(false);
 
-  // Modal Editar Lote
-  const [editModalBatch, setEditModalBatch] = useState<any | null>(null);
+  // Modo Edición en línea (reemplaza el modal de editar lote)
+  const [editingBatchId, setEditingBatchId] = useState<number | null>(null);
+  const [editingBatchNumber, setEditingBatchNumber] = useState<string | null>(null);
   const [loadingEditBatch, setLoadingEditBatch] = useState(false);
-  const [savingEditBatch, setSavingEditBatch] = useState(false);
+  // Pendiente para confirmar reemplazo de borrador
+  const [pendingEditBatchId, setPendingEditBatchId] = useState<number | null>(null);
+  const [showReplaceWithEditModal, setShowReplaceWithEditModal] = useState(false);
 
   // Modal Eliminar Datos / Borrador
   const [showClearDraftModal, setShowClearDraftModal] = useState(false);
@@ -589,172 +592,134 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
   };
 
   const openEditBatch = async (batchId: number) => {
+    // Si hay datos en el borrador, pedir confirmación antes de sobreescribir
+    if (hasDraftData) {
+      setPendingEditBatchId(batchId);
+      setShowReplaceWithEditModal(true);
+      return;
+    }
+    await _loadBatchIntoForm(batchId);
+  };
+
+  const _loadBatchIntoForm = async (batchId: number) => {
     setLoadingEditBatch(true);
     try {
       const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${batchId}`, {
         headers: { 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
       });
-      if (res.ok) {
-        const data = await res.json();
-        const mappedItems = (data.items || []).map((it: any) => ({
-          id: it.id,
-          product_id: it.product_id,
-          variant_id: it.variant_id,
-          product_name: it.product_name,
-          original_product_name: it.product_name,  // save original for rename detection
-          variant_label: it.variant_label,
-          original_quantity: it.quantity,
-          quantity: it.quantity,
-          unit_cost_original: it.unit_cost_original || 0,
-          unit_cost_ars: it.unit_cost_ars || 0,
-          shipping_per_unit_ars: it.shipping_per_unit_ars || 0,
-          total_cost_per_unit_ars: it.total_cost_per_unit_ars || 0,
-          sale_price: it.sale_price || 0,
-        }));
-        setEditModalBatch({
-          id: data.id,
-          batch_number: data.batch_number,
-          supplier_name: data.supplier_name || '',
-          purchase_date: data.purchase_date ? data.purchase_date.split('T')[0] : '',
-          notes: data.notes || '',
-          currency: data.currency,
-          exchange_rate: data.exchange_rate,
-          shipping_cost_ars: data.shipping_cost_ars || 0,
-          items: mappedItems,
-          origItems: mappedItems.map((it: any) => ({ ...it })),
-        });
-      } else {
-        showAlert('No se pudo cargar la información del lote para editar.');
+      if (!res.ok) { showAlert('No se pudo cargar la información del lote para editar.'); return; }
+      const data = await res.json();
+
+      // Popular el formulario con los datos del lote
+      setSupplierInput(data.supplier_name || '');
+      setPurchaseDate(data.purchase_date ? data.purchase_date.split('T')[0] : new Date().toISOString().split('T')[0]);
+      const batchCurrency: Currency = (['ARS','USD','BRL','PYG'].includes(data.currency) ? data.currency : 'ARS') as Currency;
+      setPurchaseCurrency(batchCurrency);
+      setExchangeRate(data.exchange_rate && data.exchange_rate !== 1 ? data.exchange_rate : (batchCurrency === 'ARS' ? 1 : ''));
+      setShippingCurrency('ARS');
+      setShippingCostOriginal(data.shipping_cost_ars || '');
+
+      // Convertir los items del lote al formato de productos del formulario
+      const loadedProducts: any[] = [];
+      const seenProductNames = new Map<string, number>(); // productName -> índice en loadedProducts
+
+      for (const it of (data.items || [])) {
+        const pName = (it.product_name || '').trim();
+        const existingIdx = seenProductNames.get(pName.toLowerCase());
+
+        // Buscar si el producto ya existe en el catálogo para cargar imágenes y metadatos
+        const matchingStoreProd = productsStore.find(p =>
+          (it.product_id && String(p.id) === String(it.product_id)) ||
+          p.name.trim().toLowerCase() === pName.toLowerCase()
+        );
+
+        const categoryId = matchingStoreProd?.categoryId || it.category_id || categoriesConfig[0]?.opciones[0] || 'Perfumes de Mujer';
+        const vg = getVariantGroupForCategory(categoryId, categoriesConfig, variantGroupsConfig);
+
+        const unitCostInOrigCurrency = batchCurrency !== 'ARS' && data.exchange_rate && Number(data.exchange_rate) > 0
+          ? (Number(it.unit_cost_ars) || 0) / Number(data.exchange_rate)
+          : (Number(it.unit_cost_original) || Number(it.unit_cost_ars) || 0);
+
+        // Parsear tamaño y descripción desde variant_label
+        const labelParts = (it.variant_label || '').split(' – ').length > 1
+          ? (it.variant_label || '').split(' – ')
+          : (it.variant_label || '').split(' - ');
+        const vSize = labelParts[0]?.trim() || '';
+        const vDesc = labelParts.slice(1).join(' - ').trim();
+
+        // Encontrar sizeIndex en el grupo de variantes
+        let sizeIndex = 0;
+        if (vg && vg.options.length > 0) {
+          const foundIdx = vg.options.findIndex(o =>
+            vSize && (o.value === vSize || vSize.startsWith(o.value) || (o.description && vSize.includes(o.description)))
+          );
+          if (foundIdx >= 0) sizeIndex = foundIdx;
+        }
+
+        const newVariant = {
+          size: vSize || 'M',
+          description: vDesc,
+          quantity: it.quantity || 1,
+          unitPurchasePrice: unitCostInOrigCurrency,
+          sizeIndex,
+          manualSalePrice: it.sale_price || '',
+          manualWholesalePrice: it.wholesale_price || '',
+          _editBatchItemId: it.id,
+          _editVariantId: it.variant_id,
+          _editProductId: it.product_id,
+          _editOrigQty: it.quantity || 0,
+        };
+
+        if (existingIdx !== undefined) {
+          loadedProducts[existingIdx].variants.push(newVariant);
+        } else {
+          const newProd = {
+            productId: matchingStoreProd ? matchingStoreProd.id : (it.product_id ? String(it.product_id) : `NEW-${Date.now()}-${Math.random().toString(36).substr(2,6)}`),
+            newProductName: matchingStoreProd ? matchingStoreProd.name : pName,
+            newProductSku: matchingStoreProd?.sku || '',
+            perfumeType: (matchingStoreProd as any)?.perfumeType || '',
+            categoryId,
+            targetGender: matchingStoreProd?.targetGender || ('Unisex' as const),
+            notForPublicSale: Boolean((matchingStoreProd as any)?.notForPublicSale),
+            newProductImageUrls: matchingStoreProd?.imageUrls || [],
+            _uploading: false,
+            variants: [newVariant],
+            description: matchingStoreProd?.description || '',
+            tag: (matchingStoreProd as any)?.tag || 'Alta Demanda',
+            showTag: Boolean((matchingStoreProd as any)?.showTag),
+            olfactoryNotes: (matchingStoreProd as any)?.olfactoryNotes || '',
+            duration: (matchingStoreProd as any)?.duration || '',
+            intensity: (matchingStoreProd as any)?.intensity || '',
+            family: (matchingStoreProd as any)?.family || '',
+            showFeatures: Boolean((matchingStoreProd as any)?.showFeatures),
+            _showDetails: false,
+          };
+          seenProductNames.set(pName.toLowerCase(), loadedProducts.length);
+          loadedProducts.push(newProd);
+        }
       }
+
+      if (loadedProducts.length > 0) setProducts(loadedProducts);
+      else setProducts([createEmptyProduct()]);
+
+      // Registrar el batch que se está editando
+      setEditingBatchId(data.id);
+      setEditingBatchNumber(data.batch_number);
+
+      // Limpiar borrador anterior para evitar colisiones
+      try { localStorage.removeItem(DRAFT_COMPRAS_KEY); } catch {}
+      clearServerDraft();
+      setCloudSyncStatus('idle');
+      setDraftUpdatedAt(null);
+      setDraftUpdatedBy(null);
+      setShowSummary(false);
+
+      // Navegar al tab nueva compra
+      setActiveTab('nueva');
     } catch (e: any) {
       showAlert(`Error al cargar lote: ${e.message}`);
     } finally {
       setLoadingEditBatch(false);
-    }
-  };
-
-  const recalcEditItems = (items: any[], shippingTotal: number) => {
-    const totalCostARS = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_ars) || 0), 0);
-    return items.map((it: any) => {
-      const qty = Number(it.quantity) || 0;
-      const unitCostARS = Number(it.unit_cost_ars) || 0;
-      const blockCost = unitCostARS * qty;
-      const proportion = totalCostARS > 0 ? blockCost / totalCostARS : (items.length > 0 ? 1 / items.length : 0);
-      const shippingPerUnit = qty > 0 ? (shippingTotal * proportion) / qty : 0;
-      return {
-        ...it,
-        shipping_per_unit_ars: shippingPerUnit,
-        total_cost_per_unit_ars: unitCostARS + shippingPerUnit,
-      };
-    });
-  };
-
-  const updateEditItem = (idx: number, field: string, val: any) => {
-    if (!editModalBatch) return;
-    const nextItems = [...editModalBatch.items];
-    nextItems[idx] = { ...nextItems[idx], [field]: val };
-    // If cost or quantity changed, recalculate shipping distribution
-    if (field === 'unit_cost_ars' || field === 'quantity') {
-      const recalculated = recalcEditItems(nextItems, Number(editModalBatch.shipping_cost_ars) || 0);
-      setEditModalBatch({ ...editModalBatch, items: recalculated });
-    } else {
-      setEditModalBatch({ ...editModalBatch, items: nextItems });
-    }
-  };
-
-  const updateEditShipping = (newShipping: number) => {
-    if (!editModalBatch) return;
-    const recalculated = recalcEditItems(editModalBatch.items, newShipping);
-    setEditModalBatch({ ...editModalBatch, shipping_cost_ars: newShipping, items: recalculated });
-  };
-
-  const handleSaveEditBatch = async () => {
-    if (!editModalBatch) return;
-    setSavingEditBatch(true);
-    try {
-      const payload = {
-        supplier_name: editModalBatch.supplier_name.trim() || null,
-        purchase_date: editModalBatch.purchase_date,
-        notes: editModalBatch.notes.trim() || null,
-        shipping_cost_ars: Number(editModalBatch.shipping_cost_ars) || 0,
-        items: editModalBatch.items.map((it: any) => ({
-          id: it.id,
-          product_name: (it.product_name || '').trim() || undefined,
-          quantity: Number(it.quantity) || 0,
-          sale_price: Number(it.sale_price) || 0,
-          unit_cost_original: Number(it.unit_cost_original) || 0,
-          unit_cost_ars: Number(it.unit_cost_ars) || 0,
-          shipping_per_unit_ars: Number(it.shipping_per_unit_ars) || 0,
-          total_cost_per_unit_ars: Number(it.total_cost_per_unit_ars) || 0,
-        })),
-      };
-
-      const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${editModalBatch.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        let errMsg = 'Error al actualizar lote';
-        try {
-          const err = await res.json();
-          errMsg = err.detail || errMsg;
-        } catch { }
-        throw new Error(errMsg);
-      }
-
-      // Cascade-rename product names if changed
-      const origItems: any[] = editModalBatch.origItems || [];
-      const renamedPairs: Array<{oldName: string, newName: string}> = [];
-      for (const it of editModalBatch.items) {
-        const origItem = origItems.find((o: any) => o.id === it.id);
-        if (origItem && origItem.product_name && it.product_name && origItem.product_name.trim() !== it.product_name.trim()) {
-          // Only add the pair once per unique old→new
-          if (!renamedPairs.find(p => p.oldName === origItem.product_name.trim())) {
-            renamedPairs.push({ oldName: origItem.product_name.trim(), newName: it.product_name.trim() });
-          }
-        }
-      }
-      for (const pair of renamedPairs) {
-        const matchingProduct = productsStore.find(p => p.name.trim().toLowerCase() === pair.oldName.toLowerCase());
-        if (matchingProduct) {
-          try {
-            await fetch(`${apiUrl}/api/admin/products/${matchingProduct.id}/rename`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
-              body: JSON.stringify({ newName: pair.newName, oldName: pair.oldName }),
-            });
-          } catch {}
-        }
-      }
-
-      // Delta de cantidades y nuevos precios
-      const itemsDiff = editModalBatch.items.map((it: any) => ({
-        productId: it.product_id,
-        variantId: it.variant_id,
-        productName: it.product_name,
-        variantLabel: it.variant_label,
-        quantityDelta: (Number(it.quantity) || 0) - it.original_quantity,
-        newSalePrice: Number(it.sale_price) || undefined,
-        newTotalCostPerUnit: Number(it.total_cost_per_unit_ars) || undefined,
-      }));
-
-      updatePurchaseBatch({
-        batchNumber: editModalBatch.batch_number,
-        supplierName: editModalBatch.supplier_name.trim() || undefined,
-        itemsDiff,
-      });
-
-      showAlert(`✅ Lote ${editModalBatch.batch_number} actualizado con éxito.`);
-      setEditModalBatch(null);
-      if (detailBatch?.id === editModalBatch.id) fetchBatchDetail(editModalBatch.id);
-      fetchBatches();
-      fetchSuppliers();
-    } catch (e: any) {
-      showAlert(`Error al guardar edición: ${e.message}`);
-    } finally {
-      setSavingEditBatch(false);
     }
   };
 
@@ -894,6 +859,20 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
 
   const [saving, setSaving] = useState(false);
 
+  const cancelEditMode = () => {
+    setEditingBatchId(null);
+    setEditingBatchNumber(null);
+    setSupplierInput('');
+    setPurchaseDate(new Date().toISOString().split('T')[0]);
+    setPurchaseCurrency('ARS');
+    setExchangeRate(1);
+    setShippingCurrency('ARS');
+    setShippingCostOriginal('');
+    setProducts([createEmptyProduct()]);
+    setShowSummary(false);
+    setActiveTab('historial');
+  };
+
   const handleConfirmSave = async () => {
     const firstUnresolvedIdx = summaryRows.findIndex(
       r => isRowConflict(r) && r.salePriceConflict === null
@@ -904,65 +883,120 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     }
     setSaving(true);
     try {
-      const payload = {
-        supplier_name: supplierInput.trim() || null,
-        purchase_date: purchaseDate,
-        currency: purchaseCurrency,
-        exchange_rate: effectiveExchangeRate,
-        shipping_currency: shippingCurrency,
-        shipping_cost_original: shippingCostOriginal,
-        shipping_cost_ars: shippingCostARS,
-        total_products_ars: totalCompraARS,
-        total_cost_ars: totalCompraARS + shippingCostARS,
-        items: summaryRows.map(row => {
-          const prod = products[row.pIdx];
-          const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
-          const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
-          const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
-          const finalWholesalePrice = isNotForSale ? 0 : (row.wholesalePrice || 0);
-          return { product_id: prod.productId, variant_id: `v-new`, product_name: row.productName, variant_label: row.variantLabel, quantity: row.quantity, unit_cost_original: row.unitCostOriginal, unit_cost_ars: row.unitCostARS, shipping_per_unit_ars: row.shippingPerUnitARS, total_cost_per_unit_ars: row.totalCostPerUnitARS, sale_price: finalSalePrice, wholesale_price: finalWholesalePrice };
-        }),
-      };
-      const res = await fetch(`${apiUrl}/api/admin/purchase-batches`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
-      if (!res.ok) {
-        let errMsg = 'Error en el servidor';
-        try {
-          const errData = await res.json();
-          errMsg = errData.detail || errData.message || JSON.stringify(errData);
-        } catch {
-          errMsg = `Error HTTP ${res.status}: ${res.statusText}`;
-        }
-        throw new Error(errMsg);
-      }
-      const saved = await res.json();
-
-      registerPurchaseBatch({
-        batchNumber: saved.batch_number,
-        supplierName: supplierInput.trim() || undefined,
-        purchaseCurrency,
-        exchangeRate: effectiveExchangeRate,
-        items: summaryRows.map(row => {
-          const prod = products[row.pIdx];
-          const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
-          const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
-          const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
-          const finalWholesalePrice = isNotForSale ? undefined : (row.wholesalePrice && row.wholesalePrice > 0 ? row.wholesalePrice : undefined);
-          return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, manualWholesalePrice: finalWholesalePrice, wholesalePrice: finalWholesalePrice, notForPublicSale: isNotForSale, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
-        }),
+      const buildItems = () => summaryRows.map(row => {
+        const prod = products[row.pIdx];
+        const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
+        const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
+        const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
+        const finalWholesalePrice = isNotForSale ? 0 : (row.wholesalePrice || 0);
+        const variant = prod.variants[row.vIdx];
+        return {
+          id: (variant as any)._editBatchItemId ?? undefined,
+          product_id: prod.productId,
+          variant_id: (variant as any)._editVariantId || `v-new`,
+          product_name: row.productName,
+          variant_label: row.variantLabel,
+          quantity: row.quantity,
+          unit_cost_original: row.unitCostOriginal,
+          unit_cost_ars: row.unitCostARS,
+          shipping_per_unit_ars: row.shippingPerUnitARS,
+          total_cost_per_unit_ars: row.totalCostPerUnitARS,
+          sale_price: finalSalePrice,
+          wholesale_price: finalWholesalePrice,
+        };
       });
 
-      showAlert(`✅ Lote ${saved.batch_number} guardado con éxito.`);
-      try {
-        localStorage.removeItem(DRAFT_COMPRAS_KEY);
-      } catch {}
+      // ── Modo edición: PUT al lote existente ──
+      if (editingBatchId) {
+        const editPayload = {
+          supplier_name: supplierInput.trim() || null,
+          purchase_date: purchaseDate,
+          currency: purchaseCurrency,
+          exchange_rate: effectiveExchangeRate,
+          shipping_currency: shippingCurrency,
+          shipping_cost_original: shippingCostOriginal,
+          shipping_cost_ars: shippingCostARS,
+          notes: null,
+          items: buildItems(),
+        };
+        const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${editingBatchId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` },
+          body: JSON.stringify(editPayload),
+        });
+        if (!res.ok) {
+          let errMsg = 'Error al actualizar lote';
+          try { const err = await res.json(); errMsg = err.detail || errMsg; } catch {}
+          throw new Error(errMsg);
+        }
+        const itemsDiff = summaryRows.map(row => {
+          const prod = products[row.pIdx];
+          const variant = prod.variants[row.vIdx];
+          const origQty = (variant as any)._editOrigQty ?? row.quantity;
+          const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
+          const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? row.salePrice;
+          const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
+          return { productId: prod.productId, variantId: (variant as any)._editVariantId, productName: row.productName, variantLabel: row.variantLabel, quantityDelta: row.quantity - origQty, newSalePrice: finalSalePrice, newTotalCostPerUnit: row.totalCostPerUnitARS };
+        });
+        updatePurchaseBatch({ batchNumber: editingBatchNumber || '', supplierName: supplierInput.trim() || undefined, itemsDiff });
+        showAlert(`✅ Lote ${editingBatchNumber} actualizado con éxito.`);
+      } else {
+        // ── Modo nuevo: POST ──
+        const payload = {
+          supplier_name: supplierInput.trim() || null,
+          purchase_date: purchaseDate,
+          currency: purchaseCurrency,
+          exchange_rate: effectiveExchangeRate,
+          shipping_currency: shippingCurrency,
+          shipping_cost_original: shippingCostOriginal,
+          shipping_cost_ars: shippingCostARS,
+          total_products_ars: totalCompraARS,
+          total_cost_ars: totalCompraARS + shippingCostARS,
+          items: buildItems(),
+        };
+        const res = await fetch(`${apiUrl}/api/admin/purchase-batches`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
+        if (!res.ok) {
+          let errMsg = 'Error en el servidor';
+          try {
+            const errData = await res.json();
+            errMsg = errData.detail || errData.message || JSON.stringify(errData);
+          } catch {
+            errMsg = `Error HTTP ${res.status}: ${res.statusText}`;
+          }
+          throw new Error(errMsg);
+        }
+        const saved = await res.json();
+        registerPurchaseBatch({
+          batchNumber: saved.batch_number,
+          supplierName: supplierInput.trim() || undefined,
+          purchaseCurrency,
+          exchangeRate: effectiveExchangeRate,
+          items: summaryRows.map(row => {
+            const prod = products[row.pIdx];
+            const isNotForSale = Boolean(row.notForPublicSale || (prod as any).notForPublicSale);
+            const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
+            const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
+            const finalWholesalePrice = isNotForSale ? undefined : (row.wholesalePrice && row.wholesalePrice > 0 ? row.wholesalePrice : undefined);
+            return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, manualWholesalePrice: finalWholesalePrice, wholesalePrice: finalWholesalePrice, notForPublicSale: isNotForSale, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
+          }),
+        });
+        showAlert(`✅ Lote ${saved.batch_number} guardado con éxito.`);
+      }
+
+      // Limpieza post-guardado
+      try { localStorage.removeItem(DRAFT_COMPRAS_KEY); } catch {}
       clearServerDraft();
       setCloudSyncStatus('idle');
       setDraftUpdatedAt(null);
       setDraftUpdatedBy(null);
+      setEditingBatchId(null);
+      setEditingBatchNumber(null);
       setProducts([createEmptyProduct()]);
       setShippingCostOriginal('');
       setSupplierInput('');
       setPurchaseDate(new Date().toISOString().split('T')[0]);
+      setPurchaseCurrency('ARS');
+      setExchangeRate(1);
       setShowSummary(false);
       setActiveTab('historial');
       fetchBatches();
@@ -1011,6 +1045,34 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
       {/* ═══ TAB NUEVA COMPRA ═══ */}
       {activeTab === 'nueva' && (
         <div className="space-y-6">
+
+          {/* Banner modo edición */}
+          {editingBatchId && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-2xl animate-in fade-in duration-200">
+              <div className="flex items-center gap-3">
+                <div className="size-9 rounded-xl bg-amber-200 dark:bg-amber-800/60 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-xl">edit_note</span>
+                </div>
+                <div>
+                  <p className="text-sm font-black text-amber-800 dark:text-amber-300">
+                    Editando lote <span className="font-mono">{editingBatchNumber}</span>
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Modificá los datos y guardá para actualizar el lote. Los cambios de stock se aplicarán automáticamente.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={cancelEditMode}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-xs font-bold transition-colors"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+                Cancelar edición
+              </button>
+            </div>
+          )}
+
           {/* PASO 1 */}
           <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-2xl space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2140,9 +2202,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                 <button type="button" onClick={() => setShowSummary(false)} className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-bold text-sm transition-colors flex items-center justify-center gap-2">
                   <span className="material-symbols-outlined text-lg">arrow_back</span> Volver a editar
                 </button>
-                <button type="button" onClick={handleConfirmSave} disabled={saving} className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-sm shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2 disabled:opacity-60">
-                  {saving ? <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span> : <span className="material-symbols-outlined text-lg">check_circle</span>}
-                  {saving ? 'Guardando...' : 'Confirmar Ingreso'}
+                <button type="button" onClick={handleConfirmSave} disabled={saving} className={`w-full sm:w-auto px-7 py-2.5 rounded-xl text-white font-bold text-sm shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-60 ${editingBatchId ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/25' : 'bg-primary hover:bg-primary/90 shadow-primary/25'}`}>
+                  {saving ? <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span> : <span className="material-symbols-outlined text-lg">{editingBatchId ? 'save' : 'check_circle'}</span>}
+                  {saving ? 'Guardando...' : editingBatchId ? 'Guardar Cambios del Lote' : 'Confirmar Ingreso'}
                 </button>
               </div>
             </div>
@@ -2653,317 +2715,80 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         </div>
       )}
 
-      {/* MODAL: EDITAR LOTE */}
-      {(editModalBatch || loadingEditBatch) && (
-        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-4xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
-            {loadingEditBatch ? (
-              <div className="flex items-center justify-center py-20 text-slate-400">
-                <span className="material-symbols-outlined animate-spin text-3xl mr-3">progress_activity</span>
-                Cargando datos del lote...
-              </div>
-            ) : editModalBatch && (() => {
-              const editItems = editModalBatch.items || [];
-              const editTotalUnits = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0);
-              const isUSDEdit = editModalBatch.currency === 'USD';
-              const editTotalCostOrig = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_original) || 0), 0);
-              const editTotalCostARS = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost_ars) || 0), 0);
-              const editTotalCostUSD = isUSDEdit 
-                ? editTotalCostOrig 
-                : (editModalBatch.exchange_rate && Number(editModalBatch.exchange_rate) > 0 
-                    ? (editTotalCostARS / Number(editModalBatch.exchange_rate)) 
-                    : null);
-              const editTotalShippingARS = Number(editModalBatch.shipping_cost_ars) || 0;
-              const editTotalCostFinal = editItems.reduce((s: number, it: any) => s + Math.round(Number(it.total_cost_per_unit_ars) || 0) * (Number(it.quantity) || 0), 0);
-              const editTotalSaleValue = editItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0) * (Number(it.sale_price) || 0), 0);
-              const editTotalProfit = editTotalSaleValue - editTotalCostFinal;
-              const editMarginPct = editTotalCostFinal > 0 ? (editTotalProfit / editTotalCostFinal) * 100 : 0;
-
-              return (
-                <>
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="size-11 rounded-2xl bg-amber-100 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center">
-                        <span className="material-symbols-outlined text-2xl">edit_note</span>
-                      </div>
-                      <div>
-                        <h4 className="font-black text-slate-900 dark:text-white text-base">
-                          Editar Lote {editModalBatch.batch_number}
-                        </h4>
-                        <p className="text-xs text-slate-500">
-                          Modificá proveedor, fecha, notas, cantidades de stock y Precio de Venta.
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setEditModalBatch(null)}
-                      disabled={savingEditBatch}
-                      className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-lg">close</span>
-                    </button>
-                  </div>
-
-                  {/* Cabecera de edición */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-2xl">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Proveedor / Tienda</label>
-                      <input
-                        type="text"
-                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white font-medium"
-                        value={editModalBatch.supplier_name}
-                        onChange={e => setEditModalBatch({ ...editModalBatch, supplier_name: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Fecha de Compra</label>
-                      <input
-                        type="date"
-                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
-                        value={editModalBatch.purchase_date}
-                        onChange={e => setEditModalBatch({ ...editModalBatch, purchase_date: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Costo de Envío Total ($)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        className="w-full bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300 font-bold"
-                        value={editModalBatch.shipping_cost_ars}
-                        onChange={e => updateEditShipping(Number(e.target.value) || 0)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Notas / Observaciones</label>
-                      <input
-                        type="text"
-                        placeholder="Opcional..."
-                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
-                        value={editModalBatch.notes}
-                        onChange={e => setEditModalBatch({ ...editModalBatch, notes: e.target.value })}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Tabla de ítems a editar */}
-                  <div className="overflow-auto flex-1">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
-                        <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                          <th className="pb-2 pr-3 min-w-[160px]">Producto / Variante</th>
-                          <th className="pb-2 pr-3 text-center w-24">Cantidad</th>
-                          <th className="pb-2 pr-3 text-right w-32">Costo ARS</th>
-                          <th className="pb-2 pr-3 text-right w-24">Envío/u</th>
-                          <th className="pb-2 pr-3 text-right w-24">Total/u</th>
-                          <th className="pb-2 pr-3 text-right font-black text-slate-900 dark:text-white w-28">Total</th>
-                          <th className="pb-2 text-right w-32">P. Venta</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {editItems.map((it: any, idx: number) => {
-                          const delta = (Number(it.quantity) || 0) - it.original_quantity;
-                          const rowTotal = Math.round((Number(it.total_cost_per_unit_ars) || 0) * (Number(it.quantity) || 0));
-                          const origName = (editModalBatch.origItems || [])[idx]?.product_name;
-                          const nameChanged = origName && origName.trim() !== (it.product_name || '').trim();
-                          return (
-                            <tr key={it.id || idx}>
-                              <td className="py-2 pr-3">
-                                <input
-                                  type="text"
-                                  className={`w-full bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-bold text-slate-800 dark:text-slate-200 mb-0.5 ${
-                                    nameChanged ? 'border-blue-400 dark:border-blue-500 ring-1 ring-blue-300' : 'border-slate-200 dark:border-slate-600'
-                                  }`}
-                                  value={it.product_name || ''}
-                                  onChange={e => updateEditItem(idx, 'product_name', e.target.value)}
-                                  title={nameChanged ? `Nombre original: ${origName}` : undefined}
-                                />
-                                <p className="text-slate-400 text-[10px] pl-1">{it.variant_label}</p>
-                              </td>
-                              <td className="py-2 pr-3 text-center">
-                                <div className="flex flex-col items-center">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    className="w-20 text-center bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs font-bold text-slate-900 dark:text-white"
-                                    value={it.quantity ?? ''}
-                                    onChange={e => updateEditItem(idx, 'quantity', e.target.value === '' ? 0 : Number(e.target.value))}
-                                  />
-                                  {delta !== 0 && (
-                                    <span className={`text-[10px] font-bold mt-0.5 ${delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                      {delta > 0 ? `+${delta}` : delta} stock
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="py-2 pr-3 text-right">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  className="w-28 text-right bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 dark:text-slate-300"
-                                  value={it.unit_cost_ars ?? ''}
-                                  onChange={e => updateEditItem(idx, 'unit_cost_ars', e.target.value === '' ? 0 : Number(e.target.value))}
-                                />
-                              </td>
-                              <td className="py-2 pr-3 text-right font-mono text-green-600 whitespace-nowrap">
-                                ${fmt(it.shipping_per_unit_ars)}
-                              </td>
-                              <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                ${fmt(it.total_cost_per_unit_ars)}
-                              </td>
-                              <td className="py-2 pr-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                                ${fmt(rowTotal)}
-                              </td>
-                              <td className="py-2 text-right">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  className="w-28 text-right bg-white dark:bg-slate-700 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 rounded-lg px-2 py-1 text-xs font-black"
-                                  value={it.sale_price ?? ''}
-                                  onChange={e => updateEditItem(idx, 'sale_price', e.target.value === '' ? 0 : Number(e.target.value))}
-                                />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      <tfoot className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/80 sticky bottom-0">
-                        <tr className="font-bold text-xs">
-                          <td className="py-2.5 pr-3 text-slate-500 font-bold">
-                            Totales ({editItems.length} variantes)
-                          </td>
-                          <td className="py-2.5 pr-3 text-center text-slate-900 dark:text-white font-black">
-                            {editTotalUnits}
-                          </td>
-                          <td className="py-2.5 pr-3 text-right font-mono text-slate-900 dark:text-white">
-                            ${fmt(editTotalCostARS)}
-                          </td>
-                          <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">
-                            ${fmt(editTotalShippingARS)}
-                          </td>
-                          <td className="py-2.5 pr-3 text-right font-mono text-slate-400">
-                            —
-                          </td>
-                          <td className="py-2.5 pr-3 text-right font-mono font-black text-slate-900 dark:text-white">
-                            ${fmt(editTotalCostFinal)}
-                          </td>
-                          <td className="py-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
-                            ${fmt(editTotalSaleValue)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-
-                  {/* Panel de Rentabilidad y Proyección Financiera */}
-                  <div className="bg-gradient-to-br from-slate-50 via-slate-50 to-emerald-50/40 dark:from-slate-900/60 dark:via-slate-900/60 dark:to-emerald-950/20 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:p-3.5 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                        <span className="material-symbols-outlined text-[16px] text-emerald-600 dark:text-emerald-400">query_stats</span>
-                        Proyección de Venta & Rentabilidad del Lote
-                      </span>
-                      <span className="text-[11px] font-bold text-slate-400 hidden sm:inline">
-                        Valores calculados con cambios actuales
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
-                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Artículos</span>
-                        <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">{editTotalUnits}</span>
-                        <span className="text-[10px] text-slate-400 block font-medium">unidades</span>
-                      </div>
-                      {editModalBatch.currency !== 'ARS' ? (
-                        <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                          <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
-                            {editModalBatch.currency === 'USD' ? 'Costo en USD' : editModalBatch.currency === 'PYG' ? 'Costo en Guaraníes' : editModalBatch.currency === 'BRL' ? 'Costo en Reales' : `Costo en ${editModalBatch.currency}`}
-                          </span>
-                          <span className="text-sm sm:text-base font-black text-amber-700 dark:text-amber-300 font-mono leading-tight">
-                            {formatOrigCost(editTotalCostOrig, editModalBatch.currency)}
-                          </span>
-                          <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 block font-medium">
-                            costo mercadería
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Envío</span>
-                          <span className="text-sm sm:text-base font-black text-green-600 dark:text-green-400 font-mono leading-tight">${fmt(editTotalShippingARS)}</span>
-                          <span className="text-[10px] text-slate-400 block font-medium">flete total</span>
-                        </div>
-                      )}
-                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                          {editModalBatch.currency !== 'ARS' ? 'Costo en Pesos' : 'Costo Mercadería'}
-                        </span>
-                        <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(editTotalCostARS)}</span>
-                        <span className="text-[10px] text-slate-400 block font-medium">sin flete</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Total c/Flete</span>
-                        <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono leading-tight">${fmt(editTotalCostFinal)}</span>
-                        <span className="text-[10px] text-slate-400 block font-medium">flete incluido</span>
-                      </div>
-                      <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Total P. Venta</span>
-                        <span className="text-sm sm:text-base font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight">${fmt(editTotalSaleValue)}</span>
-                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block font-medium">facturación total</span>
-                      </div>
-                      <div className="bg-emerald-600 text-white rounded-xl p-2.5 text-center shadow-md shadow-emerald-600/20 flex flex-col justify-center">
-                        <span className="text-[10px] font-black uppercase tracking-wider block text-emerald-100">Ganancia Neta</span>
-                        <span className="text-base sm:text-lg font-black font-mono leading-tight">
-                          {editTotalProfit >= 0 ? `+$${fmt(editTotalProfit)}` : `-$${fmt(Math.abs(editTotalProfit))}`}
-                        </span>
-                        <span className="text-[10px] font-bold text-emerald-200 block">
-                          {editMarginPct >= 0 ? `+${editMarginPct.toFixed(1)}% margen` : `${editMarginPct.toFixed(1)}%`}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
-                    <span className="text-xs text-slate-500">
-                      Los cambios de cantidad ajustarán el stock inmediatamente.
-                    </span>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setEditModalBatch(null)}
-                        disabled={savingEditBatch}
-                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveEditBatch}
-                        disabled={savingEditBatch}
-                        className="px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-lg shadow-primary/25 transition flex items-center gap-1.5 disabled:opacity-60"
-                      >
-                        {savingEditBatch ? (
-                          <>
-                            <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                            Guardando...
-                          </>
-                        ) : (
-                          <>
-                            <span className="material-symbols-outlined text-sm">save</span>
-                            Guardar Cambios
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </>
-              );
-            })()}
+      {/* Overlay de carga mientras se popula el formulario */}
+      {loadingEditBatch && (
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 p-8 flex flex-col items-center gap-4 animate-in fade-in zoom-in-95 duration-200">
+            <span className="material-symbols-outlined animate-spin text-4xl text-amber-500">progress_activity</span>
+            <p className="text-base font-bold text-slate-700 dark:text-slate-300">Cargando datos del lote...</p>
+            <p className="text-xs text-slate-400">Preparando el formulario para editar</p>
           </div>
         </div>
       )}
+
+      {/* MODAL: CONFIRMAR REEMPLAZAR BORRADOR CON EDICIÓN */}
+      {showReplaceWithEditModal && (
+        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-amber-200 dark:border-amber-800/60 max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="size-11 rounded-2xl bg-amber-100 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-2xl">swap_horiz</span>
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 dark:text-white text-base">
+                    ¿Reemplazar datos en curso?
+                  </h4>
+                  <p className="text-xs text-slate-500 font-bold">
+                    Hay una carga en progreso
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowReplaceWithEditModal(false); setPendingEditBatchId(null); }}
+                className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 space-y-2 text-xs text-amber-800 dark:text-amber-300">
+              <p className="font-bold flex items-center gap-1.5 text-sm">
+                <span className="material-symbols-outlined text-base">warning</span>
+                Ya tenés datos cargados en el formulario de nueva compra
+              </p>
+              <p>
+                Si continuás, <strong>todos los datos no guardados</strong> del formulario actual serán reemplazados por los datos del lote que querés editar.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => { setShowReplaceWithEditModal(false); setPendingEditBatchId(null); }}
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const id = pendingEditBatchId;
+                  setShowReplaceWithEditModal(false);
+                  setPendingEditBatchId(null);
+                  if (id) await _loadBatchIntoForm(id);
+                }}
+                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-lg shadow-amber-500/25 transition flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-sm">swap_horiz</span>
+                Sí, reemplazar y editar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: CONFIRMAR ELIMINAR DATOS (BORRADOR) */}
       {showClearDraftModal && (
         <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
