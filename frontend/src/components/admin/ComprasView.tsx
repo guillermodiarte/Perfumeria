@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useStockFlowStore, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize } from '@/store/useStockStore';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
@@ -12,7 +12,7 @@ const CURRENCY_SYMBOLS: Record<Currency, string> = {
   PYG: '₲',
 };
 
-const fmt = (n: number) => Math.round(n).toLocaleString('es-AR');
+const fmt = (n: number) => Math.round(Number(n) || 0).toLocaleString('es-AR');
 const fmtUSD = (n: number) => (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatOrigCost = (amount: number, currency: string = 'ARS') => {
   const c = (currency || 'ARS').toUpperCase().trim();
@@ -21,13 +21,179 @@ const formatOrigCost = (amount: number, currency: string = 'ARS') => {
     return `₲ ${Math.round(n).toLocaleString('es-AR')}`;
   }
   if (c === 'USD' || c === 'U$S') {
-    return `USD $${fmtUSD(n)}`;
+    return `USD $ ${fmtUSD(n)}`;
   }
   if (c === 'BRL') {
     return `R$ ${fmtUSD(n)}`;
   }
-  return `$${fmt(n)}`;
+  return `$ ${fmt(n)}`;
 };
+
+export function formatNumberAR(
+  value: number | string | null | undefined,
+  options?: { allowDecimals?: boolean; maxDecimals?: number }
+): string {
+  if (value === null || value === undefined || value === '') return '';
+  const num = typeof value === 'number' ? value : Number(String(value).replace(/\./g, '').replace(',', '.'));
+  if (isNaN(num)) return '';
+  const allowDecimals = options?.allowDecimals ?? false;
+  if (allowDecimals) {
+    if (num % 1 !== 0) {
+      return num.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: options?.maxDecimals ?? 2 });
+    }
+    return num.toLocaleString('es-AR');
+  }
+  return Math.round(num).toLocaleString('es-AR');
+}
+
+interface PriceInputProps {
+  value: number | string | undefined | null;
+  onChange: (val: number | '') => void;
+  currencySymbol?: string;
+  allowDecimals?: boolean;
+  placeholder?: string | number;
+  disabled?: boolean;
+  className?: string;
+}
+
+function PriceInput({
+  value,
+  onChange,
+  currencySymbol,
+  allowDecimals = false,
+  placeholder = '0',
+  disabled = false,
+  className = '',
+}: PriceInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  // Texto que se muestra mientras el campo está enfocado (sin formato de miles)
+  const [rawText, setRawText] = useState('');
+
+  const prefix = useMemo(() => (currencySymbol ? `${currencySymbol} ` : ''), [currencySymbol]);
+
+  // Formatea un número para mostrar cuando NO está enfocado
+  const formatForDisplay = useCallback((val: number | string | undefined | null): string => {
+    if (val === '' || val === undefined || val === null) return '';
+    const num = typeof val === 'number' ? val : parseFloat(String(val).replace(',', '.'));
+    if (isNaN(num)) return '';
+    const formatted = formatNumberAR(num, { allowDecimals });
+    return formatted ? `${prefix}${formatted}` : '';
+  }, [allowDecimals, prefix]);
+
+  const formattedPlaceholder = useMemo(() => {
+    if (placeholder === undefined || placeholder === null || placeholder === '') return '';
+    if (typeof placeholder === 'number') {
+      const formatted = formatNumberAR(placeholder, { allowDecimals });
+      return formatted ? `${prefix}${formatted}` : '';
+    }
+    const num = parseFloat(String(placeholder).replace(',', '.'));
+    if (!isNaN(num)) {
+      const formatted = formatNumberAR(num, { allowDecimals });
+      return formatted ? `${prefix}${formatted}` : '';
+    }
+    return String(placeholder);
+  }, [placeholder, allowDecimals, prefix]);
+
+  // Cuando el valor externo cambia y el campo NO está enfocado → no afecta el rawText
+  // El rawText solo se usa mientras está enfocado
+
+  const handleFocus = () => {
+    setIsFocused(true);
+    // Al enfocar, convertir el valor actual a texto raw (sin formato de miles)
+    if (value === '' || value === undefined || value === null) {
+      setRawText('');
+    } else {
+      const num = typeof value === 'number' ? value : parseFloat(String(value).replace(',', '.'));
+      if (isNaN(num) || num === 0) {
+        setRawText('');
+      } else if (allowDecimals && num % 1 !== 0) {
+        // Mostrar con coma decimal para edición
+        setRawText(String(num).replace('.', ','));
+      } else {
+        setRawText(String(Math.round(num)));
+      }
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let str = e.target.value;
+
+    // Quitar el prefijo si está presente
+    if (currencySymbol) {
+      const sym = currencySymbol.trim();
+      if (str.startsWith(sym)) str = str.slice(sym.length).trim();
+      // También strip del prefix completo (con espacio)
+      if (str.startsWith(prefix)) str = str.slice(prefix.length);
+    }
+    str = str.trim();
+
+    if (!str) {
+      setRawText('');
+      onChange('');
+      return;
+    }
+
+    if (!allowDecimals) {
+      // Solo dígitos enteros
+      const digits = str.replace(/\D/g, '');
+      setRawText(digits);
+      onChange(digits ? Number(digits) : '');
+    } else {
+      // Permitir dígitos y UNA coma (separador decimal)
+      // Eliminar todo excepto dígitos y coma
+      let cleaned = str.replace(/[^\d,]/g, '');
+      // Solo permitir una coma
+      const commaIdx = cleaned.indexOf(',');
+      if (commaIdx !== -1) {
+        cleaned = cleaned.slice(0, commaIdx + 1) + cleaned.slice(commaIdx + 1).replace(/,/g, '');
+        // Limitar a 2 decimales
+        const parts = cleaned.split(',');
+        if (parts[1] !== undefined) {
+          parts[1] = parts[1].slice(0, 2);
+          cleaned = parts.join(',');
+        }
+      }
+      setRawText(cleaned);
+
+      // Calcular valor numérico
+      const numStr = cleaned.replace(',', '.');
+      const num = parseFloat(numStr);
+      if (cleaned === '' || cleaned === ',') {
+        onChange('');
+      } else if (isNaN(num)) {
+        onChange('');
+      } else {
+        onChange(num);
+      }
+    }
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    setRawText('');
+  };
+
+  // Valor que se muestra en el input
+  const displayValue = isFocused
+    ? (rawText ? `${prefix}${rawText}` : '')
+    : formatForDisplay(value);
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      inputMode={allowDecimals ? 'decimal' : 'numeric'}
+      disabled={disabled}
+      placeholder={formattedPlaceholder}
+      value={displayValue}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onChange={handleChange}
+      className={className}
+    />
+  );
+}
 
 export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { showAlert: (msg: string) => void; apiKey: string; apiUrl: string; resetKey?: number }) {
   const globalMarkupPrc = useStockFlowStore(s => s.globalMarkupPrc);
@@ -105,13 +271,52 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
   // Autocomplete producto (dropdown custom con imagen)
   const [productDropdownPIdx, setProductDropdownPIdx] = useState<number | null>(null);
 
-  // PASO 3
+  // PASO 3: Envío e Impuestos
   const [shippingCurrency, setShippingCurrency] = useState<Currency>('ARS');
   const [shippingCostOriginal, setShippingCostOriginal] = useState<number | string>('');
+  const [shippingDescription, setShippingDescription] = useState('');
+
+  // Impuestos extras (opcional, lista dinámica)
+  interface TaxItem {
+    id: string;
+    description: string;
+    currency: Currency;
+    amount: number | string;
+  }
+  const createEmptyTaxItem = (): TaxItem => ({
+    id: `tax-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    description: '',
+    currency: 'ARS',
+    amount: '',
+  });
+
+  const [extraTaxes, setExtraTaxes] = useState<TaxItem[]>([]);
+
+  const addTaxItem = () => setExtraTaxes(prev => [...prev, createEmptyTaxItem()]);
+  const removeTaxItem = (id: string) => setExtraTaxes(prev => prev.filter(t => t.id !== id));
+  const updateTaxItem = (id: string, field: keyof TaxItem, value: any) => {
+    setExtraTaxes(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+  };
 
   const effectiveExchangeRate = purchaseCurrency === 'ARS' ? 1 : (Number(exchangeRate) || 0);
   const shippingEffectiveRate = shippingCurrency === 'ARS' ? 1 : (Number(exchangeRate) || 0);
   const shippingCostARS = (Number(shippingCostOriginal) || 0) * shippingEffectiveRate;
+
+  // Cálculo individual y total de impuestos en ARS
+  const calculateTaxItemARS = (tax: TaxItem) => {
+    const rate = tax.currency === 'ARS' ? 1 : (Number(exchangeRate) || 0);
+    return (Number(tax.amount) || 0) * rate;
+  };
+  const taxCostARS = extraTaxes.reduce((sum, t) => sum + calculateTaxItemARS(t), 0);
+  const totalShippingAndTaxARS = shippingCostARS + taxCostARS;
+
+  // Verifica si alguna moneda extranjera requiere cotización
+  const hasForeignCurrency = purchaseCurrency !== 'ARS' || shippingCurrency !== 'ARS' || extraTaxes.some(t => t.currency !== 'ARS');
+  const firstForeignCurrency = purchaseCurrency !== 'ARS'
+    ? purchaseCurrency
+    : shippingCurrency !== 'ARS'
+      ? shippingCurrency
+      : (extraTaxes.find(t => t.currency !== 'ARS')?.currency || 'USD');
 
   // PASO 2
   const createEmptyVariant = () => ({ size: 'M', description: '', quantity: 1 as number | string, unitPurchasePrice: '' as unknown as number, sizeIndex: 0 });
@@ -238,9 +443,11 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
   // Verifica si hay algún dato cargado
   const hasDraftData = Boolean(
     supplierInput.trim() !== '' ||
+    shippingDescription.trim() !== '' ||
     purchaseCurrency !== 'ARS' ||
     shippingCurrency !== 'ARS' ||
     (shippingCostOriginal !== '' && Number(shippingCostOriginal) > 0) ||
+    extraTaxes.length > 0 ||
     products.length > 1 ||
     products.some(p =>
       (p.newProductName && p.newProductName.trim() !== '') ||
@@ -284,7 +491,19 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           if (parsed.purchaseCurrency) setPurchaseCurrency(parsed.purchaseCurrency);
           if (parsed.exchangeRate !== undefined) setExchangeRate(parsed.exchangeRate);
           if (parsed.shippingCurrency) setShippingCurrency(parsed.shippingCurrency);
+          if (parsed.shippingDescription !== undefined) setShippingDescription(parsed.shippingDescription);
           if (parsed.shippingCostOriginal !== undefined) setShippingCostOriginal(parsed.shippingCostOriginal);
+          if (Array.isArray(parsed.extraTaxes)) {
+            setExtraTaxes(parsed.extraTaxes);
+          } else if (parsed.taxCostOriginal !== undefined && parsed.taxCostOriginal !== '') {
+            // Compatibilidad hacia atrás
+            setExtraTaxes([{
+              id: `tax-init-${Date.now()}`,
+              description: parsed.taxDescription || '',
+              currency: parsed.taxCurrency || 'ARS',
+              amount: parsed.taxCostOriginal || ''
+            }]);
+          }
           if (Array.isArray(parsed.products) && parsed.products.length > 0) {
             setProducts(parsed.products);
           }
@@ -368,7 +587,18 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           if (localDraft.purchaseCurrency) setPurchaseCurrency(localDraft.purchaseCurrency);
           if (localDraft.exchangeRate !== undefined) setExchangeRate(localDraft.exchangeRate);
           if (localDraft.shippingCurrency) setShippingCurrency(localDraft.shippingCurrency);
+          if (localDraft.shippingDescription !== undefined) setShippingDescription(localDraft.shippingDescription);
           if (localDraft.shippingCostOriginal !== undefined) setShippingCostOriginal(localDraft.shippingCostOriginal);
+          if (Array.isArray(localDraft.extraTaxes)) {
+            setExtraTaxes(localDraft.extraTaxes);
+          } else if (localDraft.taxCostOriginal !== undefined && localDraft.taxCostOriginal !== '') {
+            setExtraTaxes([{
+              id: `tax-local-${Date.now()}`,
+              description: localDraft.taxDescription || '',
+              currency: localDraft.taxCurrency || 'ARS',
+              amount: localDraft.taxCostOriginal || ''
+            }]);
+          }
           if (Array.isArray(localDraft.products) && localDraft.products.length > 0) {
             setProducts(localDraft.products);
           }
@@ -399,6 +629,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
   // Guardar borrador automáticamente al cambiar datos con debounce
   useEffect(() => {
     if (!isDraftLoaded) return;
+    if (editingBatchId) return; // No sobreescribir el borrador compartido si se está editando un lote existente
     const timer = setTimeout(() => {
       try {
         if (hasDraftData) {
@@ -408,7 +639,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
             purchaseCurrency,
             exchangeRate,
             shippingCurrency,
+            shippingDescription,
             shippingCostOriginal,
+            extraTaxes,
             products,
           };
           localStorage.setItem(DRAFT_COMPRAS_KEY, JSON.stringify(draft));
@@ -426,27 +659,32 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     }, 800);
 
     return () => clearTimeout(timer);
-  }, [isDraftLoaded, hasDraftData, supplierInput, purchaseDate, purchaseCurrency, exchangeRate, shippingCurrency, shippingCostOriginal, products, saveServerDraft, clearServerDraft]);
+  }, [isDraftLoaded, editingBatchId, hasDraftData, supplierInput, purchaseDate, purchaseCurrency, exchangeRate, shippingCurrency, shippingDescription, shippingCostOriginal, extraTaxes, products, saveServerDraft, clearServerDraft]);
 
   // Si el usuario vuelve a enfocar la ventana o navegador, comprobar cambios del servidor
   useEffect(() => {
     const handleWindowFocus = () => {
-      if (activeTab === 'nueva' && isDraftLoaded) {
+      if (activeTab === 'nueva' && isDraftLoaded && !editingBatchId) {
         fetchServerDraft(false);
       }
     };
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
-  }, [activeTab, isDraftLoaded, fetchServerDraft]);
+  }, [activeTab, isDraftLoaded, editingBatchId, fetchServerDraft]);
 
-  // Limpiar y resetear borrador
+  // Limpiar y resetear borrador / Cancelar edición total
   const handleClearDraft = async () => {
+    const wasEditing = Boolean(editingBatchId);
+    setEditingBatchId(null);
+    setEditingBatchNumber(null);
     setSupplierInput('');
     setPurchaseDate(new Date().toISOString().split('T')[0]);
     setPurchaseCurrency('ARS');
     setExchangeRate(1);
     setShippingCurrency('ARS');
+    setShippingDescription('');
     setShippingCostOriginal('');
+    setExtraTaxes([]);
     setProducts([createEmptyProduct()]);
     setShowSummary(false);
     setCloudSyncStatus('idle');
@@ -457,7 +695,15 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     } catch {}
     await clearServerDraft();
     setShowClearDraftModal(false);
-    showAlert('🗑️ Datos eliminados y formulario reseteado.');
+    showAlert(wasEditing ? '✅ Edición cancelada. Formulario limpio y listo para una nueva compra.' : '🗑️ Datos eliminados y formulario reseteado.');
+  };
+
+  // Vaciar solo los productos pero conservar datos de cabecera y envío para continuar editando
+  const handleClearProductsOnly = () => {
+    setProducts([createEmptyProduct()]);
+    setShowSummary(false);
+    setShowClearDraftModal(false);
+    showAlert(`🗑️ Productos vaciados. Continuás editando el lote ${editingBatchNumber || ''}.`);
   };
 
 
@@ -617,7 +863,37 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
       setPurchaseCurrency(batchCurrency);
       setExchangeRate(data.exchange_rate && data.exchange_rate !== 1 ? data.exchange_rate : (batchCurrency === 'ARS' ? 1 : ''));
       setShippingCurrency('ARS');
+      setShippingDescription('');
       setShippingCostOriginal(data.shipping_cost_ars || '');
+
+      // Extraer datos de impuestos y envío si fueron guardados en notes
+      if (data.notes) {
+        try {
+          const parsedNotes = typeof data.notes === 'string' ? JSON.parse(data.notes) : data.notes;
+          if (parsedNotes && typeof parsedNotes === 'object') {
+            if (parsedNotes.shippingDescription) setShippingDescription(parsedNotes.shippingDescription);
+            if (parsedNotes.shippingCurrency) setShippingCurrency(parsedNotes.shippingCurrency);
+            if (parsedNotes.shippingCostOriginal !== undefined && parsedNotes.shippingCostOriginal !== '') {
+              setShippingCostOriginal(parsedNotes.shippingCostOriginal);
+            }
+            if (Array.isArray(parsedNotes.extraTaxes)) {
+              setExtraTaxes(parsedNotes.extraTaxes);
+            } else if (parsedNotes.taxCostOriginal !== undefined && parsedNotes.taxCostOriginal !== '') {
+              // Compatibilidad hacia atrás con formato antiguo
+              setExtraTaxes([{
+                id: `tax-batch-${Date.now()}`,
+                description: parsedNotes.taxDescription || '',
+                currency: parsedNotes.taxCurrency || 'ARS',
+                amount: parsedNotes.taxCostOriginal || ''
+              }]);
+            } else {
+              setExtraTaxes([]);
+            }
+          }
+        } catch { setExtraTaxes([]); }
+      } else {
+        setExtraTaxes([]);
+      }
 
       // Convertir los items del lote al formato de productos del formulario
       const loadedProducts: any[] = [];
@@ -748,7 +1024,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         const qty = Number(variant.quantity) || 1;
         const blockCostARS = unitCostARS * qty;
         const proportion = totalCompraARS > 0 ? blockCostARS / totalCompraARS : 0;
-        const shippingPerUnitARS = qty > 0 ? (shippingCostARS * proportion) / qty : 0;
+        const shippingPerUnitARS = qty > 0 ? (totalShippingAndTaxARS * proportion) / qty : 0;
         const totalCostPerUnitARS = unitCostARS + shippingPerUnitARS;
         const suggestedSalePrice = isNotForSale
           ? 0
@@ -906,6 +1182,23 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         };
       });
 
+      const notesDataObj: Record<string, any> = {};
+      if (extraTaxes.length > 0) {
+        notesDataObj.extraTaxes = extraTaxes;
+        notesDataObj.taxCostARS = taxCostARS;
+      }
+      if (shippingDescription.trim()) {
+        notesDataObj.shippingDescription = shippingDescription.trim();
+      }
+      if (shippingCurrency !== 'ARS') {
+        notesDataObj.shippingCurrency = shippingCurrency;
+      }
+      if (shippingCostOriginal !== '') {
+        notesDataObj.shippingCostOriginal = shippingCostOriginal;
+        notesDataObj.shippingCostARS = shippingCostARS;
+      }
+      const taxNotesData = Object.keys(notesDataObj).length > 0 ? JSON.stringify(notesDataObj) : null;
+
       // ── Modo edición: PUT al lote existente ──
       if (editingBatchId) {
         const editPayload = {
@@ -915,8 +1208,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           exchange_rate: effectiveExchangeRate,
           shipping_currency: shippingCurrency,
           shipping_cost_original: shippingCostOriginal,
-          shipping_cost_ars: shippingCostARS,
-          notes: null,
+          shipping_cost_ars: totalShippingAndTaxARS,
+          notes: taxNotesData,
           items: buildItems(),
         };
         const res = await fetch(`${apiUrl}/api/admin/purchase-batches/${editingBatchId}`, {
@@ -949,9 +1242,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           exchange_rate: effectiveExchangeRate,
           shipping_currency: shippingCurrency,
           shipping_cost_original: shippingCostOriginal,
-          shipping_cost_ars: shippingCostARS,
+          shipping_cost_ars: totalShippingAndTaxARS,
           total_products_ars: totalCompraARS,
-          total_cost_ars: totalCompraARS + shippingCostARS,
+          total_cost_ars: totalCompraARS + totalShippingAndTaxARS,
+          notes: taxNotesData,
           items: buildItems(),
         };
         const res = await fetch(`${apiUrl}/api/admin/purchase-batches`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
@@ -993,6 +1287,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
       setEditingBatchNumber(null);
       setProducts([createEmptyProduct()]);
       setShippingCostOriginal('');
+      setShippingDescription('');
+      setShippingCurrency('ARS');
+      setExtraTaxes([]);
       setSupplierInput('');
       setPurchaseDate(new Date().toISOString().split('T')[0]);
       setPurchaseCurrency('ARS');
@@ -1021,13 +1318,19 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
             <button
               type="button"
               onClick={() => setShowClearDraftModal(true)}
-              disabled={!hasDraftData}
+              disabled={!hasDraftData && !editingBatchId}
               className={`px-4 py-2 rounded-xl font-bold text-sm transition-all flex items-center gap-2 border ${
-                hasDraftData
+                hasDraftData || editingBatchId
                   ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/50 shadow-sm cursor-pointer'
                   : 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60'
               }`}
-              title={hasDraftData ? "Eliminar todos los datos cargados del ingreso" : "No hay datos para eliminar"}
+              title={
+                editingBatchId
+                  ? "Cancelar edición y vaciar formulario para una nueva compra"
+                  : hasDraftData
+                  ? "Eliminar todos los datos cargados del ingreso"
+                  : "No hay datos para eliminar"
+              }
             >
               <span className="material-symbols-outlined text-lg">delete_sweep</span>
               Eliminar datos
@@ -1151,7 +1454,21 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">Moneda de Pago</label>
-                <select className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold text-slate-900 dark:text-white" value={purchaseCurrency} onChange={e => { const newCurr = e.target.value as Currency; setPurchaseCurrency(newCurr); if (newCurr === 'ARS') setExchangeRate(1); else if (exchangeRate === 1) setExchangeRate(''); }}>
+                <select className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold text-slate-900 dark:text-white" value={purchaseCurrency} onChange={e => {
+                    const newCurr = e.target.value as Currency;
+                    setPurchaseCurrency(newCurr);
+                    if (newCurr === 'ARS') {
+                      setExchangeRate(1);
+                      // Resetear monedas dependientes a ARS
+                      setShippingCurrency('ARS');
+                      setExtraTaxes(prev => prev.map(t => ({ ...t, currency: 'ARS' })));
+                    } else {
+                      if (exchangeRate === 1) setExchangeRate('');
+                      // Si el envío o impuestos tenían otra moneda extranjera, actualizarla
+                      if (shippingCurrency !== 'ARS' && shippingCurrency !== newCurr) setShippingCurrency(newCurr);
+                      setExtraTaxes(prev => prev.map(t => t.currency !== 'ARS' && t.currency !== newCurr ? { ...t, currency: newCurr } : t));
+                    }
+                  }}>
                   <option value="ARS">🇦🇷 Pesos (ARS)</option>
                   <option value="USD">🇺🇸 Dólar (USD)</option>
                   <option value="BRL">🇧🇷 Real (BRL)</option>
@@ -1160,8 +1477,17 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
               </div>
               {purchaseCurrency !== 'ARS' && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">1 {purchaseCurrency} = $ ARS (cotización)</label>
-                  <input type="number" min="0.01" step="0.01" placeholder="Ej: 1610" className="w-full bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2 text-sm font-bold text-amber-700 dark:text-amber-400" value={exchangeRate ?? ''} onChange={e => setExchangeRate(e.target.value)} />
+                  <label className="block text-xs font-bold text-slate-500 mb-1">
+                    1 {purchaseCurrency} = $ ARS (cotización)
+                  </label>
+                  <PriceInput
+                    currencySymbol="$"
+                    allowDecimals={true}
+                    placeholder="Ej: 1.610"
+                    className="w-full bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2 text-sm font-bold text-amber-700 dark:text-amber-400"
+                    value={exchangeRate ?? ''}
+                    onChange={val => setExchangeRate(val === '' ? '' : val)}
+                  />
                 </div>
               )}
             </div>
@@ -1464,7 +1790,14 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                           </div>
                           <div className="w-[110px]">
                             <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Costo ({CURRENCY_SYMBOLS[purchaseCurrency]})</label>
-                            <input type="number" step="0.01" min="0" placeholder="0" className="w-full text-center bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800/50 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9" value={variant.unitPurchasePrice === 0 ? '' : (variant.unitPurchasePrice ?? '')} onChange={e => updateVariant(pIdx, vIdx, 'unitPurchasePrice', e.target.value)} />
+                            <PriceInput
+                              currencySymbol={CURRENCY_SYMBOLS[purchaseCurrency]}
+                              allowDecimals={true}
+                              placeholder="0"
+                              className="w-full text-center bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800/50 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9"
+                              value={variant.unitPurchasePrice === 0 ? '' : (variant.unitPurchasePrice ?? '')}
+                              onChange={val => updateVariant(pIdx, vIdx, 'unitPurchasePrice', val === '' ? 0 : val)}
+                            />
                           </div>
                           {purchaseCurrency !== 'ARS' && (
                             <div className="text-xs text-slate-500 whitespace-nowrap self-end pb-2">→ <span className="font-bold text-slate-700 dark:text-slate-300">${fmt(unitCostARS)}</span></div>
@@ -1484,12 +1817,14 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                               <>
                                 <div className="w-[110px]">
                                   <label className="block text-[10px] text-center font-bold text-emerald-600 dark:text-emerald-400 mb-1 leading-none">P. Venta ($)</label>
-                                  <input
-                                    type="number" step="1" min="0" placeholder={sugPV > 0 ? String(sugPV) : '0'}
+                                  <PriceInput
+                                    currencySymbol="$"
+                                    allowDecimals={false}
+                                    placeholder={sugPV > 0 ? sugPV : '0'}
                                     className="w-full text-center bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-1 py-1 text-sm text-emerald-700 dark:text-emerald-300 font-bold h-9"
                                     value={displayPV || ''}
-                                    onChange={e => {
-                                      const pv = Number(e.target.value) || 0;
+                                    onChange={val => {
+                                      const pv = typeof val === 'number' ? val : 0;
                                       updateVariant(pIdx, vIdx, 'manualSalePrice', pv);
                                       // Recalculate wholesale automatically unless manually set
                                       if ((variant as any)._wholesaleManual) return;
@@ -1502,12 +1837,14 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                                 </div>
                                 <div className="w-[110px]">
                                   <label className="block text-[10px] text-center font-bold text-indigo-500 dark:text-indigo-400 mb-1 leading-none">P. Mayorista ($)</label>
-                                  <input
-                                    type="number" step="1" min="0" placeholder={autoWP > 0 ? String(autoWP) : '0'}
+                                  <PriceInput
+                                    currencySymbol="$"
+                                    allowDecimals={false}
+                                    placeholder={autoWP > 0 ? autoWP : '0'}
                                     className="w-full text-center bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-300 dark:border-indigo-700 rounded-lg px-1 py-1 text-sm text-indigo-600 dark:text-indigo-300 font-bold h-9"
                                     value={displayWP || ''}
-                                    onChange={e => {
-                                      updateVariant(pIdx, vIdx, 'manualWholesalePrice', Number(e.target.value) || 0);
+                                    onChange={val => {
+                                      updateVariant(pIdx, vIdx, 'manualWholesalePrice', typeof val === 'number' ? val : 0);
                                       updateVariant(pIdx, vIdx, '_wholesaleManual', true);
                                     }}
                                   />
@@ -1593,33 +1930,201 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
             </button>
           </div>
 
-          {/* PASO 3: Envío */}
+          {/* PASO 3: Envío e Impuestos */}
           <div className="p-4 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50 rounded-2xl space-y-4">
-            <h3 className="text-sm font-black text-green-800 dark:text-green-300 flex items-center gap-2">
-              <span className="material-symbols-outlined text-lg">package_2</span> Paso 3 — Costo de Envío (opcional)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-              <div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <h3 className="text-sm font-black text-green-800 dark:text-green-300 flex items-center gap-2">
+                <span className="material-symbols-outlined text-lg">local_shipping</span> Paso 3 — Costo de Envío e Impuestos (opcional)
+              </h3>
+            </div>
+
+            {/* Fila 1: Costo de Envío */}
+            <div className="flex flex-col sm:flex-row gap-3 items-end">
+              {/* Selector de moneda — siempre a la izquierda */}
+              <div className="w-full sm:w-44 shrink-0">
                 <label className="block text-xs font-bold text-slate-500 mb-1">Moneda del Envío</label>
-                <select className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold text-slate-900 dark:text-white" value={shippingCurrency} onChange={e => setShippingCurrency(e.target.value as Currency)}>
-                  <option value="ARS">🇦🇷 Pesos (ARS)</option><option value="USD">🇺🇸 Dólar (USD)</option><option value="BRL">🇧🇷 Real (BRL)</option><option value="PYG">🇵🇾 Guaraní (PYG)</option>
+                <select
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold text-slate-900 dark:text-white"
+                  value={shippingCurrency}
+                  onChange={e => setShippingCurrency(e.target.value as Currency)}
+                >
+                  <option value="ARS">🇦🇷 Pesos (ARS)</option>
+                  {purchaseCurrency !== 'ARS' && (
+                    <option value={purchaseCurrency}>
+                      {purchaseCurrency === 'USD' ? '🇺🇸 Dólar (USD)' : purchaseCurrency === 'BRL' ? '🇧🇷 Real (BRL)' : '🇵🇾 Guaraní (PYG)'}
+                    </option>
+                  )}
                 </select>
               </div>
-              <div>
+
+              {/* Descripción del envío */}
+              <div className="flex-1">
+                <label className="block text-xs font-bold text-slate-500 mb-1">Descripción (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Llega el jueves 27, via Andreani..."
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  value={shippingDescription}
+                  onChange={e => setShippingDescription(e.target.value)}
+                />
+              </div>
+
+              {/* Monto en la moneda elegida */}
+              <div className="w-full sm:w-48 shrink-0">
                 <label className="block text-xs font-bold text-slate-500 mb-1">Valor del Envío ({CURRENCY_SYMBOLS[shippingCurrency]})</label>
-                <input type="number" step="0.01" min="0" placeholder="0" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold text-green-700 dark:text-green-400" value={shippingCostOriginal === 0 ? '' : (shippingCostOriginal ?? '')} onChange={e => setShippingCostOriginal(e.target.value)} />
+                <PriceInput
+                  currencySymbol={CURRENCY_SYMBOLS[shippingCurrency]}
+                  allowDecimals={true}
+                  placeholder="0"
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold text-green-700 dark:text-green-400"
+                  value={shippingCostOriginal === 0 ? '' : (shippingCostOriginal ?? '')}
+                  onChange={val => setShippingCostOriginal(val === '' ? '' : val)}
+                />
               </div>
-              <div className="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-center">
-                <span className="text-[10px] font-bold text-slate-400 block">Total Envío en ARS</span>
-                <span className="text-lg font-black text-green-700 dark:text-green-400">${fmt(shippingCostARS)}</span>
-              </div>
+
+              {/* Equivalente en ARS — solo si la moneda de envío no es ARS */}
+              {shippingCurrency !== 'ARS' && (
+                <div className="w-full sm:w-40 shrink-0">
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Total Envío en ARS</label>
+                  <div className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-black text-green-700 dark:text-green-400 font-mono text-right">
+                    ${fmt(shippingCostARS)}
+                    {(Number(exchangeRate) || 0) <= 0 && <span className="text-[10px] text-amber-500 block font-normal">⚠ Cotiz. no definida</span>}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Sección de Impuestos / Tasas extra */}
+            <div className="pt-3 border-t border-green-200/60 dark:border-green-800/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-green-700 dark:text-green-400 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[15px]">receipt</span> Impuestos / Tasas extra (opcional)
+                </span>
+                <button
+                  type="button"
+                  onClick={addTaxItem}
+                  className="flex items-center gap-1 text-[11px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/50 border border-green-300 dark:border-green-700 px-2.5 py-1 rounded-lg hover:bg-green-200 dark:hover:bg-green-800/60 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[14px]">add</span> Agregar impuesto
+                </button>
+              </div>
+
+              {extraTaxes.length === 0 && (
+                <p className="text-[11px] text-slate-400 italic">Sin impuestos extra cargados. Hacé clic en "+ Agregar impuesto" para añadir uno.</p>
+              )}
+
+              {extraTaxes.map((tax, tidx) => {
+                const taxARS = calculateTaxItemARS(tax);
+                const taxRate = tax.currency === 'ARS' ? 1 : (Number(exchangeRate) || 0);
+                const isForeignTax = tax.currency !== 'ARS';
+                return (
+                  <div key={tax.id} className="flex flex-col sm:flex-row gap-2 items-end bg-white/60 dark:bg-slate-800/50 border border-green-200/70 dark:border-green-800/40 rounded-xl p-2.5">
+                    {/* Moneda — siempre a la izquierda */}
+                    <div className="w-full sm:w-40 shrink-0">
+                      {tidx === 0 && <label className="block text-xs font-bold text-slate-500 mb-1">Moneda</label>}
+                      <select
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold text-slate-900 dark:text-white"
+                        value={tax.currency}
+                        onChange={e => updateTaxItem(tax.id, 'currency', e.target.value as Currency)}
+                      >
+                        <option value="ARS">🇦🇷 Pesos (ARS)</option>
+                        {purchaseCurrency !== 'ARS' && (
+                          <option value={purchaseCurrency}>
+                            {purchaseCurrency === 'USD' ? '🇺🇸 Dólar (USD)' : purchaseCurrency === 'BRL' ? '🇧🇷 Real (BRL)' : '🇵🇾 Guaraní (PYG)'}
+                          </option>
+                        )}
+                      </select>
+                    </div>
+
+                    {/* Descripción */}
+                    <div className="flex-1">
+                      {tidx === 0 && <label className="block text-xs font-bold text-slate-500 mb-1">Descripción</label>}
+                      <input
+                        type="text"
+                        placeholder="Ej: IVA, Aduana, Tasa..."
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        value={tax.description}
+                        onChange={e => updateTaxItem(tax.id, 'description', e.target.value)}
+                      />
+                    </div>
+
+                    {/* Monto original */}
+                    <div className="w-full sm:w-40 shrink-0">
+                      {tidx === 0 && <label className="block text-xs font-bold text-slate-500 mb-1">Monto ({CURRENCY_SYMBOLS[tax.currency]})</label>}
+                      <PriceInput
+                        currencySymbol={CURRENCY_SYMBOLS[tax.currency]}
+                        allowDecimals={true}
+                        placeholder="0"
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-bold text-green-700 dark:text-green-400"
+                        value={tax.amount === 0 ? '' : (tax.amount ?? '')}
+                        onChange={val => updateTaxItem(tax.id, 'amount', val === '' ? '' : val)}
+                      />
+                    </div>
+
+                    {/* Equivalente en ARS — solo si moneda ≠ ARS */}
+                    {isForeignTax && (
+                      <div className="w-full sm:w-40 shrink-0">
+                        {tidx === 0 && <label className="block text-xs font-bold text-slate-500 mb-1">En ARS</label>}
+                        <div className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-black text-green-700 dark:text-green-400 font-mono text-right">
+                          ${fmt(taxARS)}
+                          {taxRate <= 0 && <span className="text-[10px] text-amber-500 block font-normal">⚠ Cotiz. no definida</span>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Botón eliminar */}
+                    <div className="shrink-0">
+                      {tidx === 0 && <div className="hidden sm:block h-[20px] mb-1" />}
+                      <button
+                        type="button"
+                        onClick={() => removeTaxItem(tax.id)}
+                        className="h-[38px] w-[38px] flex items-center justify-center rounded-lg text-red-500 hover:bg-red-100 dark:hover:bg-red-950/40 transition-colors"
+                        title="Eliminar impuesto"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Subtotal de todos los impuestos — solo si hay 2 o más */}
+              {extraTaxes.length > 1 && taxCostARS > 0 && (
+                <div className="flex items-center justify-between p-2 bg-white/70 dark:bg-slate-800/70 border border-green-200 dark:border-green-800/50 rounded-xl text-xs mt-1">
+                  <span className="font-bold text-slate-500">Total impuestos ({extraTaxes.length} concepto{extraTaxes.length !== 1 ? 's' : ''})</span>
+                  <span className="font-mono font-black text-green-700 dark:text-green-400">+${fmt(taxCostARS)} ARS</span>
+                </div>
+              )}
+            </div>
+
+            {/* Barra total Envío + Impuestos */}
+            {totalShippingAndTaxARS > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-green-300/60 dark:border-green-700/40">
+                <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap justify-center sm:justify-start">
+                  {shippingCostARS > 0 && (
+                    <span className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-2.5 py-1 font-mono font-bold text-green-700 dark:text-green-400">
+                      Envío: ${fmt(shippingCostARS)}
+                    </span>
+                  )}
+                  {shippingCostARS > 0 && taxCostARS > 0 && <span className="text-slate-400 font-bold">+</span>}
+                  {taxCostARS > 0 && (
+                    <span className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-2.5 py-1 font-mono font-bold text-green-700 dark:text-green-400">
+                      Impuestos: ${fmt(taxCostARS)}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 bg-green-600 dark:bg-green-700 text-white px-4 py-1.5 rounded-xl text-sm font-black">
+                  <span className="material-symbols-outlined text-[16px]">calculate</span>
+                  Total a prorratear: ${fmt(totalShippingAndTaxARS)} ARS
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Barra totales + CTA */}
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4 p-4 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-2xl">
             <div className="flex gap-6 text-sm">
-              {[['Productos', products.length, 'text-slate-800 dark:text-white'], ['Unidades', totalUnidades, 'text-primary'], [`Compra ARS`, `$${fmt(totalCompraARS)}`, 'text-slate-800 dark:text-white'], [`+ Envío`, `$${fmt(shippingCostARS)}`, 'text-green-600']].map(([label, value, cls]) => (
+              {[['Productos', products.length, 'text-slate-800 dark:text-white'], ['Unidades', totalUnidades, 'text-primary'], [`Compra ARS`, `$${fmt(totalCompraARS)}`, 'text-slate-800 dark:text-white'], [`+ Envío e Imp.`, `$${fmt(totalShippingAndTaxARS)}`, 'text-green-600']].map(([label, value, cls]) => (
                 <div key={String(label)} className="text-center">
                   <span className="text-xs text-slate-400 block font-bold uppercase">{label}</span>
                   <span className={`font-black ${cls}`}>{value}</span>
@@ -1825,7 +2330,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           ? totalCostOrigSummary
           : (Number(exchangeRate) > 0 ? (totalCompraARS / Number(exchangeRate)) : null);
         const totalCostARSSummary = totalCompraARS;
-        const totalCostFinalSummary = totalCompraARS + shippingCostARS;
+        const totalCostFinalSummary = totalCompraARS + totalShippingAndTaxARS;
         const totalSaleValueSummary = summaryRows.reduce((s, r) => {
           if (r.notForPublicSale) return s;
           const displaySalePrice = r.salePriceConflict === 'keep' ? (r.existingProd?.salePrice || r.salePrice) : r.salePrice;
@@ -1848,13 +2353,37 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                 <button onClick={() => setShowSummary(false)} className="size-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-500 flex items-center justify-center transition-colors"><span className="material-symbols-outlined text-xl">close</span></button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[['Proveedor', supplierInput || '—'], ['Moneda', purchaseCurrency === 'ARS' ? 'Pesos ARS' : `${purchaseCurrency} → $${fmt(Number(exchangeRate) || 0)}`], ['Total Compra', `$${fmt(totalCompraARS)}`], ['Total + Envío', `$${fmt(totalCompraARS + shippingCostARS)}`]].map(([label, value]) => (
+                {[['Proveedor', supplierInput || '—'], ['Moneda', purchaseCurrency === 'ARS' ? 'Pesos ARS' : `${purchaseCurrency} → $${fmt(Number(exchangeRate) || 0)}`], ['Total Compra', `$${fmt(totalCompraARS)}`], ['Total + Envío/Imp.', `$${fmt(totalCompraARS + totalShippingAndTaxARS)}`]].map(([label, value]) => (
                   <div key={String(label)} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</span>
                     <span className="text-sm font-black text-slate-900 dark:text-white">{value}</span>
                   </div>
                 ))}
               </div>
+
+              {/* Detalle de envío e impuestos en el resumen si existen */}
+              {(totalShippingAndTaxARS > 0 || shippingDescription.trim() !== '') && (
+                <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-green-50/80 dark:bg-green-950/30 border border-green-200 dark:border-green-800/40 rounded-xl text-xs text-green-900 dark:text-green-200">
+                  <span className="font-bold flex items-center gap-1 text-green-800 dark:text-green-300">
+                    <span className="material-symbols-outlined text-[16px] text-green-600">local_shipping</span>
+                    Envío:
+                  </span>
+                  <span className="font-mono font-bold">${fmt(shippingCostARS)} ARS</span>
+                  {shippingDescription.trim() !== '' && (
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">({shippingDescription.trim()})</span>
+                  )}
+                  {taxCostARS > 0 && (
+                    <>
+                      <span className="text-slate-300 dark:text-slate-600 mx-1">•</span>
+                      <span className="font-bold flex items-center gap-1 text-green-800 dark:text-green-300">
+                        <span className="material-symbols-outlined text-[16px] text-green-600">receipt</span>
+                        Impuestos ({extraTaxes.length}):
+                      </span>
+                      <span className="font-mono font-bold">+${fmt(taxCostARS)} ARS</span>
+                    </>
+                  )}
+                </div>
+              )}
               {/* Banner de alerta si hay conflictos pendientes */}
               {(() => {
                 const pendingCount = summaryRows.filter(r => isRowConflict(r) && r.salePriceConflict === null).length;
@@ -1941,7 +2470,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                             )}
                           </td>
                           <td className="py-2 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{row.quantity}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-slate-600 dark:text-slate-400">{purchaseCurrency !== 'ARS' ? `${CURRENCY_SYMBOLS[purchaseCurrency]}${row.unitCostOriginal.toFixed(2)}` : `$${fmt(row.unitCostOriginal)}`}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-slate-600 dark:text-slate-400">{purchaseCurrency !== 'ARS' ? `${CURRENCY_SYMBOLS[purchaseCurrency]} ${fmtUSD(row.unitCostOriginal)}` : `$ ${fmt(row.unitCostOriginal)}`}</td>
                           <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(row.unitCostARS)}</td>
                           <td className="py-2 pr-3 text-right font-mono text-green-600 dark:text-green-400">${fmt(row.shippingPerUnitARS)}</td>
                           <td className="py-2 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(row.totalCostPerUnitARS)}</td>
@@ -1953,28 +2482,36 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                                 Sin venta
                               </span>
                             ) : (
-                              <input type="number" step="1" min="0" className={`w-28 text-right bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`} value={displaySalePrice || ''} onChange={e => {
-                                const pv = Number(e.target.value);
-                                updateSummaryRow(idx, 'salePrice', pv);
-                                if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', pv);
-                                // Recalculate wholesale from new sale price
-                                if (wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0) {
-                                  updateSummaryRow(idx, 'wholesalePrice', pv > 0 ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100)) : 0);
-                                }
-                              }} disabled={row.salePriceConflict === 'keep'} />
+                              <PriceInput
+                                currencySymbol="$"
+                                allowDecimals={false}
+                                placeholder="0"
+                                className={`w-28 text-right bg-white dark:bg-slate-700 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
+                                value={displaySalePrice || ''}
+                                disabled={row.salePriceConflict === 'keep'}
+                                onChange={val => {
+                                  const pv = typeof val === 'number' ? val : 0;
+                                  updateSummaryRow(idx, 'salePrice', pv);
+                                  if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', pv);
+                                  // Recalculate wholesale from new sale price
+                                  if (wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0) {
+                                    updateSummaryRow(idx, 'wholesalePrice', pv > 0 ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100)) : 0);
+                                  }
+                                }}
+                              />
                             )}
                           </td>
                           <td className="py-2 text-right">
                             {row.notForPublicSale ? (
                               <span className="text-[11px] text-purple-400">—</span>
                             ) : (
-                              <input
-                                type="number"
-                                step="1"
-                                min="0"
+                              <PriceInput
+                                currencySymbol="$"
+                                allowDecimals={false}
+                                placeholder="0"
                                 className={`w-28 text-right bg-indigo-50 dark:bg-indigo-950/30 border rounded-lg px-2 py-1 text-xs font-black transition-colors ${row.wholesalePrice > 0 ? 'border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-500'}`}
                                 value={row.wholesalePrice || ''}
-                                onChange={e => updateSummaryRow(idx, 'wholesalePrice', Number(e.target.value))}
+                                onChange={val => updateSummaryRow(idx, 'wholesalePrice', typeof val === 'number' ? val : 0)}
                               />
                             )}
                           </td>
@@ -1990,7 +2527,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                         {purchaseCurrency !== 'ARS' ? `${CURRENCY_SYMBOLS[purchaseCurrency]}${fmtUSD(totalCostOrigSummary)}` : `$${fmt(totalCostOrigSummary)}`}
                       </td>
                       <td className="py-2.5 pr-3 text-right font-mono text-slate-900 dark:text-white">${fmt(totalCostARSSummary)}</td>
-                      <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(shippingCostARS)}</td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(totalShippingAndTaxARS)}</td>
                       <td className="py-2.5 pr-3 text-right font-mono text-slate-400">—</td>
                       <td className="py-2.5 pr-3 text-right font-mono font-black text-slate-900 dark:text-white">${fmt(totalCostFinalSummary)}</td>
                       <td className="py-2.5 pr-3 text-right font-mono text-emerald-600 dark:text-emerald-400 font-black">${fmt(totalSaleValueSummary)}</td>
@@ -2034,35 +2571,33 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                             <div className="flex flex-col items-end gap-1">
                               <div>
                                 <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-0.5 block">P. Venta ✏️</span>
-                                <div className="relative">
-                                  <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
-                                  <input
-                                    type="number" step="1" min="0"
-                                    className={`w-28 pl-5 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
-                                    value={displaySalePrice || ''}
-                                    onChange={e => {
-                                      const pv = Number(e.target.value);
-                                      updateSummaryRow(idx, 'salePrice', pv);
-                                      if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', pv);
-                                      if (wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0) {
-                                        updateSummaryRow(idx, 'wholesalePrice', pv > 0 ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100)) : 0);
-                                      }
-                                    }}
-                                    disabled={row.salePriceConflict === 'keep'}
-                                  />
-                                </div>
+                                <PriceInput
+                                  currencySymbol="$"
+                                  allowDecimals={false}
+                                  placeholder="0"
+                                  className={`w-28 pl-2 pr-2 py-1 text-right bg-white dark:bg-slate-700 border rounded-xl text-xs font-black transition-colors ${displaySalePrice > 0 ? 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' : 'border-slate-300 dark:border-slate-600 text-slate-600'}`}
+                                  value={displaySalePrice || ''}
+                                  disabled={row.salePriceConflict === 'keep'}
+                                  onChange={val => {
+                                    const pv = typeof val === 'number' ? val : 0;
+                                    updateSummaryRow(idx, 'salePrice', pv);
+                                    if (row.salePriceConflict === 'custom') updateSummaryRow(idx, 'customSalePrice', pv);
+                                    if (wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0) {
+                                      updateSummaryRow(idx, 'wholesalePrice', pv > 0 ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100)) : 0);
+                                    }
+                                  }}
+                                />
                               </div>
                               <div>
                                 <span className="text-[9px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider mb-0.5 block">P. Mayorista ✏️</span>
-                                <div className="relative">
-                                  <span className="absolute left-2.5 top-1 text-xs font-bold text-slate-400">$</span>
-                                  <input
-                                    type="number" step="1" min="0"
-                                    className={`w-28 pl-5 pr-2 py-1 text-right bg-indigo-50 dark:bg-indigo-950/30 border rounded-xl text-xs font-black transition-colors ${row.wholesalePrice > 0 ? 'border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-500'}`}
-                                    value={row.wholesalePrice || ''}
-                                    onChange={e => updateSummaryRow(idx, 'wholesalePrice', Number(e.target.value))}
-                                  />
-                                </div>
+                                <PriceInput
+                                  currencySymbol="$"
+                                  allowDecimals={false}
+                                  placeholder="0"
+                                  className={`w-28 pl-2 pr-2 py-1 text-right bg-indigo-50 dark:bg-indigo-950/30 border rounded-xl text-xs font-black transition-colors ${row.wholesalePrice > 0 ? 'border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-500'}`}
+                                  value={row.wholesalePrice || ''}
+                                  onChange={val => updateSummaryRow(idx, 'wholesalePrice', typeof val === 'number' ? val : 0)}
+                                />
                               </div>
                             </div>
                           )}
@@ -2156,9 +2691,9 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                     </div>
                   ) : (
                     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-center flex flex-col justify-center">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costo Envío</span>
-                      <span className="text-sm sm:text-base font-black text-green-600 dark:text-green-400 font-mono leading-tight">${fmt(shippingCostARS)}</span>
-                      <span className="text-[10px] text-slate-400 block font-medium">flete total</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Envío e Imp.</span>
+                      <span className="text-sm sm:text-base font-black text-green-600 dark:text-green-400 font-mono leading-tight">${fmt(totalShippingAndTaxARS)}</span>
+                      <span className="text-[10px] text-slate-400 block font-medium">flete e imp. total</span>
                     </div>
                   )}
 
@@ -2296,16 +2831,15 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                     </div>
                   </div>
                   <div className="flex gap-2 pt-1">
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      placeholder="Ej: 35000"
+                    <PriceInput
+                      currencySymbol="$"
+                      allowDecimals={false}
+                      placeholder="Ej: $ 35.000"
                       className="flex-1 bg-white dark:bg-slate-700 border border-amber-300 dark:border-amber-700 rounded-xl px-3 py-1.5 text-xs font-bold text-amber-800 dark:text-amber-200"
                       value={conflictModal.row.customSalePrice || ''}
-                      onChange={e => {
-                        const val = e.target.value === '' ? 0 : Number(e.target.value);
-                        setConflictModal(cm => cm ? { ...cm, row: { ...cm.row, customSalePrice: val } } : null);
+                      onChange={val => {
+                        const num = typeof val === 'number' ? val : 0;
+                        setConflictModal(cm => cm ? { ...cm, row: { ...cm.row, customSalePrice: num } } : null);
                       }}
                     />
                     <button
@@ -2412,8 +2946,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                             <td className="py-2.5 pr-3 text-center font-bold text-slate-700 dark:text-slate-300">{it.quantity}</td>
                             <td className="py-2.5 pr-3 text-right font-mono text-slate-500">
                               {detailBatch.currency !== 'ARS'
-                                ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency]}${Number(it.unit_cost_original).toFixed(2)}`
-                                : `$${fmt(it.unit_cost_original)}`}
+                                ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency] || ''} ${fmtUSD(Number(it.unit_cost_original))}`
+                                : `$ ${fmt(it.unit_cost_original)}`}
                             </td>
                             <td className="py-2.5 pr-3 text-right font-mono text-slate-700 dark:text-slate-300">${fmt(it.unit_cost_ars)}</td>
                             <td className="py-2.5 pr-3 text-right font-mono text-green-600 font-bold">${fmt(it.shipping_per_unit_ars)}</td>
@@ -2437,8 +2971,8 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                           </td>
                           <td className="py-2.5 pr-3 text-right font-mono text-slate-600 dark:text-slate-300">
                             {detailBatch.currency !== 'ARS'
-                              ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency] || ''}${fmtUSD(totalCostOrig)}`
-                              : `$${fmt(totalCostOrig)}`}
+                              ? `${CURRENCY_SYMBOLS[detailBatch.currency as Currency] || ''} ${fmtUSD(totalCostOrig)}`
+                              : `$ ${fmt(totalCostOrig)}`}
                           </td>
                           <td className="py-2.5 pr-3 text-right font-mono text-slate-900 dark:text-white">
                             ${fmt(totalCostARS)}
@@ -2789,21 +3323,21 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         </div>
       )}
 
-      {/* MODAL: CONFIRMAR ELIMINAR DATOS (BORRADOR) */}
+      {/* MODAL: CONFIRMAR ELIMINAR DATOS (BORRADOR / CANCELAR EDICIÓN) */}
       {showClearDraftModal && (
         <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-red-200 dark:border-red-900/50 max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
               <div className="flex items-center gap-3">
-                <div className="size-11 rounded-2xl bg-red-100 dark:bg-red-950/50 text-red-600 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-2xl">delete_sweep</span>
+                <div className={`size-11 rounded-2xl flex items-center justify-center ${editingBatchId ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-600' : 'bg-red-100 dark:bg-red-950/50 text-red-600'}`}>
+                  <span className="material-symbols-outlined text-2xl">{editingBatchId ? 'tune' : 'delete_sweep'}</span>
                 </div>
                 <div>
                   <h4 className="font-black text-slate-900 dark:text-white text-base">
-                    ¿Eliminar todos los datos?
+                    {editingBatchId ? '¿Qué datos querés eliminar?' : '¿Eliminar todos los datos?'}
                   </h4>
                   <p className="text-xs text-slate-500 font-bold">
-                    Ingreso de mercadería en curso
+                    {editingBatchId ? `Editando lote ${editingBatchNumber}` : 'Ingreso de mercadería en curso'}
                   </p>
                 </div>
               </div>
@@ -2816,15 +3350,73 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
               </button>
             </div>
 
-            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-2xl p-4 space-y-2 text-xs text-red-800 dark:text-red-300">
-              <p className="font-bold flex items-center gap-1.5 text-sm">
-                <span className="material-symbols-outlined text-base">warning</span>
-                ¿Estás seguro de que querés resetear este formulario?
-              </p>
-              <p>
-                Se borrarán todos los productos, variantes, costos, proveedor y datos ingresados en este borrador. Esta acción no se puede deshacer y el formulario quedará completamente limpio.
-              </p>
-            </div>
+            {editingBatchId ? (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-600 dark:text-slate-300">
+                  Estás editando el lote <span className="font-mono font-bold text-amber-700 dark:text-amber-400">{editingBatchNumber}</span>. Elegí cómo querés proceder:
+                </p>
+
+                {/* Opción 1: Eliminar productos pero continuar edición */}
+                <button
+                  type="button"
+                  onClick={handleClearProductsOnly}
+                  className="w-full text-left p-3.5 rounded-2xl border border-amber-300 dark:border-amber-700/80 bg-amber-50/70 dark:bg-amber-950/30 hover:bg-amber-100/80 dark:hover:bg-amber-900/40 transition-all flex items-start gap-3.5 group shadow-sm hover:shadow"
+                >
+                  <div className="size-10 rounded-xl bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="material-symbols-outlined text-xl">playlist_remove</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black text-amber-900 dark:text-amber-200">
+                        Eliminar productos y continuar edición
+                      </p>
+                      <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-base group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                    </div>
+                    <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 mt-1 leading-relaxed">
+                      Se vacían los productos cargados, pero <strong>se conservan</strong>:
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5 text-[10px] font-bold text-amber-900 dark:text-amber-200">
+                      <span className="px-2 py-0.5 bg-amber-200/60 dark:bg-amber-900/50 rounded-md">✓ Proveedor</span>
+                      <span className="px-2 py-0.5 bg-amber-200/60 dark:bg-amber-900/50 rounded-md">✓ Fecha</span>
+                      <span className="px-2 py-0.5 bg-amber-200/60 dark:bg-amber-900/50 rounded-md">✓ Moneda y Cotización</span>
+                      <span className="px-2 py-0.5 bg-amber-200/60 dark:bg-amber-900/50 rounded-md">✓ Costo de Envío</span>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Opción 2: Cancelar edición y vaciar todo */}
+                <button
+                  type="button"
+                  onClick={handleClearDraft}
+                  className="w-full text-left p-3.5 rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 hover:bg-rose-100/70 dark:hover:bg-rose-900/30 transition-all flex items-start gap-3.5 group shadow-sm hover:shadow"
+                >
+                  <div className="size-10 rounded-xl bg-rose-200 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="material-symbols-outlined text-xl">delete_sweep</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black text-rose-900 dark:text-rose-200">
+                        Cancelar edición y vaciar todo
+                      </p>
+                      <span className="material-symbols-outlined text-rose-600 dark:text-rose-400 text-base group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                    </div>
+                    <p className="text-[11px] text-rose-700 dark:text-rose-300/80 mt-1 leading-relaxed">
+                      Se cancela la edición del lote y se borran todos los datos. La pantalla quedará lista para registrar una <strong>nueva compra</strong> de cero.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            ) : (
+              <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-2xl p-4 space-y-2 text-xs text-red-800 dark:text-red-300">
+                <p className="font-bold flex items-center gap-1.5 text-sm">
+                  <span className="material-symbols-outlined text-base">warning</span>
+                  ¿Estás seguro de que querés resetear este formulario?
+                </p>
+                <p>
+                  Se borrarán todos los productos, variantes, costos, proveedor y datos ingresados en este borrador. Esta acción no se puede deshacer y el formulario quedará completamente limpio.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
               <button
@@ -2832,16 +3424,18 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                 onClick={() => setShowClearDraftModal(false)}
                 className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition"
               >
-                Cancelar
+                Volver
               </button>
-              <button
-                type="button"
-                onClick={handleClearDraft}
-                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg shadow-red-600/25 transition flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-base">delete_sweep</span>
-                Sí, eliminar todo
-              </button>
+              {!editingBatchId && (
+                <button
+                  type="button"
+                  onClick={handleClearDraft}
+                  className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg shadow-red-600/25 transition flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-base">delete_sweep</span>
+                  Sí, eliminar todo
+                </button>
+              )}
             </div>
           </div>
         </div>
