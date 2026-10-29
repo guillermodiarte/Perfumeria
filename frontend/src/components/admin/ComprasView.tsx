@@ -356,6 +356,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     targetGender: 'Unisex' as const,
     notForPublicSale: false,
     hasVariantPricing: false,
+    hasVisualVariants: false,
     globalPurchasePrice: '' as unknown as number,
     globalSalePrice: '' as unknown as number,
     globalWholesalePrice: '' as unknown as number,
@@ -1059,9 +1060,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
       setShippingCostOriginal(data.shipping_cost_ars || '');
 
       // Extraer datos de impuestos y envío si fueron guardados en notes
+      let parsedNotes: any = null;
       if (data.notes) {
         try {
-          const parsedNotes = typeof data.notes === 'string' ? JSON.parse(data.notes) : data.notes;
+          parsedNotes = typeof data.notes === 'string' ? JSON.parse(data.notes) : data.notes;
           if (parsedNotes && typeof parsedNotes === 'object') {
             if (parsedNotes.shippingDescription) setShippingDescription(parsedNotes.shippingDescription);
             if (parsedNotes.shippingCurrency) setShippingCurrency(parsedNotes.shippingCurrency);
@@ -1108,6 +1110,13 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           ? (Number(it.unit_cost_ars) || 0) / Number(data.exchange_rate)
           : (Number(it.unit_cost_original) || Number(it.unit_cost_ars) || 0);
 
+        // Buscar variante correspondiente en el producto guardado
+        const matchingVariant = matchingStoreProd?.variants?.find(v =>
+          (it.variant_id && v.id === it.variant_id) ||
+          (v.color && (it.variant_label || '').toLowerCase().includes(v.color.toLowerCase())) ||
+          v.size?.toLowerCase() === (it.variant_label || '').toLowerCase()
+        );
+
         // Parsear tamaño y descripción desde variant_label
         const labelParts = (it.variant_label || '').split(' – ').length > 1
           ? (it.variant_label || '').split(' – ')
@@ -1117,16 +1126,65 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
 
         // Encontrar sizeIndex en el grupo de variantes
         let sizeIndex = 0;
+        let isKnownSize = false;
         if (vg && vg.options.length > 0) {
           const foundIdx = vg.options.findIndex(o =>
             vSize && (o.value === vSize || vSize.startsWith(o.value) || (o.description && vSize.includes(o.description)))
           );
-          if (foundIdx >= 0) sizeIndex = foundIdx;
+          if (foundIdx >= 0) {
+            sizeIndex = foundIdx;
+            isKnownSize = true;
+          }
+        }
+
+        const savedMeta = parsedNotes?.productsMeta?.find((m: any) =>
+          m.productName?.trim().toLowerCase() === pName.toLowerCase()
+        );
+
+        const canUseVisual = categorySupportsVisualVariants(categoryId);
+        const isVisualForProd = savedMeta?.hasVisualVariants !== undefined
+          ? Boolean(savedMeta.hasVisualVariants)
+          : (matchingStoreProd?.hasVisualVariants !== undefined
+            ? Boolean(matchingStoreProd.hasVisualVariants)
+            : (canUseVisual && (
+                Boolean(matchingVariant?.color || (matchingVariant as any)?.colorHex || (matchingVariant as any)?.imageUrl || (matchingVariant as any)?.attributeValue) ||
+                Boolean(matchingStoreProd?.variants?.some(v => (v as any).colorHex || (v as any).attributeValue || (v as any).imageUrl)) ||
+                COMMON_COLORS.some(c => c.name.toLowerCase() === (it.variant_label || '').trim().toLowerCase()) ||
+                (it.variant_label || '').includes(' – ')
+              )));
+
+        let vColor = matchingVariant?.color || '';
+        let vColorHex = (matchingVariant as any)?.colorHex || '';
+        let vAttr = (matchingVariant as any)?.attributeValue || '';
+        let vImg = (matchingVariant as any)?.imageUrl || '';
+
+        if (isVisualForProd) {
+          if (!vColor && !vAttr) {
+            if (labelParts.length > 1) {
+              vColor = labelParts[0].trim();
+              vAttr = labelParts.slice(1).join(' - ').trim();
+            } else {
+              const singleLabel = (it.variant_label || '').trim();
+              if (COMMON_COLORS.some(c => c.name.toLowerCase() === singleLabel.toLowerCase()) || !vg || vg.options.length === 0) {
+                vColor = singleLabel;
+              } else {
+                vAttr = singleLabel;
+              }
+            }
+          }
+          if (vColor && !vColorHex) {
+            vColorHex = getColorHex(vColor);
+          }
         }
 
         const newVariant = {
-          size: vSize || 'M',
-          description: vDesc,
+          size: isVisualForProd ? (vAttr || 'Único') : (isKnownSize ? vSize : (vg?.options?.[0]?.value || 'Único')),
+          description: isVisualForProd ? (vColor || vDesc) : (vDesc || (!isKnownSize && vSize !== 'Único' ? vSize : '')),
+          color: vColor,
+          colorHex: vColorHex,
+          attributeValue: vAttr,
+          attributeName: getCategoryAttributeLabel(categoryId),
+          imageUrl: vImg,
           quantity: it.quantity || 1,
           unitPurchasePrice: unitCostInOrigCurrency,
           sizeIndex,
@@ -1149,6 +1207,11 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
             categoryId,
             targetGender: matchingStoreProd?.targetGender || ('Unisex' as const),
             notForPublicSale: Boolean((matchingStoreProd as any)?.notForPublicSale),
+            hasVisualVariants: isVisualForProd,
+            hasVariantPricing: false,
+            globalPurchasePrice: '' as unknown as number,
+            globalSalePrice: '' as unknown as number,
+            globalWholesalePrice: '' as unknown as number,
             newProductImageUrls: matchingStoreProd?.imageUrls || [],
             _uploading: false,
             variants: [newVariant],
@@ -1165,6 +1228,46 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           seenProductNames.set(pName.toLowerCase(), loadedProducts.length);
           loadedProducts.push(newProd);
         }
+      }
+
+      // Post-procesar productos cargados para ajustar precios individuales y globales
+      for (const p of loadedProducts) {
+        if (p.variants.some((v: any) => v.color || v.colorHex || v.attributeValue || v.imageUrl)) {
+          p.hasVisualVariants = true;
+        }
+
+        const savedMeta = parsedNotes?.productsMeta?.find((m: any) =>
+          m.productName?.trim().toLowerCase() === p.newProductName.trim().toLowerCase()
+        );
+        const matchingStore = productsStore.find(sp =>
+          sp.id === p.productId || sp.name.trim().toLowerCase() === p.newProductName.trim().toLowerCase()
+        );
+
+        const uniqueCosts = new Set(p.variants.map((v: any) => Number(v.unitPurchasePrice) || 0));
+        const uniqueSales = new Set(p.variants.map((v: any) => Number(v.manualSalePrice) || 0));
+        const uniqueWholesale = new Set(p.variants.map((v: any) => Number(v.manualWholesalePrice) || 0));
+        const pricesVary = uniqueCosts.size > 1 || uniqueSales.size > 1 || uniqueWholesale.size > 1;
+
+        if (savedMeta?.hasVariantPricing !== undefined) {
+          p.hasVariantPricing = Boolean(savedMeta.hasVariantPricing);
+        } else if (matchingStore?.hasVariantPricing !== undefined) {
+          p.hasVariantPricing = Boolean(matchingStore.hasVariantPricing);
+        } else if (pricesVary) {
+          p.hasVariantPricing = true;
+        } else {
+          p.hasVariantPricing = false;
+        }
+
+        const firstV = p.variants[0];
+        p.globalPurchasePrice = savedMeta?.globalPurchasePrice !== undefined
+          ? savedMeta.globalPurchasePrice
+          : (firstV ? (firstV.unitPurchasePrice || '') : '');
+        p.globalSalePrice = savedMeta?.globalSalePrice !== undefined
+          ? savedMeta.globalSalePrice
+          : (firstV ? (firstV.manualSalePrice || '') : '');
+        p.globalWholesalePrice = savedMeta?.globalWholesalePrice !== undefined
+          ? savedMeta.globalWholesalePrice
+          : (firstV ? (firstV.manualWholesalePrice || '') : '');
       }
 
       if (loadedProducts.length > 0) setProducts(loadedProducts);
@@ -1244,7 +1347,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           ? 0
           : (userWholesalePrice !== undefined ? userWholesalePrice : suggestedWholesalePrice);
 
-        const isVisual = categorySupportsVisualVariants(prod.categoryId);
+        const isVisual = categorySupportsVisualVariants(prod.categoryId) && Boolean((prod as any).hasVisualVariants);
         let variantLabel = '';
         if (isVisual) {
           const c = (variant as any).color?.trim();
@@ -1411,6 +1514,14 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         notesDataObj.shippingCostOriginal = shippingCostOriginal;
         notesDataObj.shippingCostARS = shippingCostARS;
       }
+      notesDataObj.productsMeta = products.map(p => ({
+        productName: p.newProductName,
+        hasVisualVariants: Boolean((p as any).hasVisualVariants),
+        hasVariantPricing: Boolean((p as any).hasVariantPricing),
+        globalPurchasePrice: (p as any).globalPurchasePrice,
+        globalSalePrice: (p as any).globalSalePrice,
+        globalWholesalePrice: (p as any).globalWholesalePrice,
+      }));
       const taxNotesData = Object.keys(notesDataObj).length > 0 ? JSON.stringify(notesDataObj) : null;
 
       // ── Modo edición: PUT al lote existente ──
@@ -1486,7 +1597,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
             const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
             const finalWholesalePrice = isNotForSale ? undefined : (row.wholesalePrice && row.wholesalePrice > 0 ? row.wholesalePrice : undefined);
             const variant = prod.variants[row.vIdx];
-            const isVisual = categorySupportsVisualVariants(prod.categoryId);
+            const isVisual = categorySupportsVisualVariants(prod.categoryId) && Boolean((prod as any).hasVisualVariants);
             const variantColor = isVisual ? ((variant as any)?.color || '') : (row.variantLabel.split(' – ')[1] || '');
             const variantSize = isVisual ? ((variant as any)?.attributeValue || (variant as any)?.size || 'Único') : (row.variantLabel.split(' –')[0].trim() || 'Único');
 
@@ -1525,6 +1636,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
               intensity: prod.intensity || undefined,
               family: prod.family || undefined,
               showFeatures: prod.showFeatures,
+              hasVisualVariants: isVisual,
               salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict,
               customSalePrice: row.customSalePrice
             };
@@ -1769,22 +1881,40 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                   <div className="col-span-1 md:col-span-5 space-y-2">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <label className="block text-xs font-bold text-slate-500">1. Producto Padre</label>
-                      <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors border select-none ${
-                        (prod as any).notForPublicSale
-                          ? 'bg-purple-600 text-white border-purple-700 shadow-sm'
-                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-purple-300'
-                      }`}>
-                        <input
-                          type="checkbox"
-                          checked={Boolean((prod as any).notForPublicSale)}
-                          onChange={e => updateProduct(pIdx, 'notForPublicSale', e.target.checked)}
-                          className="rounded text-purple-600 focus:ring-purple-500 size-3.5"
-                        />
-                        <span className="material-symbols-outlined text-[15px]">
-                          {(prod as any).notForPublicSale ? 'visibility_off' : 'visibility'}
-                        </span>
-                        <span>{(prod as any).notForPublicSale ? 'Fuera de venta' : 'No para venta al público'}</span>
-                      </label>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {categorySupportsVisualVariants(prod.categoryId) && (
+                          <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors border select-none ${
+                            (prod as any).hasVisualVariants
+                              ? 'bg-purple-600 text-white border-purple-700 shadow-sm'
+                              : 'bg-white dark:bg-slate-800 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 hover:border-purple-400'
+                          }`}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean((prod as any).hasVisualVariants)}
+                              onChange={e => updateProduct(pIdx, 'hasVisualVariants', e.target.checked)}
+                              className="rounded text-purple-600 focus:ring-purple-500 size-3.5"
+                            />
+                            <span className="material-symbols-outlined text-[15px]">palette</span>
+                            <span>Variantes por Color / Forma</span>
+                          </label>
+                        )}
+                        <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors border select-none ${
+                          (prod as any).notForPublicSale
+                            ? 'bg-purple-600 text-white border-purple-700 shadow-sm'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean((prod as any).notForPublicSale)}
+                            onChange={e => updateProduct(pIdx, 'notForPublicSale', e.target.checked)}
+                            className="rounded text-purple-600 focus:ring-purple-500 size-3.5"
+                          />
+                          <span className="material-symbols-outlined text-[15px]">
+                            {(prod as any).notForPublicSale ? 'visibility_off' : 'visibility'}
+                          </span>
+                          <span>{(prod as any).notForPublicSale ? 'Fuera de venta' : 'No para venta al público'}</span>
+                        </label>
+                      </div>
                     </div>
 
                     {(prod as any).notForPublicSale && (
@@ -1873,6 +2003,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                                       updateProduct(pIdx, 'perfumeType', (p as any).perfumeType || '');
                                       updateProduct(pIdx, 'newProductImageUrls', p.imageUrls || []);
                                       updateProduct(pIdx, 'notForPublicSale', Boolean((p as any).notForPublicSale));
+                                      updateProduct(pIdx, 'hasVisualVariants', Boolean(p.hasVisualVariants || p.variants?.some((v: any) => v.colorHex || v.attributeValue || v.imageUrl)));
                                       if (p.targetGender) updateProduct(pIdx, 'targetGender', p.targetGender);
                                       ['description', 'tag', 'showTag', 'olfactoryNotes', 'duration', 'intensity', 'family', 'showFeatures'].forEach(f => { if ((p as any)[f] !== undefined) updateProduct(pIdx, f, (p as any)[f]); });
                                       setProductDropdownPIdx(null);
@@ -2004,7 +2135,7 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
 
                 {/* Variantes */}
                 {(() => {
-                  const isVisual = categorySupportsVisualVariants(prod.categoryId);
+                  const isVisual = categorySupportsVisualVariants(prod.categoryId) && Boolean((prod as any).hasVisualVariants);
                   const prodTotalStock = prod.variants.reduce((acc, v) => acc + (Number(v.quantity) || 0), 0);
                   const attrLabel = getCategoryAttributeLabel(prod.categoryId);
 
@@ -2028,6 +2159,17 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                           </div>
 
                           <div className="flex flex-wrap items-center gap-3">
+                            {/* Switch: Variantes por Color / Forma */}
+                            <label className="flex items-center gap-2 cursor-pointer bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-purple-300 dark:border-purple-700 text-xs font-bold text-purple-700 dark:text-purple-300 hover:border-purple-400 transition-colors select-none shadow-xs">
+                              <input
+                                type="checkbox"
+                                checked={Boolean((prod as any).hasVisualVariants)}
+                                onChange={e => updateProduct(pIdx, 'hasVisualVariants', e.target.checked)}
+                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                              />
+                              <span>Variantes por Color / Forma</span>
+                            </label>
+
                             {/* Contador de Stock Total Acumulado */}
                             <div className="flex items-center gap-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-700/60 font-black text-xs shadow-sm">
                               <span className="material-symbols-outlined text-[16px]">inventory_2</span>
@@ -2359,9 +2501,24 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                   }
 
                   // ─── MODO TRADICIONAL (Perfumería o categorías sin variantes visuales) ───
+                  const canUseVisual = categorySupportsVisualVariants(prod.categoryId);
                   return (
                     <div className="mt-2 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
-                      <label className="block text-xs font-bold text-slate-500">2. Variantes (Ítem Físico)</label>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <label className="block text-xs font-bold text-slate-500">2. Variantes (Ítem Físico)</label>
+                        {canUseVisual && (
+                          <label className="flex items-center gap-2 cursor-pointer bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/40 px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800 text-xs font-bold text-purple-700 dark:text-purple-300 transition-colors select-none shadow-xs">
+                            <input
+                              type="checkbox"
+                              checked={Boolean((prod as any).hasVisualVariants)}
+                              onChange={e => updateProduct(pIdx, 'hasVisualVariants', e.target.checked)}
+                              className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                            />
+                            <span className="material-symbols-outlined text-[16px]">palette</span>
+                            <span>Variantes por Color / Forma</span>
+                          </label>
+                        )}
+                      </div>
                       <div className="space-y-2">
                         {prod.variants.map((variant, vIdx) => {
                           const unitCostARS = (Number(variant.unitPurchasePrice) || 0) * effectiveExchangeRate;

@@ -128,7 +128,9 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
 
   // Category visual variant detection
   const catGroup = product ? categoriesConfig.find(g => g.opciones.includes(product.categoryId)) : undefined;
-  const isVisualProduct = catGroup?.hasVisualVariants === true;
+  const isVisualProduct = product?.hasVisualVariants !== undefined
+    ? Boolean(product.hasVisualVariants)
+    : Boolean(catGroup?.hasVisualVariants === true && product?.variants.some(v => (v as any).colorHex || (v as any).attributeValue || (v as any).imageUrl));
   const attrLabel = catGroup?.customAttributeLabel || 'Forma / Modelo';
   const isPerfumery = !isVisualProduct && (catGroup?.variantGroupId === 'perfumes' || catGroup?.grupo === 'Perfumería' || catGroup?.grupo === 'Cuidado Personal');
 

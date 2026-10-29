@@ -339,6 +339,7 @@ export interface Product {
   salePrice: number;
   wholesalePrice?: number;      // Precio mayorista base del producto
   hasVariantPricing?: boolean;  // Si es true, el producto tiene precios diferenciados por cada variante
+  hasVisualVariants?: boolean;  // Si es true, el producto utiliza variantes visuales (colores/formas con fotos y swatches)
   notForPublicSale?: boolean;   // Si es true, producto cargado solo para inventario interno, no disponible para venta al público
   imageUrls?: string[];
   variants: ProductVariant[];
@@ -529,6 +530,7 @@ export interface StockFlowState {
       showFeatures?: boolean;
       notForPublicSale?: boolean; // Si es true, producto cargado solo para inventario interno, no disponible para venta al público
       hasVariantPricing?: boolean; // Si es true, precios diferenciados por variante
+      hasVisualVariants?: boolean; // Si es true, activa variantes visuales por color/forma con fotos
       salePriceConflict?: 'update' | 'keep' | 'custom'; // decisión del modal
       customSalePrice?: number;
     }[];
@@ -1187,7 +1189,11 @@ export const useStockFlowStore = create<StockFlowState>()(
                   : (item.salePriceConflict !== 'keep'
                     ? finalSalePrice
                     : (existingProd.variants[varIndex].manualSalePrice || finalSalePrice));
-                if (existingProd.notForPublicSale) {
+                if (item.hasVisualVariants !== undefined) {
+                existingProd.hasVisualVariants = item.hasVisualVariants;
+              }
+
+              if (existingProd.notForPublicSale) {
                   existingProd.variants[varIndex].manualWholesalePrice = undefined;
                 } else if (item.manualWholesalePrice !== undefined && item.manualWholesalePrice > 0) {
                   existingProd.variants[varIndex].manualWholesalePrice = item.manualWholesalePrice;
@@ -1215,6 +1221,10 @@ export const useStockFlowStore = create<StockFlowState>()(
                   manualSalePrice: existingProd.notForPublicSale ? 0 : finalSalePrice,
                   manualWholesalePrice: finalVariantWholesale,
                 });
+              }
+
+              if (item.hasVisualVariants !== undefined) {
+                existingProd.hasVisualVariants = item.hasVisualVariants;
               }
 
               if (existingProd.notForPublicSale) {
@@ -1270,6 +1280,7 @@ export const useStockFlowStore = create<StockFlowState>()(
                 wholesalePrice: newProductWholesale,
                 notForPublicSale: isNotForSale,
                 hasVariantPricing: item.hasVariantPricing,
+                hasVisualVariants: Boolean(item.hasVisualVariants),
                 imageUrls: initialImages,
                 description: item.description,
                 tag: item.tag,

@@ -578,6 +578,9 @@ export default function ProductosView({
       formCopy.promoEnabled = Boolean((p as any).promoEnabled);
       formCopy.promoPrice = (p as any).promoPrice || '';
       formCopy.promoLabel = (p as any).promoLabel || '';
+      formCopy.hasVisualVariants = p.hasVisualVariants !== undefined
+        ? Boolean(p.hasVisualVariants)
+        : Boolean(p.variants?.some((v: any) => v.colorHex || v.attributeValue || v.imageUrl));
 
       setEditForm(formCopy);
   };
@@ -751,6 +754,7 @@ export default function ProductosView({
       promoEnabled: isNotForSale ? false : Boolean(form.promoEnabled),
       promoPrice: (!isNotForSale && form.promoEnabled && form.promoPrice) ? Number(form.promoPrice) : undefined,
       promoLabel: form.promoLabel || '',
+      hasVisualVariants: Boolean(form.hasVisualVariants),
     } as any, cleanVariants);
 
     // Si el nombre cambió, actualizar en cascada en la BD (purchase_batch_items, order_items, catalog)
@@ -1493,6 +1497,9 @@ export default function ProductosView({
                                                              v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
                                                              v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : (v.size || "");
                                              const isVarOut = (v.stock || 0) <= 0;
+                                             const isVisualProd = p.hasVisualVariants !== undefined
+                                               ? Boolean(p.hasVisualVariants)
+                                               : Boolean(p.variants.some(va => (va as any).colorHex || (va as any).attributeValue || (va as any).imageUrl));
                                              const colorHex = (v as any).colorHex;
                                              const imgUrl = (v as any).imageUrl;
                                              const attrVal = (v as any).attributeValue;
@@ -1506,7 +1513,7 @@ export default function ProductosView({
                                                    : "bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700"
                                                }`}
                                              >
-                                                 {(imgUrl || colorHex) && (
+                                                 {isVisualProd && (imgUrl || colorHex) && (
                                                      <div className="flex items-center justify-center gap-1.5 mb-1">
                                                          {imgUrl && (
                                                              <img
@@ -1532,7 +1539,7 @@ export default function ProductosView({
                                                          className={`text-xs font-black cursor-help ${isVarOut ? "text-red-700 dark:text-red-300" : "text-slate-700 dark:text-slate-300"}`}
                                                          title={(v.size.includes("MER:") || v.size.includes("ARG:") || v.size?.includes("INT:")) ? v.size : undefined}
                                                      >
-                                                         {attrVal || sizeLabel}
+                                                         {isVisualProd ? (attrVal || sizeLabel) : sizeLabel}
                                                      </span>
                                                  </div>
                                                  <div className="flex items-center justify-center gap-1 text-[11px] font-bold">
@@ -2488,10 +2495,24 @@ export default function ProductosView({
 
                     {/* 2. Variantes (Ítem Físico) */}
                     <div className="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">2. Variantes (Ítem Físico)</label>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">2. Variantes (Ítem Físico)</label>
+                            {isVisualCategory(editForm.categoryId) && (
+                                <label className="flex items-center gap-1.5 cursor-pointer bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/40 px-2.5 py-1 rounded-lg border border-purple-200 dark:border-purple-800 text-xs font-bold text-purple-700 dark:text-purple-300 transition-colors select-none shadow-xs">
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(editForm.hasVisualVariants)}
+                                        onChange={e => setEditForm((prev: any) => ({ ...prev, hasVisualVariants: e.target.checked }))}
+                                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                                    />
+                                    <span className="material-symbols-outlined text-[15px]">palette</span>
+                                    <span>Variantes por Color / Forma</span>
+                                </label>
+                            )}
+                        </div>
                         <div className="space-y-2">
                             {editForm.variants.map((variant: any, vIdx: number) => {
-                                const isVisual = isVisualCategory(editForm.categoryId);
+                                const isVisual = isVisualCategory(editForm.categoryId) && Boolean(editForm.hasVisualVariants);
                                 const attrLabel = getCategoryAttrLabel(editForm.categoryId);
                                 const vg = getVariantGroupForCategory(editForm.categoryId, categoriesConfig, variantGroupsConfig);
                                 return (
