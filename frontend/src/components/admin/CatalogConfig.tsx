@@ -85,21 +85,62 @@ export default function CatalogConfig() {
                   placeholder="Nombre de categoría"
                 />
                 
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-500 uppercase">Usa Variantes:</span>
-                  <select
-                    className="bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded px-2 py-1 text-sm font-bold text-slate-700 dark:text-slate-200 outline-none"
-                    value={cat.variantGroupId}
-                    onChange={(e) => {
-                      const n = [...cats]; n[idx].variantGroupId = e.target.value; saveCats(n);
-                    }}
-                  >
-                    <option value="none">Ninguno (Sólo Cantidad/Precio)</option>
-                    {vGroups.map(vg => (
-                      <option key={vg.id} value={vg.id}>{vg.name}</option>
-                    ))}
-                  </select>
-                  <button onClick={() => { const n = [...cats]; n.splice(idx,1); saveCats(n); }} className="text-red-500 hover:bg-red-50 p-1 rounded material-symbols-outlined text-sm ml-2">delete</button>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-500 uppercase">Usa Variantes:</span>
+                    <select
+                      className="bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded px-2 py-1 text-sm font-bold text-slate-700 dark:text-slate-200 outline-none"
+                      value={cat.variantGroupId}
+                      onChange={(e) => {
+                        const n = [...cats]; n[idx].variantGroupId = e.target.value; saveCats(n);
+                      }}
+                    >
+                      <option value="none">Ninguno (Sólo Cantidad/Precio)</option>
+                      {vGroups.map(vg => (
+                        <option key={vg.id} value={vg.id}>{vg.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* CHECK PARA HABILITAR VARIANTES VISUALES (COLORES / FORMAS / FOTOS) */}
+                  <label className="flex items-center gap-2 cursor-pointer bg-slate-50 dark:bg-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-700 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 transition-colors select-none">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(cat.hasVisualVariants)}
+                      onChange={(e) => {
+                        const n = [...cats];
+                        n[idx].hasVisualVariants = e.target.checked;
+                        if (!n[idx].customAttributeLabel) n[idx].customAttributeLabel = 'Forma / Modelo';
+                        saveCats(n);
+                      }}
+                      className="w-4 h-4 rounded text-primary focus:ring-primary accent-primary cursor-pointer"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[16px] text-primary">palette</span>
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                        Colores y Formas con Fotos
+                      </span>
+                    </div>
+                  </label>
+
+                  {cat.hasVisualVariants && (
+                    <div className="flex items-center gap-1 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-lg px-2 py-0.5">
+                      <span className="text-[11px] text-purple-700 dark:text-purple-300 font-bold">Atributo 2:</span>
+                      <input
+                        type="text"
+                        value={cat.customAttributeLabel || 'Forma / Modelo'}
+                        onChange={(e) => {
+                          const n = [...cats];
+                          n[idx].customAttributeLabel = e.target.value;
+                          saveCats(n);
+                        }}
+                        placeholder="Ej: Forma, Modelo, Tono"
+                        className="bg-transparent text-purple-900 dark:text-purple-200 text-xs font-semibold outline-none w-28"
+                      />
+                    </div>
+                  )}
+
+                  <button onClick={() => { const n = [...cats]; n.splice(idx,1); saveCats(n); }} className="text-red-500 hover:bg-red-50 p-1 rounded material-symbols-outlined text-sm ml-1" title="Eliminar categoría">delete</button>
                 </div>
               </div>
               

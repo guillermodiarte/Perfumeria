@@ -656,9 +656,16 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
         return;
     }
     
+    const isVisual = Boolean((variantItem as any).colorHex || (variantItem as any).attributeValue || (variantItem as any).imageUrl);
+    const variantLabel = selectedProduct.isBundle
+      ? 'Set / Combo'
+      : isVisual
+      ? [variantItem.color && variantItem.color !== 'Único' ? variantItem.color : null, (variantItem as any).attributeValue || (variantItem.size && variantItem.size !== 'Único' && variantItem.size !== variantItem.color ? variantItem.size : null)].filter(Boolean).join(' - ') || 'Único'
+      : `${variantItem.color} - Talle ${variantItem.size}`;
+
     const displayName = selectedProduct.isBundle
       ? `🎁 ${selectedProduct.name}`
-      : `${selectedProduct.name} - ${variantItem.color} - Talle ${variantItem.size}`;
+      : `${selectedProduct.name} (${variantLabel})`;
 
     // Precio unitario: solo se permite precio personalizado manual si el cliente es Mayorista Especial.
     // Para Normal o Mayorista se usa SIEMPRE el precio de lista configurado.
@@ -667,7 +674,7 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
       ? Math.max(0, parseFloat(customUnitPriceInput))
       : defaultPrice;
 
-    const imageUrl = selectedProduct.imageUrls?.[0] || '';
+    const imageUrl = (variantItem as any).imageUrl || selectedProduct.imageUrls?.[0] || '';
 
     // Si ya existe en el carrito con el mismo precio unitario, sumamos cantidad para no duplicar filas
     const existingIndex = cart.findIndex(it => 
@@ -1296,8 +1303,11 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                             {availableVariants.map(v => {
                                 const vPrice = getBasePrice(selectedProduct, v, clientType);
                                 const isOutOfStock = v.remainingStock <= 0;
+                                const isVisual = Boolean((v as any).colorHex || (v as any).attributeValue || (v as any).imageUrl);
                                 const label = selectedProduct?.isBundle
                                     ? `🎁 ${v.color}`
+                                    : isVisual
+                                    ? [v.color && v.color !== 'Único' ? v.color : null, (v as any).attributeValue || (v.size && v.size !== 'Único' && v.size !== v.color ? v.size : null)].filter(Boolean).join(' - ') || 'Único'
                                     : `${v.color} - Talle ${v.size}`;
                                 return (
                                     <option key={v.id} value={v.id} disabled={isOutOfStock}>
@@ -1306,6 +1316,26 @@ export default function VentasView({ showAlert, apiKey, apiUrl }: VentasViewProp
                                 );
                             })}
                         </select>
+                        {selectedVariant && ((selectedVariant as any).imageUrl || (selectedVariant as any).colorHex) && (
+                            <div className="flex items-center gap-2 mt-2 px-3 py-1.5 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-lg w-fit">
+                                {(selectedVariant as any).imageUrl && (
+                                    <img
+                                        src={(selectedVariant as any).imageUrl}
+                                        alt=""
+                                        className="w-6 h-6 rounded object-cover border border-purple-300 dark:border-purple-700"
+                                    />
+                                )}
+                                {(selectedVariant as any).colorHex && (
+                                    <span
+                                        className="w-4 h-4 rounded-full border border-purple-300 dark:border-purple-600 shadow-xs"
+                                        style={{ backgroundColor: (selectedVariant as any).colorHex }}
+                                    />
+                                )}
+                                <span className="text-xs font-bold text-purple-900 dark:text-purple-200">
+                                    {(selectedVariant as any).color || ''} {(selectedVariant as any).attributeValue ? `• ${(selectedVariant as any).attributeValue}` : ''}
+                                </span>
+                            </div>
+                        )}
                         {selectedProduct && availableVariants.length > 0 && availableVariants.every(v => v.remainingStock <= 0) && (
                             <p className="text-amber-600 dark:text-amber-400 text-xs mt-1 font-bold">
                                 Todo el stock de este producto ya está cargado en la venta.

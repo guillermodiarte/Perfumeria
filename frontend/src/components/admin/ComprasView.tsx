@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useStockFlowStore, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize } from '@/store/useStockStore';
+import { useStockFlowStore, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize, COMMON_COLORS, getColorHex } from '@/store/useStockStore';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 
 type Currency = 'ARS' | 'USD' | 'BRL' | 'PYG';
@@ -217,6 +217,21 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     return lower.includes('perfum') || lower.includes('splash') || lower.includes('mist') || lower.includes('decant') || lower === 'unisex';
   };
 
+  const categorySupportsVisualVariants = (catId?: string) => {
+    if (!catId) return false;
+    const group = categoriesConfig.find(g => g.opciones && g.opciones.includes(catId));
+    if (group && group.hasVisualVariants) return true;
+    const directGroup = categoriesConfig.find(g => g.grupo.toLowerCase() === catId.toLowerCase());
+    if (directGroup?.hasVisualVariants) return true;
+    return false;
+  };
+
+  const getCategoryAttributeLabel = (catId?: string) => {
+    const group = (catId ? categoriesConfig.find(g => g.opciones && g.opciones.includes(catId)) : undefined)
+      || categoriesConfig.find(g => g.grupo.toLowerCase() === (catId || '').toLowerCase());
+    return group?.customAttributeLabel || 'Forma / Modelo';
+  };
+
   // TABS
   const [activeTab, setActiveTabState] = useState<'nueva' | 'historial'>('nueva');
   const setActiveTab = (tab: 'nueva' | 'historial', pushHistory = true) => {
@@ -319,13 +334,31 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
       : (extraTaxes.find(t => t.currency !== 'ARS')?.currency || 'USD');
 
   // PASO 2
-  const createEmptyVariant = () => ({ size: 'M', description: '', quantity: 1 as number | string, unitPurchasePrice: '' as unknown as number, sizeIndex: 0 });
+  const createEmptyVariant = () => ({
+    size: 'Único',
+    color: '',
+    colorHex: '#18181b',
+    imageUrl: '',
+    attributeName: 'Forma',
+    attributeValue: '',
+    description: '',
+    quantity: 1 as number | string,
+    unitPurchasePrice: '' as unknown as number,
+    manualSalePrice: '' as unknown as number,
+    manualWholesalePrice: '' as unknown as number,
+    sizeIndex: 0
+  });
+
   const createEmptyProduct = () => ({
     productId: `NEW-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     newProductName: '', newProductSku: '', perfumeType: '',
     categoryId: categoriesConfig[0]?.opciones[0] || 'Perfumes de Mujer',
     targetGender: 'Unisex' as const,
     notForPublicSale: false,
+    hasVariantPricing: false,
+    globalPurchasePrice: '' as unknown as number,
+    globalSalePrice: '' as unknown as number,
+    globalWholesalePrice: '' as unknown as number,
     newProductImageUrls: [] as string[], _uploading: false,
     variants: [createEmptyVariant()],
     description: '', tag: 'Alta Demanda', showTag: false,
@@ -335,10 +368,163 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
   const [products, setProducts] = useState([createEmptyProduct()]);
   const addProductLine = () => setProducts(p => [...p, createEmptyProduct()]);
   const addVariant = (pIdx: number) => { const np = [...products]; np[pIdx].variants.push(createEmptyVariant()); setProducts(np); };
+  const duplicateVariant = (pIdx: number, vIdx: number) => {
+    const np = [...products];
+    const target = np[pIdx].variants[vIdx];
+    np[pIdx].variants.splice(vIdx + 1, 0, {
+      ...target,
+      quantity: 1,
+      attributeValue: '',
+    });
+    setProducts(np);
+  };
+  const addColorVariant = (pIdx: number, colorName: string, colorHex: string) => {
+    const np = [...products];
+    const attrName = getCategoryAttributeLabel(np[pIdx]?.categoryId);
+    // Si la única variante está vacía, la reemplazamos
+    const curVars = np[pIdx].variants;
+    if (curVars.length === 1 && !curVars[0].color && (!curVars[0].attributeValue || curVars[0].attributeValue === '')) {
+      np[pIdx].variants = [{
+        ...createEmptyVariant(),
+        color: colorName,
+        colorHex: colorHex,
+        attributeName: attrName,
+      }];
+    } else {
+      np[pIdx].variants.push({
+        ...createEmptyVariant(),
+        color: colorName,
+        colorHex: colorHex,
+        attributeName: attrName,
+      });
+    }
+    setProducts(np);
+  };
   const updateProduct = (pIdx: number, field: string, value: any) => { const np = [...products]; (np[pIdx] as any)[field] = value; setProducts(np); };
   const updateVariant = (pIdx: number, vIdx: number, field: string, value: any) => { const np = [...products]; (np[pIdx].variants[vIdx] as any)[field] = value; setProducts(np); };
   const removeProduct = (pIdx: number) => { if (products.length > 1) setProducts(products.filter((_, i) => i !== pIdx)); };
   const removeVariant = (pIdx: number, vIdx: number) => { const np = [...products]; if (np[pIdx].variants.length > 1) { np[pIdx].variants.splice(vIdx, 1); setProducts(np); } };
+
+  const updateProductGlobalPrice = (pIdx: number, type: 'cost' | 'sale' | 'wholesale', val: number | '') => {
+    const np = [...products];
+    const prod = np[pIdx];
+    if (type === 'cost') {
+      (prod as any).globalPurchasePrice = val;
+      prod.variants.forEach(v => { v.unitPurchasePrice = val as any; });
+    } else if (type === 'sale') {
+      (prod as any).globalSalePrice = val;
+      prod.variants.forEach(v => { (v as any).manualSalePrice = val; });
+    } else if (type === 'wholesale') {
+      (prod as any).globalWholesalePrice = val;
+      prod.variants.forEach(v => { (v as any).manualWholesalePrice = val; });
+    }
+    setProducts(np);
+  };
+
+  const [matrixModalPIdx, setMatrixModalPIdx] = useState<number | null>(null);
+  const [matrixColorsInput, setMatrixColorsInput] = useState('');
+  const [matrixShapesInput, setMatrixShapesInput] = useState('');
+
+  const generateMatrixVariants = (pIdx: number, colorsText: string, shapesText: string) => {
+    const colors = colorsText.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+    const shapes = shapesText.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+    if (!colors.length && !shapes.length) return;
+    const newVars: any[] = [];
+    const attrName = getCategoryAttributeLabel(products[pIdx]?.categoryId);
+
+    if (colors.length && shapes.length) {
+      for (const c of colors) {
+        for (const s of shapes) {
+          newVars.push({
+            ...createEmptyVariant(),
+            color: c,
+            colorHex: getColorHex(c),
+            attributeName: attrName,
+            attributeValue: s,
+            size: s,
+            quantity: 1,
+            unitPurchasePrice: products[pIdx]?.variants[0]?.unitPurchasePrice || '',
+            manualSalePrice: (products[pIdx]?.variants[0] as any)?.manualSalePrice || '',
+          });
+        }
+      }
+    } else if (colors.length) {
+      for (const c of colors) {
+        newVars.push({
+          ...createEmptyVariant(),
+          color: c,
+          colorHex: getColorHex(c),
+          attributeName: attrName,
+          attributeValue: 'Único',
+          size: 'Único',
+          quantity: 1,
+          unitPurchasePrice: products[pIdx]?.variants[0]?.unitPurchasePrice || '',
+          manualSalePrice: (products[pIdx]?.variants[0] as any)?.manualSalePrice || '',
+        });
+      }
+    } else if (shapes.length) {
+      for (const s of shapes) {
+        newVars.push({
+          ...createEmptyVariant(),
+          color: '',
+          attributeName: attrName,
+          attributeValue: s,
+          size: s,
+          quantity: 1,
+          unitPurchasePrice: products[pIdx]?.variants[0]?.unitPurchasePrice || '',
+          manualSalePrice: (products[pIdx]?.variants[0] as any)?.manualSalePrice || '',
+        });
+      }
+    }
+
+    if (newVars.length > 0) {
+      const np = [...products];
+      const curVars = np[pIdx].variants;
+      if (curVars.length === 1 && !curVars[0].color && (!curVars[0].attributeValue || curVars[0].attributeValue === '')) {
+        np[pIdx].variants = newVars;
+      } else {
+        np[pIdx].variants = [...curVars, ...newVars];
+      }
+      setProducts(np);
+    }
+  };
+
+  const handleVariantFileUpload = async (pIdx: number, vIdx: number, files: FileList | null) => {
+    if (!files || !files.length) return;
+    const token = apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') || '' : '');
+    if (!token) { showAlert('Sin credenciales de administrador.'); return; }
+    const uploadEndpoint = apiUrl ? `${apiUrl}/api/admin/product-image` : `/api/admin/product-image`;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const r = await fetch(uploadEndpoint, {
+          method: 'POST',
+          headers: { 'X-API-KEY': token, 'Authorization': `Bearer ${token}` },
+          body: fd
+        });
+        if (r.ok) {
+          const d = await r.json();
+          const uploadedUrl = d.url;
+          updateVariant(pIdx, vIdx, 'imageUrl', uploadedUrl);
+          const cur = products[pIdx]?.newProductImageUrls || [];
+          if (!cur.includes(uploadedUrl)) {
+            updateProduct(pIdx, 'newProductImageUrls', [...cur, uploadedUrl]);
+          }
+          setMediaLibImages(prev => [
+            { url: uploadedUrl, filename: uploadedUrl.split('/').pop() || '', category: 'Productos' },
+            ...prev
+          ]);
+          break;
+        } else {
+          showAlert('Error subiendo imagen para la variante');
+        }
+      } catch {
+        showAlert('Error de red al subir imagen');
+      }
+    }
+  };
 
   // Totals
   const allVariants = products.flatMap(p => p.variants);
@@ -354,6 +540,10 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
     existingProd: any | null; existingVariant: any | null;
     salePriceConflict: 'update' | 'keep' | 'custom' | null; customSalePrice: number;
     notForPublicSale?: boolean;
+    imageUrl?: string;
+    colorHex?: string;
+    attributeName?: string;
+    attributeValue?: string;
   };
   const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([]);
   const [showSummary, setShowSummary] = useState(false);
@@ -389,14 +579,16 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
 
   // Modal Biblioteca de Medios (Imágenes)
   const [mediaLibTargetPIdx, setMediaLibTargetPIdx] = useState<number | null>(null);
+  const [mediaLibTargetVIdx, setMediaLibTargetVIdx] = useState<number | null>(null);
   const [mediaLibImages, setMediaLibImages] = useState<Array<{ url: string; filename: string; category?: string }>>([]);
   const [mediaLibCategories, setMediaLibCategories] = useState<string[]>([]);
   const [selectedMediaCategory, setSelectedMediaCategory] = useState<string>('all');
   const [mediaLibLoading, setMediaLibLoading] = useState(false);
   const [mediaLibSearch, setMediaLibSearch] = useState('');
 
-  const openMediaLib = async (pIdx: number, force = false) => {
+  const openMediaLib = async (pIdx: number, force = false, vIdx: number | null = null) => {
     setMediaLibTargetPIdx(pIdx);
+    setMediaLibTargetVIdx(vIdx);
     if (!force && mediaLibImages.length > 0) return;
     setMediaLibLoading(true);
     try {
@@ -1052,20 +1244,38 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           ? 0
           : (userWholesalePrice !== undefined ? userWholesalePrice : suggestedWholesalePrice);
 
-        let sizeLabel = 'Único';
-        if (variantGroup) { const opt = variantGroup.options[variant.sizeIndex || 0]; if (opt) sizeLabel = opt.description ? `${opt.value} - ${opt.description}` : opt.value; }
-        const variantLabel = `${sizeLabel}${(variant as any).description ? ` – ${(variant as any).description}` : ''}`;
+        const isVisual = categorySupportsVisualVariants(prod.categoryId);
+        let variantLabel = '';
+        if (isVisual) {
+          const c = (variant as any).color?.trim();
+          const attr = (variant as any).attributeValue?.trim() || variant.size?.trim();
+          if (c && attr && attr !== 'Único') {
+            variantLabel = `${c} – ${attr}`;
+          } else if (c) {
+            variantLabel = `${c}`;
+          } else if (attr && attr !== 'Único') {
+            variantLabel = `${attr}`;
+          } else {
+            variantLabel = (variant as any).description || 'Único';
+          }
+        } else {
+          let sizeLabel = 'Único';
+          if (variantGroup) { const opt = variantGroup.options[variant.sizeIndex || 0]; if (opt) sizeLabel = opt.description ? `${opt.value} - ${opt.description}` : opt.value; }
+          variantLabel = `${sizeLabel}${(variant as any).description ? ` – ${(variant as any).description}` : ''}`;
+        }
 
         const existingProd = prod.productId && !prod.productId.startsWith('NEW')
           ? productsStore.find(p => p.id === prod.productId)
           : productsStore.find(p => p.name.trim().toLowerCase() === prod.newProductName.trim().toLowerCase());
-        const rawOptVal = (variantGroup?.options[variant.sizeIndex || 0]?.value || '').trim();
-        const cleanSize = sizeLabel.split(' –')[0].trim();
+        const rawOptVal = isVisual
+          ? ((variant as any).attributeValue || (variant as any).size || '').trim()
+          : (variantGroup?.options[variant.sizeIndex || 0]?.value || '').trim();
+        const cleanSize = variantLabel.split(' –')[0].trim();
 
         // Buscar si existe exactamente esta variante en el producto (por tamaño y color)
         const existingVariant = existingProd
           ? (existingProd.variants.find(v => {
-              if (isSameVariant(v, { size: sizeLabel, color: (variant as any).color || (variant as any).description, description: (variant as any).description })) {
+              if (isSameVariant(v, { size: cleanSize, color: (variant as any).color || (variant as any).description, attributeValue: (variant as any).attributeValue, description: (variant as any).description })) {
                 return true;
               }
               const normVSize = normalizeVariantSize(v.size);
@@ -1096,7 +1306,11 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
           existingVariant: existingVariant || null,
           salePriceConflict: hasConflict ? null : 'update',
           customSalePrice: finalSalePrice,
-          notForPublicSale: isNotForSale
+          notForPublicSale: isNotForSale,
+          imageUrl: (variant as any).imageUrl || undefined,
+          colorHex: (variant as any).colorHex || undefined,
+          attributeName: (variant as any).attributeName || undefined,
+          attributeValue: (variant as any).attributeValue || undefined,
         });
       });
     });
@@ -1271,7 +1485,49 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
             const prevVariantSalePrice = row.existingVariant?.manualSalePrice ?? (row.existingProd?.variants?.length === 1 ? row.existingProd.salePrice : 0) ?? row.salePrice;
             const finalSalePrice = isNotForSale ? 0 : (row.salePriceConflict === 'keep' ? prevVariantSalePrice : row.salePriceConflict === 'custom' ? row.customSalePrice : row.salePrice);
             const finalWholesalePrice = isNotForSale ? undefined : (row.wholesalePrice && row.wholesalePrice > 0 ? row.wholesalePrice : undefined);
-            return { productId: prod.productId, variantId: `v-new`, productName: row.productName, variantLabel: row.variantLabel, size: row.variantLabel.split(' –')[0].trim(), color: (row.variantLabel.split(' – ')[1] || ''), quantity: row.quantity, unitCostOriginal: row.unitCostOriginal, unitCostARS: row.unitCostARS, shippingPerUnitARS: row.shippingPerUnitARS, totalCostPerUnitARS: row.totalCostPerUnitARS, salePrice: finalSalePrice, manualWholesalePrice: finalWholesalePrice, wholesalePrice: finalWholesalePrice, notForPublicSale: isNotForSale, newProductName: prod.newProductName, newProductSku: prod.newProductSku, perfumeType: prod.perfumeType || undefined, categoryId: prod.categoryId, targetGender: prod.targetGender, newProductImageUrls: prod.newProductImageUrls, description: prod.description || undefined, tag: prod.tag || undefined, showTag: prod.showTag, olfactoryNotes: prod.olfactoryNotes || undefined, duration: prod.duration || undefined, intensity: prod.intensity || undefined, family: prod.family || undefined, showFeatures: prod.showFeatures, salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict, customSalePrice: row.customSalePrice };
+            const variant = prod.variants[row.vIdx];
+            const isVisual = categorySupportsVisualVariants(prod.categoryId);
+            const variantColor = isVisual ? ((variant as any)?.color || '') : (row.variantLabel.split(' – ')[1] || '');
+            const variantSize = isVisual ? ((variant as any)?.attributeValue || (variant as any)?.size || 'Único') : (row.variantLabel.split(' –')[0].trim() || 'Único');
+
+            return {
+              productId: prod.productId,
+              variantId: `v-new`,
+              productName: row.productName,
+              variantLabel: row.variantLabel,
+              size: variantSize,
+              color: variantColor,
+              colorHex: (variant as any)?.colorHex || getColorHex(variantColor),
+              imageUrl: (variant as any)?.imageUrl || undefined,
+              attributeName: (variant as any)?.attributeName || getCategoryAttributeLabel(prod.categoryId),
+              attributeValue: (variant as any)?.attributeValue || undefined,
+              quantity: row.quantity,
+              unitCostOriginal: row.unitCostOriginal,
+              unitCostARS: row.unitCostARS,
+              shippingPerUnitARS: row.shippingPerUnitARS,
+              totalCostPerUnitARS: row.totalCostPerUnitARS,
+              salePrice: finalSalePrice,
+              manualWholesalePrice: finalWholesalePrice,
+              wholesalePrice: finalWholesalePrice,
+              notForPublicSale: isNotForSale,
+              hasVariantPricing: Boolean((prod as any).hasVariantPricing),
+              newProductName: prod.newProductName,
+              newProductSku: prod.newProductSku,
+              perfumeType: prod.perfumeType || undefined,
+              categoryId: prod.categoryId,
+              targetGender: prod.targetGender,
+              newProductImageUrls: prod.newProductImageUrls,
+              description: prod.description || undefined,
+              tag: prod.tag || undefined,
+              showTag: prod.showTag,
+              olfactoryNotes: prod.olfactoryNotes || undefined,
+              duration: prod.duration || undefined,
+              intensity: prod.intensity || undefined,
+              family: prod.family || undefined,
+              showFeatures: prod.showFeatures,
+              salePriceConflict: row.salePriceConflict === null ? undefined : row.salePriceConflict,
+              customSalePrice: row.customSalePrice
+            };
           }),
         });
         showAlert(`✅ Lote ${saved.batch_number} guardado con éxito.`);
@@ -1747,122 +2003,480 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                 </div>
 
                 {/* Variantes */}
-                <div className="mt-2 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
-                  <label className="block text-xs font-bold text-slate-500">2. Variantes (Ítem Físico)</label>
-                  <div className="space-y-2">
-                    {prod.variants.map((variant, vIdx) => {
-                      const unitCostARS = (Number(variant.unitPurchasePrice) || 0) * effectiveExchangeRate;
-                      const vg = getVariantGroupForCategory(prod.categoryId, categoriesConfig, variantGroupsConfig);
-                      return (
-                        <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm">
-                          {vg && (
-                            <div className="flex-1 min-w-[180px]">
-                              <select 
-                                className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10 outline-none focus:ring-2 focus:ring-purple-400" 
-                                value={(() => {
-                                  if ((variant as any).sizeIndex !== undefined && (variant as any).sizeIndex >= 0 && vg && (variant as any).sizeIndex < vg.options.length) {
-                                    return (variant as any).sizeIndex;
-                                  }
-                                  const foundIdx = vg ? vg.options.findIndex(o => 
-                                    variant.size && (variant.size === o.value || variant.size.startsWith(o.value) || (o.description && variant.size.includes(o.description)))
-                                  ) : -1;
-                                  return foundIdx >= 0 ? foundIdx : 0;
-                                })()} 
-                                onChange={e => {
-                                  const idx = Number(e.target.value);
-                                  updateVariant(pIdx, vIdx, 'sizeIndex', idx);
-                                  if (vg && vg.options[idx]) {
-                                    const opt = vg.options[idx];
-                                    updateVariant(pIdx, vIdx, 'size', opt.description ? `${opt.value} - ${opt.description}` : opt.value);
-                                  }
-                                }}
-                              >
-                                {vg.options.map((row, rIdx) => <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>)}
-                              </select>
+                {(() => {
+                  const isVisual = categorySupportsVisualVariants(prod.categoryId);
+                  const prodTotalStock = prod.variants.reduce((acc, v) => acc + (Number(v.quantity) || 0), 0);
+                  const attrLabel = getCategoryAttributeLabel(prod.categoryId);
+
+                  if (isVisual) {
+                    return (
+                      <div className="mt-2 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-4">
+                        {/* Cabecera del Gestor de Variantes Visuales */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-purple-50/70 dark:bg-purple-950/30 p-3.5 rounded-xl border border-purple-200/80 dark:border-purple-800/40">
+                          <div className="flex items-center gap-2.5">
+                            <div className="size-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shadow-sm">
+                              <span className="material-symbols-outlined text-[20px]">palette</span>
                             </div>
-                          )}
-                          <div className="flex-1 min-w-[130px]">
-                            <input type="text" placeholder="Descripción (ej: Negro/Rosa)" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white h-10" value={(variant as any).description} onChange={e => updateVariant(pIdx, vIdx, 'description', e.target.value)} />
+                            <div>
+                              <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                                Variantes Visuales (Colores / {attrLabel} y Fotos)
+                              </h4>
+                              <p className="text-[11px] text-slate-500">
+                                Asigna stock y foto para cada color o combinación.
+                              </p>
+                            </div>
                           </div>
-                          <div className="w-[72px]">
-                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Stock</label>
-                            <input type="number" step="1" min="1" placeholder="1" className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm text-slate-900 dark:text-white font-bold h-9" value={variant.quantity ?? ''} onChange={e => updateVariant(pIdx, vIdx, 'quantity', e.target.value)} />
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            {/* Contador de Stock Total Acumulado */}
+                            <div className="flex items-center gap-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-700/60 font-black text-xs shadow-sm">
+                              <span className="material-symbols-outlined text-[16px]">inventory_2</span>
+                              <span>Stock Total: {prodTotalStock} {prodTotalStock === 1 ? 'unidad' : 'unidades'}</span>
+                            </div>
+
+                            {/* Switch: Diferenciar Precios */}
+                            <label className="flex items-center gap-2 cursor-pointer bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:border-purple-300 transition-colors select-none">
+                              <input
+                                type="checkbox"
+                                checked={Boolean((prod as any).hasVariantPricing)}
+                                onChange={e => updateProduct(pIdx, 'hasVariantPricing', e.target.checked)}
+                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                              />
+                              <span>Precios individuales</span>
+                            </label>
                           </div>
-                          <div className="w-[110px]">
-                            <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Costo ({CURRENCY_SYMBOLS[purchaseCurrency]})</label>
-                            <PriceInput
-                              currencySymbol={CURRENCY_SYMBOLS[purchaseCurrency]}
-                              allowDecimals={true}
-                              placeholder="0"
-                              className="w-full text-center bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800/50 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9"
-                              value={variant.unitPurchasePrice === 0 ? '' : (variant.unitPurchasePrice ?? '')}
-                              onChange={val => updateVariant(pIdx, vIdx, 'unitPurchasePrice', val === '' ? 0 : val)}
-                            />
-                          </div>
-                          {purchaseCurrency !== 'ARS' && (
-                            <div className="text-xs text-slate-500 whitespace-nowrap self-end pb-2">→ <span className="font-bold text-slate-700 dark:text-slate-300">${fmt(unitCostARS)}</span></div>
-                          )}
-                          {/* P. Venta sugerido */}
-                          {!(prod as any).notForPublicSale && (() => {
-                            const costARS = (Number(variant.unitPurchasePrice) || 0) * effectiveExchangeRate;
-                            const sugPV = globalMarkupPrc > 0 ? Math.round(costARS * (1 + globalMarkupPrc / 100)) : 0;
-                            const manualPV = (variant as any).manualSalePrice;
-                            const displayPV = manualPV !== undefined && manualPV !== '' ? Number(manualPV) : sugPV;
-                            const manualWP = (variant as any).manualWholesalePrice;
-                            const autoWP = (displayPV > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0)
-                              ? Math.round(displayPV * (1 - wholesaleConfig.discountPercentage / 100))
-                              : 0;
-                            const displayWP = manualWP !== undefined && manualWP !== '' ? Number(manualWP) : autoWP;
-                            return (
-                              <>
-                                <div className="w-[110px]">
-                                  <label className="block text-[10px] text-center font-bold text-emerald-600 dark:text-emerald-400 mb-1 leading-none">P. Venta ($)</label>
-                                  <PriceInput
-                                    currencySymbol="$"
-                                    allowDecimals={false}
-                                    placeholder={sugPV > 0 ? sugPV : '0'}
-                                    className="w-full text-center bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-1 py-1 text-sm text-emerald-700 dark:text-emerald-300 font-bold h-9"
-                                    value={displayPV || ''}
-                                    onChange={val => {
-                                      const pv = typeof val === 'number' ? val : 0;
-                                      updateVariant(pIdx, vIdx, 'manualSalePrice', pv);
-                                      // Recalculate wholesale automatically unless manually set
-                                      if ((variant as any)._wholesaleManual) return;
-                                      const newWP = (pv > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0)
-                                        ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100))
-                                        : 0;
-                                      updateVariant(pIdx, vIdx, 'manualWholesalePrice', newWP);
-                                    }}
-                                  />
-                                </div>
-                                <div className="w-[110px]">
-                                  <label className="block text-[10px] text-center font-bold text-indigo-500 dark:text-indigo-400 mb-1 leading-none">P. Mayorista ($)</label>
-                                  <PriceInput
-                                    currencySymbol="$"
-                                    allowDecimals={false}
-                                    placeholder={autoWP > 0 ? autoWP : '0'}
-                                    className="w-full text-center bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-300 dark:border-indigo-700 rounded-lg px-1 py-1 text-sm text-indigo-600 dark:text-indigo-300 font-bold h-9"
-                                    value={displayWP || ''}
-                                    onChange={val => {
-                                      updateVariant(pIdx, vIdx, 'manualWholesalePrice', typeof val === 'number' ? val : 0);
-                                      updateVariant(pIdx, vIdx, '_wholesaleManual', true);
-                                    }}
-                                  />
-                                </div>
-                              </>
-                            );
-                          })()}
-                          <button onClick={() => removeVariant(pIdx, vIdx)} className={`h-9 px-2 rounded-lg transition-colors flex items-center justify-center ${prod.variants.length > 1 ? 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-slate-300 opacity-50 cursor-not-allowed'}`} disabled={prod.variants.length <= 1}>
-                            <span className="material-symbols-outlined text-[20px]">delete</span>
-                          </button>
                         </div>
-                      );
-                    })}
-                  </div>
-                  <button onClick={() => addVariant(pIdx)} className="text-sm font-bold text-primary flex items-center gap-1 hover:bg-primary/10 px-3 py-2 rounded-lg w-max transition-colors">
-                    <span className="material-symbols-outlined text-[18px]">add_circle</span> Añadir Variante
-                  </button>
-                </div>
+
+                        {/* Barra de Precios Globales (si no están diferenciados) */}
+                        {!Boolean((prod as any).hasVariantPricing) && !(prod as any).notForPublicSale && (
+                          <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                            <span className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[15px]">sell</span>
+                              Precios Generales para todas las variantes:
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-bold text-slate-500">Costo ({CURRENCY_SYMBOLS[purchaseCurrency]}):</label>
+                              <PriceInput
+                                currencySymbol={CURRENCY_SYMBOLS[purchaseCurrency]}
+                                allowDecimals={true}
+                                placeholder="0"
+                                className="w-24 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-sm text-red-600 font-bold"
+                                value={(prod as any).globalPurchasePrice ?? ''}
+                                onChange={val => updateProductGlobalPrice(pIdx, 'cost', val)}
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-bold text-emerald-600">P. Venta ($):</label>
+                              <PriceInput
+                                currencySymbol="$"
+                                allowDecimals={false}
+                                placeholder="0"
+                                className="w-28 text-center bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-2 py-1 text-sm text-emerald-700 dark:text-emerald-300 font-bold"
+                                value={(prod as any).globalSalePrice ?? ''}
+                                onChange={val => updateProductGlobalPrice(pIdx, 'sale', val)}
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-bold text-indigo-500">P. Mayorista ($):</label>
+                              <PriceInput
+                                currencySymbol="$"
+                                allowDecimals={false}
+                                placeholder="0"
+                                className="w-28 text-center bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-300 dark:border-indigo-700 rounded-lg px-2 py-1 text-sm text-indigo-600 dark:text-indigo-300 font-bold"
+                                value={(prod as any).globalWholesalePrice ?? ''}
+                                onChange={val => updateProductGlobalPrice(pIdx, 'wholesale', val)}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Barra de Acciones Rápidas (Colores frecuentes y Matriz) */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 pb-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-bold text-slate-400 uppercase mr-1">Colores rápidos:</span>
+                            {COMMON_COLORS.slice(0, 9).map(cc => (
+                              <button
+                                key={cc.name}
+                                type="button"
+                                onClick={() => addColorVariant(pIdx, cc.name, cc.hex)}
+                                title={`Agregar variante de color ${cc.name}`}
+                                className="size-6 rounded-full border border-slate-300 dark:border-slate-600 shadow-sm hover:scale-125 transition-transform flex items-center justify-center"
+                                style={{ backgroundColor: cc.hex }}
+                              />
+                            ))}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMatrixModalPIdx(pIdx);
+                                setMatrixColorsInput('');
+                                setMatrixShapesInput('');
+                              }}
+                              className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+                              title="Generar combinaciones automáticas de colores y formas"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">auto_awesome</span>
+                              Generador por Matriz
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => addVariant(pIdx)}
+                              className="text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">add</span>
+                              Nueva Variante
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Lista de Filas de Variantes Visuales */}
+                        <div className="space-y-2.5">
+                          {prod.variants.map((variant, vIdx) => {
+                            const curColor = (variant as any).color || '';
+                            const curHex = (variant as any).colorHex || getColorHex(curColor);
+                            const curShape = (variant as any).attributeValue || '';
+                            const curImg = (variant as any).imageUrl || '';
+
+                            return (
+                              <div
+                                key={vIdx}
+                                className="flex flex-wrap md:flex-nowrap items-center gap-2.5 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:border-purple-300 dark:hover:border-purple-700 transition-colors"
+                              >
+                                {/* Color Swatch & Nombre */}
+                                <div className="flex items-center gap-2 flex-1 min-w-[170px]">
+                                  {/* Swatch interactivo con input nativo de color */}
+                                  <label
+                                    className="size-8 rounded-lg border-2 border-slate-300 dark:border-slate-600 shadow-sm cursor-pointer hover:scale-105 transition-transform flex-shrink-0 relative overflow-hidden flex items-center justify-center"
+                                    style={{ backgroundColor: curHex }}
+                                    title="Elegir tono exacto de color"
+                                  >
+                                    <input
+                                      type="color"
+                                      value={curHex.startsWith('#') ? curHex : '#18181b'}
+                                      onChange={e => updateVariant(pIdx, vIdx, 'colorHex', e.target.value)}
+                                      className="opacity-0 absolute inset-0 cursor-pointer w-full h-full"
+                                    />
+                                  </label>
+
+                                  <div className="flex-1">
+                                    <input
+                                      type="text"
+                                      placeholder="Color (ej: Negro, Rosa)"
+                                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-bold h-9 outline-none focus:border-purple-400"
+                                      value={curColor}
+                                      onChange={e => {
+                                        const cName = e.target.value;
+                                        updateVariant(pIdx, vIdx, 'color', cName);
+                                        if (!(variant as any)._customHexChosen) {
+                                          updateVariant(pIdx, vIdx, 'colorHex', getColorHex(cName));
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Atributo Secundario (Forma / Modelo / Texto) */}
+                                <div className="flex-1 min-w-[150px]">
+                                  <input
+                                    type="text"
+                                    placeholder={`${attrLabel} (ej: Flor, Corazón)`}
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white h-9 outline-none focus:border-purple-400"
+                                    value={curShape}
+                                    onChange={e => {
+                                      updateVariant(pIdx, vIdx, 'attributeValue', e.target.value);
+                                      updateVariant(pIdx, vIdx, 'size', e.target.value || 'Único');
+                                    }}
+                                  />
+                                </div>
+
+                                {/* Selector de Foto de la Variante */}
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {curImg ? (
+                                    <div className="relative group/varimg size-9 rounded-lg border border-purple-300 dark:border-purple-700 overflow-hidden shadow-sm">
+                                      <img
+                                        src={curImg.startsWith('http') ? curImg : (apiUrl ? `${apiUrl}${curImg}` : curImg)}
+                                        alt=""
+                                        className="w-full h-full object-cover cursor-pointer"
+                                        onClick={() => openMediaLib(pIdx, false, vIdx)}
+                                        title="Cambiar foto de esta variante"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          updateVariant(pIdx, vIdx, 'imageUrl', '');
+                                        }}
+                                        className="absolute top-0 right-0 size-3.5 bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/varimg:opacity-100 transition-opacity rounded-bl text-[9px] font-bold"
+                                        title="Quitar foto"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1">
+                                      {/* Subir archivo local */}
+                                      <label
+                                        className="h-9 px-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-200 dark:border-slate-600 rounded-lg flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
+                                        title="Subir foto para esta variante"
+                                      >
+                                        <span className="material-symbols-outlined text-[15px]">add_photo_alternate</span>
+                                        <span>Foto</span>
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          className="hidden"
+                                          onChange={e => handleVariantFileUpload(pIdx, vIdx, e.target.files)}
+                                        />
+                                      </label>
+                                      {/* Elegir de biblioteca */}
+                                      <button
+                                        type="button"
+                                        onClick={() => openMediaLib(pIdx, false, vIdx)}
+                                        className="size-9 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg flex items-center justify-center text-indigo-600 dark:text-indigo-400 transition-colors"
+                                        title="Elegir de la biblioteca de medios"
+                                      >
+                                        <span className="material-symbols-outlined text-[16px]">photo_library</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Stock */}
+                                <div className="w-[72px] flex-shrink-0">
+                                  <label className="block text-[9px] text-center font-bold text-slate-500 mb-0.5 leading-none">Stock</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min="1"
+                                    placeholder="1"
+                                    className="w-full text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm text-slate-900 dark:text-white font-bold h-9 outline-none focus:ring-1 focus:ring-purple-400"
+                                    value={variant.quantity ?? ''}
+                                    onChange={e => updateVariant(pIdx, vIdx, 'quantity', e.target.value)}
+                                  />
+                                </div>
+
+                                {/* Precios por variante (si están activados) */}
+                                {Boolean((prod as any).hasVariantPricing) && (
+                                  <>
+                                    <div className="w-[100px] flex-shrink-0">
+                                      <label className="block text-[9px] text-center font-bold text-slate-500 mb-0.5 leading-none">Costo ({CURRENCY_SYMBOLS[purchaseCurrency]})</label>
+                                      <PriceInput
+                                        currencySymbol={CURRENCY_SYMBOLS[purchaseCurrency]}
+                                        allowDecimals={true}
+                                        placeholder="0"
+                                        className="w-full text-center bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/50 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9"
+                                        value={variant.unitPurchasePrice === 0 ? '' : (variant.unitPurchasePrice ?? '')}
+                                        onChange={val => updateVariant(pIdx, vIdx, 'unitPurchasePrice', val === '' ? 0 : val)}
+                                      />
+                                    </div>
+
+                                    {!(prod as any).notForPublicSale && (() => {
+                                      const costARS = (Number(variant.unitPurchasePrice) || 0) * effectiveExchangeRate;
+                                      const sugPV = globalMarkupPrc > 0 ? Math.round(costARS * (1 + globalMarkupPrc / 100)) : 0;
+                                      const manualPV = (variant as any).manualSalePrice;
+                                      const displayPV = manualPV !== undefined && manualPV !== '' ? Number(manualPV) : sugPV;
+                                      const manualWP = (variant as any).manualWholesalePrice;
+                                      const autoWP = (displayPV > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0)
+                                        ? Math.round(displayPV * (1 - wholesaleConfig.discountPercentage / 100))
+                                        : 0;
+                                      const displayWP = manualWP !== undefined && manualWP !== '' ? Number(manualWP) : autoWP;
+                                      return (
+                                        <>
+                                          <div className="w-[105px] flex-shrink-0">
+                                            <label className="block text-[9px] text-center font-bold text-emerald-600 mb-0.5 leading-none">P. Venta ($)</label>
+                                            <PriceInput
+                                              currencySymbol="$"
+                                              allowDecimals={false}
+                                              placeholder={sugPV > 0 ? sugPV : '0'}
+                                              className="w-full text-center bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-1 py-1 text-sm text-emerald-700 dark:text-emerald-300 font-bold h-9"
+                                              value={displayPV || ''}
+                                              onChange={val => {
+                                                const pv = typeof val === 'number' ? val : 0;
+                                                updateVariant(pIdx, vIdx, 'manualSalePrice', pv);
+                                                if ((variant as any)._wholesaleManual) return;
+                                                const newWP = (pv > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0)
+                                                  ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100))
+                                                  : 0;
+                                                updateVariant(pIdx, vIdx, 'manualWholesalePrice', newWP);
+                                              }}
+                                            />
+                                          </div>
+                                          <div className="w-[105px] flex-shrink-0">
+                                            <label className="block text-[9px] text-center font-bold text-indigo-500 mb-0.5 leading-none">P. Mayorista ($)</label>
+                                            <PriceInput
+                                              currencySymbol="$"
+                                              allowDecimals={false}
+                                              placeholder={autoWP > 0 ? autoWP : '0'}
+                                              className="w-full text-center bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-300 dark:border-indigo-700 rounded-lg px-1 py-1 text-sm text-indigo-600 dark:text-indigo-300 font-bold h-9"
+                                              value={displayWP || ''}
+                                              onChange={val => {
+                                                updateVariant(pIdx, vIdx, 'manualWholesalePrice', typeof val === 'number' ? val : 0);
+                                                updateVariant(pIdx, vIdx, '_wholesaleManual', true);
+                                              }}
+                                            />
+                                          </div>
+                                        </>
+                                      );
+                                    })()}
+                                  </>
+                                )}
+
+                                {/* Acciones */}
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => duplicateVariant(pIdx, vIdx)}
+                                    title="Duplicar para agregar otra forma/subcategoría con este mismo color"
+                                    className="size-9 rounded-lg text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 flex items-center justify-center transition-colors"
+                                  >
+                                    <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeVariant(pIdx, vIdx)}
+                                    className={`size-9 rounded-lg flex items-center justify-center transition-colors ${
+                                      prod.variants.length > 1
+                                        ? 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
+                                        : 'text-slate-300 opacity-40 cursor-not-allowed'
+                                    }`}
+                                    disabled={prod.variants.length <= 1}
+                                    title="Eliminar variante"
+                                  >
+                                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ─── MODO TRADICIONAL (Perfumería o categorías sin variantes visuales) ───
+                  return (
+                    <div className="mt-2 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
+                      <label className="block text-xs font-bold text-slate-500">2. Variantes (Ítem Físico)</label>
+                      <div className="space-y-2">
+                        {prod.variants.map((variant, vIdx) => {
+                          const unitCostARS = (Number(variant.unitPurchasePrice) || 0) * effectiveExchangeRate;
+                          const vg = getVariantGroupForCategory(prod.categoryId, categoriesConfig, variantGroupsConfig);
+                          return (
+                            <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm">
+                              {vg && (
+                                <div className="flex-1 min-w-[180px]">
+                                  <select 
+                                    className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10 outline-none focus:ring-2 focus:ring-purple-400" 
+                                    value={(() => {
+                                      if ((variant as any).sizeIndex !== undefined && (variant as any).sizeIndex >= 0 && vg && (variant as any).sizeIndex < vg.options.length) {
+                                        return (variant as any).sizeIndex;
+                                      }
+                                      const foundIdx = vg ? vg.options.findIndex(o => 
+                                        variant.size && (variant.size === o.value || variant.size.startsWith(o.value) || (o.description && variant.size.includes(o.description)))
+                                      ) : -1;
+                                      return foundIdx >= 0 ? foundIdx : 0;
+                                    })()} 
+                                    onChange={e => {
+                                      const idx = Number(e.target.value);
+                                      updateVariant(pIdx, vIdx, 'sizeIndex', idx);
+                                      if (vg && vg.options[idx]) {
+                                        const opt = vg.options[idx];
+                                        updateVariant(pIdx, vIdx, 'size', opt.description ? `${opt.value} - ${opt.description}` : opt.value);
+                                      }
+                                    }}
+                                  >
+                                    {vg.options.map((row, rIdx) => <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>)}
+                                  </select>
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-[130px]">
+                                <input type="text" placeholder="Descripción (ej: Negro/Rosa)" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white h-10" value={(variant as any).description} onChange={e => updateVariant(pIdx, vIdx, 'description', e.target.value)} />
+                              </div>
+                              <div className="w-[72px]">
+                                <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Stock</label>
+                                <input type="number" step="1" min="1" placeholder="1" className="w-full text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-1 py-1 text-sm text-slate-900 dark:text-white font-bold h-9" value={variant.quantity ?? ''} onChange={e => updateVariant(pIdx, vIdx, 'quantity', e.target.value)} />
+                              </div>
+                              <div className="w-[110px]">
+                                <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Costo ({CURRENCY_SYMBOLS[purchaseCurrency]})</label>
+                                <PriceInput
+                                  currencySymbol={CURRENCY_SYMBOLS[purchaseCurrency]}
+                                  allowDecimals={true}
+                                  placeholder="0"
+                                  className="w-full text-center bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800/50 rounded-lg px-1 py-1 text-sm text-red-600 font-bold h-9"
+                                  value={variant.unitPurchasePrice === 0 ? '' : (variant.unitPurchasePrice ?? '')}
+                                  onChange={val => updateVariant(pIdx, vIdx, 'unitPurchasePrice', val === '' ? 0 : val)}
+                                />
+                              </div>
+                              {purchaseCurrency !== 'ARS' && (
+                                <div className="text-xs text-slate-500 whitespace-nowrap self-end pb-2">→ <span className="font-bold text-slate-700 dark:text-slate-300">${fmt(unitCostARS)}</span></div>
+                              )}
+                              {/* P. Venta sugerido */}
+                              {!(prod as any).notForPublicSale && (() => {
+                                const costARS = (Number(variant.unitPurchasePrice) || 0) * effectiveExchangeRate;
+                                const sugPV = globalMarkupPrc > 0 ? Math.round(costARS * (1 + globalMarkupPrc / 100)) : 0;
+                                const manualPV = (variant as any).manualSalePrice;
+                                const displayPV = manualPV !== undefined && manualPV !== '' ? Number(manualPV) : sugPV;
+                                const manualWP = (variant as any).manualWholesalePrice;
+                                const autoWP = (displayPV > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0)
+                                  ? Math.round(displayPV * (1 - wholesaleConfig.discountPercentage / 100))
+                                  : 0;
+                                const displayWP = manualWP !== undefined && manualWP !== '' ? Number(manualWP) : autoWP;
+                                return (
+                                  <>
+                                    <div className="w-[110px]">
+                                      <label className="block text-[10px] text-center font-bold text-emerald-600 dark:text-emerald-400 mb-1 leading-none">P. Venta ($)</label>
+                                      <PriceInput
+                                        currencySymbol="$"
+                                        allowDecimals={false}
+                                        placeholder={sugPV > 0 ? sugPV : '0'}
+                                        className="w-full text-center bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-1 py-1 text-sm text-emerald-700 dark:text-emerald-300 font-bold h-9"
+                                        value={displayPV || ''}
+                                        onChange={val => {
+                                          const pv = typeof val === 'number' ? val : 0;
+                                          updateVariant(pIdx, vIdx, 'manualSalePrice', pv);
+                                          if ((variant as any)._wholesaleManual) return;
+                                          const newWP = (pv > 0 && wholesaleConfig?.enabled !== false && (wholesaleConfig?.discountPercentage || 0) > 0)
+                                            ? Math.round(pv * (1 - wholesaleConfig.discountPercentage / 100))
+                                            : 0;
+                                          updateVariant(pIdx, vIdx, 'manualWholesalePrice', newWP);
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="w-[110px]">
+                                      <label className="block text-[10px] text-center font-bold text-indigo-500 dark:text-indigo-400 mb-1 leading-none">P. Mayorista ($)</label>
+                                      <PriceInput
+                                        currencySymbol="$"
+                                        allowDecimals={false}
+                                        placeholder={autoWP > 0 ? autoWP : '0'}
+                                        className="w-full text-center bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-300 dark:border-indigo-700 rounded-lg px-1 py-1 text-sm text-indigo-600 dark:text-indigo-300 font-bold h-9"
+                                        value={displayWP || ''}
+                                        onChange={val => {
+                                          updateVariant(pIdx, vIdx, 'manualWholesalePrice', typeof val === 'number' ? val : 0);
+                                          updateVariant(pIdx, vIdx, '_wholesaleManual', true);
+                                        }}
+                                      />
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                              <button onClick={() => removeVariant(pIdx, vIdx)} className={`h-9 px-2 rounded-lg transition-colors flex items-center justify-center ${prod.variants.length > 1 ? 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-slate-300 opacity-50 cursor-not-allowed'}`} disabled={prod.variants.length <= 1}>
+                                <span className="material-symbols-outlined text-[20px]">delete</span>
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button onClick={() => addVariant(pIdx)} className="text-sm font-bold text-primary flex items-center gap-1 hover:bg-primary/10 px-3 py-2 rounded-lg w-max transition-colors">
+                        <span className="material-symbols-outlined text-[18px]">add_circle</span> Añadir Variante
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Accordion descripción premium */}
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
@@ -3441,6 +4055,75 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
         </div>
       )}
 
+      {/* MODAL: GENERADOR DE VARIANTES POR MATRIZ */}
+      {matrixModalPIdx !== null && products[matrixModalPIdx] && (
+        <div className="fixed inset-0 z-[140] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center">
+              <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-purple-600">auto_awesome</span>
+                Generador Rápido de Variantes
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMatrixModalPIdx(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 material-symbols-outlined text-lg"
+              >
+                close
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Escribe los colores y {getCategoryAttributeLabel(products[matrixModalPIdx]?.categoryId).toLowerCase()} separados por comas. El sistema creará automáticamente todas las combinaciones con 1 unidad de stock cada una.
+            </p>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Colores (separados por coma)
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: Rojo, Verde, Rosa, Negro"
+                value={matrixColorsInput}
+                onChange={e => setMatrixColorsInput(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                {getCategoryAttributeLabel(products[matrixModalPIdx]?.categoryId)} (opcional, separados por coma)
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: Flor, Corazón, Trébol"
+                value={matrixShapesInput}
+                onChange={e => setMatrixShapesInput(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-400"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setMatrixModalPIdx(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  generateMatrixVariants(matrixModalPIdx, matrixColorsInput, matrixShapesInput);
+                  setMatrixModalPIdx(null);
+                  setMatrixColorsInput('');
+                  setMatrixShapesInput('');
+                }}
+                className="px-5 py-2 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow-lg shadow-purple-600/25 transition"
+              >
+                Generar Combinaciones
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: BIBLIOTECA DE MEDIOS / IMÁGENES */}
       {mediaLibTargetPIdx !== null && products[mediaLibTargetPIdx] && (
         <div className="fixed inset-0 z-[130] bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
@@ -3465,6 +4148,11 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                   </div>
                   <p className="text-xs text-slate-500 font-medium">
                     Asignando a: <strong className="text-slate-700 dark:text-slate-300">{products[mediaLibTargetPIdx].newProductName || `Producto #${mediaLibTargetPIdx + 1}`}</strong>
+                    {mediaLibTargetVIdx !== null && (
+                      <span className="ml-2 text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full">
+                        Variante: {(products[mediaLibTargetPIdx]?.variants[mediaLibTargetVIdx] as any)?.color || ''} {(products[mediaLibTargetPIdx]?.variants[mediaLibTargetVIdx] as any)?.attributeValue || ''}
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -3584,7 +4272,19 @@ export default function ComprasView({ showAlert, apiKey, apiUrl, resetKey }: { s
                       return (
                         <div
                           key={idx}
-                          onClick={() => toggleProductImage(mediaLibTargetPIdx, item.url)}
+                          onClick={() => {
+                            if (mediaLibTargetVIdx !== null && mediaLibTargetPIdx !== null) {
+                              updateVariant(mediaLibTargetPIdx, mediaLibTargetVIdx, 'imageUrl', item.url);
+                              const cur = products[mediaLibTargetPIdx]?.newProductImageUrls || [];
+                              if (!cur.includes(item.url)) {
+                                updateProduct(mediaLibTargetPIdx, 'newProductImageUrls', [...cur, item.url]);
+                              }
+                              setMediaLibTargetVIdx(null);
+                              setMediaLibTargetPIdx(null);
+                            } else if (mediaLibTargetPIdx !== null) {
+                              toggleProductImage(mediaLibTargetPIdx, item.url);
+                            }
+                          }}
                           className={`group relative aspect-square rounded-xl overflow-hidden border-2 cursor-pointer transition-all ${
                             isSelected
                               ? 'border-indigo-600 ring-2 ring-indigo-500 shadow-md scale-[0.98]'

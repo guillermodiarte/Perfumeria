@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize, consolidateProductVariants } from '@/store/useStockStore';
+import { useStockFlowStore, Product, DEFAULT_PERFUME_TYPES, getVariantGroupForCategory, isSameVariant, normalizeVariantSize, consolidateProductVariants, COMMON_COLORS, getColorHex } from '@/store/useStockStore';
 import { API_URL } from '@/utils/api';
 import { syncBatchItemsToStore } from '@/utils/syncBatch';
 import ComboStockManagerModal from './ComboStockManagerModal';
@@ -321,6 +321,38 @@ export default function ProductosView({
   const [mediaLibImages, setMediaLibImages] = useState<Array<{ url: string; filename: string; mtime?: number }>>([]);
   const [mediaLibLoading, setMediaLibLoading] = useState(false);
   const [mediaLibSearch, setMediaLibSearch] = useState('');
+  const [mediaLibTargetVIdx, setMediaLibTargetVIdx] = useState<number | null>(null);
+
+  const isVisualCategory = (catId?: string) => {
+    const group = (catId ? categoriesConfig.find(g => g.opciones && g.opciones.includes(catId)) : undefined)
+      || categoriesConfig.find(g => g.grupo.toLowerCase() === (catId || '').toLowerCase());
+    return group?.hasVisualVariants === true;
+  };
+
+  const getCategoryAttrLabel = (catId?: string) => {
+    const group = (catId ? categoriesConfig.find(g => g.opciones && g.opciones.includes(catId)) : undefined)
+      || categoriesConfig.find(g => g.grupo.toLowerCase() === (catId || '').toLowerCase());
+    return group?.customAttributeLabel || 'Forma / Modelo';
+  };
+
+  const handleVariantFileUpload = async (vIdx: number, file: File) => {
+    const uploadEndpoint = apiUrl
+      ? (apiUrl.endsWith('/') ? `${apiUrl}api/upload` : `${apiUrl}/api/upload`)
+      : '/api/upload';
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(uploadEndpoint, { method: 'POST', body: fd });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.url) {
+          handleVariantChange(vIdx, 'imageUrl', data.url);
+        }
+      }
+    } catch (err) {
+      console.error('Error subiendo imagen de variante:', err);
+    }
+  };
 
   const openMediaLib = async (force = false) => {
     setShowMediaLib(true);
@@ -605,9 +637,10 @@ export default function ProductosView({
   const addVariant = () => {
       setEditForm((prev: any) => {
           const newForm = { ...prev };
+          const isVisual = isVisualCategory(newForm.categoryId);
           const vg = getVariantGroupForCategory(newForm.categoryId, categoriesConfig, variantGroupsConfig);
           const defaultOpt = vg && vg.options[0];
-          const defaultSize = defaultOpt ? (defaultOpt.description ? `${defaultOpt.value} - ${defaultOpt.description}` : defaultOpt.value) : '100ml';
+          const defaultSize = isVisual ? 'Único' : (defaultOpt ? (defaultOpt.description ? `${defaultOpt.value} - ${defaultOpt.description}` : defaultOpt.value) : '100ml');
           const vSale = Number(newForm.salePrice) || 0;
           let initWholesale: any = '';
           if (wholesaleConfig?.enabled !== false && vSale > 0 && (wholesaleConfig?.discountPercentage || 0) > 0) {
@@ -622,6 +655,9 @@ export default function ProductosView({
                   sizeIndex: 0,
                   description: '',
                   color: '',
+                  colorHex: '#000000',
+                  attributeValue: '',
+                  imageUrl: '',
                   stock: 1, 
                   unitPurchasePrice: Number(newForm.purchasePrice) || 0,
                   manualSalePrice: vSale,
@@ -654,12 +690,16 @@ export default function ProductosView({
       return {
         id: item.id || ('v-' + Math.random().toString(36).substr(2, 9)),
         size: finalSize || 'Único',
-        color: desc,
+        color: item.color || desc,
         description: desc,
         unitPurchasePrice: unitCost,
         manualSalePrice: salePr,
         manualWholesalePrice: wholesalePr,
-        stock: Math.max(0, Number(item.stock) || 0)
+        stock: Math.max(0, Number(item.stock) || 0),
+        colorHex: item.colorHex || undefined,
+        imageUrl: item.imageUrl || undefined,
+        attributeName: item.attributeName || undefined,
+        attributeValue: item.attributeValue || undefined
       };
     });
 
@@ -1453,24 +1493,46 @@ export default function ProductosView({
                                                              v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
                                                              v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : (v.size || "");
                                              const isVarOut = (v.stock || 0) <= 0;
+                                             const colorHex = (v as any).colorHex;
+                                             const imgUrl = (v as any).imageUrl;
+                                             const attrVal = (v as any).attributeValue;
+                                             const colorName = v.color || (v as any).description;
                                              return (
                                              <div 
                                                key={v.id} 
-                                               className={`flex flex-col flex-1 min-w-[65px] border rounded-lg p-2 text-center transition-all ${
+                                               className={`flex flex-col flex-1 min-w-[70px] border rounded-lg p-2 text-center transition-all ${
                                                  isVarOut
                                                    ? "bg-red-50/70 dark:bg-red-950/30 border-red-300 dark:border-red-900/60"
                                                    : "bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700"
                                                }`}
                                              >
+                                                 {(imgUrl || colorHex) && (
+                                                     <div className="flex items-center justify-center gap-1.5 mb-1">
+                                                         {imgUrl && (
+                                                             <img
+                                                                 src={imgUrl.startsWith('http') ? imgUrl : `${apiUrl || ''}${imgUrl}`}
+                                                                 alt=""
+                                                                 className="w-5 h-5 rounded object-cover border border-slate-200 dark:border-slate-700 shadow-xs"
+                                                             />
+                                                         )}
+                                                         {colorHex && (
+                                                             <span
+                                                                 className="w-3 h-3 rounded-full border border-slate-300 dark:border-slate-600 shadow-xs"
+                                                                 style={{ backgroundColor: colorHex }}
+                                                                 title={colorName}
+                                                             />
+                                                         )}
+                                                     </div>
+                                                 )}
                                                  <div className="flex flex-col justify-center items-center mb-1">
-                                                     {(v as any).description && (
-                                                         <span className="text-[10px] font-bold text-slate-500 truncate max-w-[80px]" title={(v as any).description}>{(v as any).description}</span>
+                                                     {colorName && (
+                                                         <span className="text-[10px] font-bold text-slate-500 truncate max-w-[80px]" title={colorName}>{colorName}</span>
                                                      )}
                                                      <span 
                                                          className={`text-xs font-black cursor-help ${isVarOut ? "text-red-700 dark:text-red-300" : "text-slate-700 dark:text-slate-300"}`}
                                                          title={(v.size.includes("MER:") || v.size.includes("ARG:") || v.size?.includes("INT:")) ? v.size : undefined}
                                                      >
-                                                         {sizeLabel}
+                                                         {attrVal || sizeLabel}
                                                      </span>
                                                  </div>
                                                  <div className="flex items-center justify-center gap-1 text-[11px] font-bold">
@@ -2331,7 +2393,7 @@ export default function ProductosView({
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={() => setShowMediaLib(false)}
+                                            onClick={() => { setShowMediaLib(false); setMediaLibTargetVIdx(null); }}
                                             className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 text-slate-400 hover:text-red-500 transition-colors"
                                         >
                                             <span className="material-symbols-outlined text-[16px]">close</span>
@@ -2382,7 +2444,11 @@ export default function ProductosView({
                                                             type="button"
                                                             title={img.filename || img.url.split('/').pop()}
                                                             onClick={() => {
-                                                                if (!alreadyAdded) {
+                                                                if (mediaLibTargetVIdx !== null) {
+                                                                    handleVariantChange(mediaLibTargetVIdx, 'imageUrl', img.url);
+                                                                    setShowMediaLib(false);
+                                                                    setMediaLibTargetVIdx(null);
+                                                                } else if (!alreadyAdded) {
                                                                     setEditForm((prev: any) => ({ ...prev, imageUrls: [...(prev.imageUrls || []), img.url] }));
                                                                 }
                                                             }}
@@ -2425,39 +2491,147 @@ export default function ProductosView({
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">2. Variantes (Ítem Físico)</label>
                         <div className="space-y-2">
                             {editForm.variants.map((variant: any, vIdx: number) => {
+                                const isVisual = isVisualCategory(editForm.categoryId);
+                                const attrLabel = getCategoryAttrLabel(editForm.categoryId);
                                 const vg = getVariantGroupForCategory(editForm.categoryId, categoriesConfig, variantGroupsConfig);
                                 return (
-                                    <div key={vIdx} className="flex flex-wrap md:flex-nowrap items-end gap-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm">
-                                        {vg && (
-                                            <div className="flex-1 min-w-[180px]">
-                                                <select 
-                                                    className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10 outline-none focus:ring-2 focus:ring-purple-400" 
-                                                    value={(() => {
-                                                        if (variant.sizeIndex !== undefined && variant.sizeIndex >= 0 && variant.sizeIndex < vg.options.length) {
-                                                            return variant.sizeIndex;
-                                                        }
-                                                        const foundIdx = vg.options.findIndex(o => 
-                                                            variant.size && (variant.size === o.value || variant.size.startsWith(o.value) || (o.description && variant.size.includes(o.description)))
-                                                        );
-                                                        return foundIdx >= 0 ? foundIdx : 0;
-                                                    })()} 
-                                                    onChange={e => handleVariantChange(vIdx, 'sizeIndex', Number(e.target.value))}
-                                                >
-                                                    {vg.options.map((row, rIdx) => (
-                                                        <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
+                                    <div key={vIdx} className={`flex flex-wrap md:flex-nowrap items-end gap-2 p-3 rounded-lg border shadow-sm ${
+                                      isVisual 
+                                        ? 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200/80 dark:border-purple-800/40' 
+                                        : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'
+                                    }`}>
+                                        {/* Visual variant fields: Color + Atributo + Foto */}
+                                        {isVisual ? (
+                                            <>
+                                                {/* Color Swatch & Name */}
+                                                <div className="flex items-center gap-1.5 min-w-[170px] flex-1">
+                                                    <div className="flex flex-col items-center">
+                                                        <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Color</label>
+                                                        <div className="relative flex items-center justify-center">
+                                                            <input
+                                                                type="color"
+                                                                className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 dark:border-slate-600 p-0 bg-transparent"
+                                                                value={variant.colorHex || '#000000'}
+                                                                title="Elegir color"
+                                                                onChange={e => handleVariantChange(vIdx, 'colorHex', e.target.value)}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <label className="block text-[10px] font-bold text-slate-500 mb-1 leading-none">Nombre Color</label>
+                                                        <input 
+                                                            type="text" 
+                                                            placeholder="ej: Negro" 
+                                                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-2.5 py-1 text-xs text-slate-900 dark:text-white h-8 focus:ring-2 focus:ring-purple-400 outline-none font-bold" 
+                                                            value={variant.color || ''} 
+                                                            onChange={e => {
+                                                                handleVariantChange(vIdx, 'color', e.target.value);
+                                                                if (!variant.colorHex) {
+                                                                    const guessed = getColorHex(e.target.value);
+                                                                    if (guessed) handleVariantChange(vIdx, 'colorHex', guessed);
+                                                                }
+                                                            }} 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* Atributo (Forma/Modelo/Tono) */}
+                                                <div className="min-w-[130px] flex-1">
+                                                    <label className="block text-[10px] font-bold text-purple-700 dark:text-purple-300 mb-1 leading-none truncate">
+                                                        {attrLabel}
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="ej: Flor / Trébol" 
+                                                        className="w-full bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-800 rounded-lg px-2.5 py-1 text-xs text-purple-900 dark:text-purple-200 h-8 focus:ring-2 focus:ring-purple-400 outline-none font-bold" 
+                                                        value={variant.attributeValue || (variant.size !== 'Único' ? variant.size : '')} 
+                                                        onChange={e => {
+                                                            handleVariantChange(vIdx, 'attributeValue', e.target.value);
+                                                            handleVariantChange(vIdx, 'size', e.target.value || 'Único');
+                                                        }} 
+                                                    />
+                                                </div>
+
+                                                {/* Foto de la Variante */}
+                                                <div className="flex flex-col items-center min-w-[100px]">
+                                                    <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">Foto</label>
+                                                    <div className="flex items-center gap-1 h-8">
+                                                        {variant.imageUrl ? (
+                                                            <div className="relative group/vimg w-8 h-8 rounded-lg overflow-hidden border border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-900">
+                                                                <img
+                                                                    src={variant.imageUrl.startsWith('http') ? variant.imageUrl : `${apiUrl || ''}${variant.imageUrl}`}
+                                                                    alt=""
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleVariantChange(vIdx, 'imageUrl', '')}
+                                                                    className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover/vimg:opacity-100 transition-opacity"
+                                                                    title="Quitar foto"
+                                                                >
+                                                                    <span className="material-symbols-outlined text-[14px]">close</span>
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center gap-1">
+                                                                <label className="w-8 h-8 rounded-lg border border-dashed border-purple-300 dark:border-purple-700 hover:border-purple-500 flex items-center justify-center cursor-pointer text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors" title="Subir foto de este color/modelo">
+                                                                    <span className="material-symbols-outlined text-[16px]">add_a_photo</span>
+                                                                    <input
+                                                                        type="file"
+                                                                        accept="image/*"
+                                                                        className="hidden"
+                                                                        onChange={e => {
+                                                                            if (e.target.files?.[0]) handleVariantFileUpload(vIdx, e.target.files[0]);
+                                                                        }}
+                                                                    />
+                                                                </label>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setMediaLibTargetVIdx(vIdx); openMediaLib(); }}
+                                                                    className="w-8 h-8 rounded-lg border border-purple-200 dark:border-purple-800 hover:border-purple-400 flex items-center justify-center text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors"
+                                                                    title="Elegir de Biblioteca"
+                                                                >
+                                                                    <span className="material-symbols-outlined text-[15px]">photo_library</span>
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                {vg && (
+                                                    <div className="flex-1 min-w-[180px]">
+                                                        <select 
+                                                            className="w-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50 rounded-lg px-3 py-2 text-sm text-purple-900 dark:text-purple-300 font-bold h-10 outline-none focus:ring-2 focus:ring-purple-400" 
+                                                            value={(() => {
+                                                                if (variant.sizeIndex !== undefined && variant.sizeIndex >= 0 && variant.sizeIndex < vg.options.length) {
+                                                                    return variant.sizeIndex;
+                                                                }
+                                                                const foundIdx = vg.options.findIndex(o => 
+                                                                    variant.size && (variant.size === o.value || variant.size.startsWith(o.value) || (o.description && variant.size.includes(o.description)))
+                                                                );
+                                                                return foundIdx >= 0 ? foundIdx : 0;
+                                                            })()} 
+                                                            onChange={e => handleVariantChange(vIdx, 'sizeIndex', Number(e.target.value))}
+                                                        >
+                                                            {vg.options.map((row, rIdx) => (
+                                                                <option key={rIdx} value={rIdx}>{row.value} {row.description ? `(${row.description})` : ''}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                )}
+                                                <div className="flex-1 min-w-[130px]">
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="Descripción (ej: Negro/Rosa)" 
+                                                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white h-10 focus:ring-2 focus:ring-primary outline-none" 
+                                                        value={variant.description || variant.color || ''} 
+                                                        onChange={e => handleVariantChange(vIdx, 'description', e.target.value)} 
+                                                    />
+                                                </div>
+                                            </>
                                         )}
-                                        <div className="flex-1 min-w-[130px]">
-                                            <input 
-                                                type="text" 
-                                                placeholder="Descripción (ej: Negro/Rosa)" 
-                                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white h-10 focus:ring-2 focus:ring-primary outline-none" 
-                                                value={variant.description || variant.color || ''} 
-                                                onChange={e => handleVariantChange(vIdx, 'description', e.target.value)} 
-                                            />
-                                        </div>
                                         <div className="w-[72px]">
                                             <label className="block text-[10px] text-center font-bold text-slate-500 mb-1 leading-none">
                                               Stock {canAdjustManualStock ? '' : '🔒'}

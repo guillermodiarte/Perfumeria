@@ -132,7 +132,11 @@ export default function CheckoutPage() {
       const finalUnit = getItemFinalUnitPrice(item);
       const isPromoApplied = Boolean(item.product?.promoEnabled && item.product?.promoPrice && finalUnit === item.product.promoPrice && finalUnit < getItemUnitPrice(item));
       const discountLabel = isPromoApplied ? ` (Promo: ${item.product.promoLabel || 'Oferta'})` : (finalUnit < getItemUnitPrice(item) ? ' (Mayorista)' : '');
-      return `• ${item.product.name} (${item.color ? item.color + ' - ' : ''}${item.size}) x${item.quantity} = $${(finalUnit * item.quantity).toLocaleString()}${discountLabel}`;
+      const v = item.product?.variants?.find((va: any) => va.id === item.variantId || (va.size === item.size && va.color === item.color));
+      const variantLabel = item.product.isBundle
+        ? 'Set / Combo'
+        : [item.color && item.color !== 'Único' ? item.color : null, (v as any)?.attributeValue || (item.size !== 'Único' && item.size !== item.color ? item.size : null)].filter(Boolean).join(' - ') || 'Único';
+      return `• ${item.product.name} (${variantLabel}) x${item.quantity} = $${(finalUnit * item.quantity).toLocaleString()}${discountLabel}`;
     });
     const greeting = company.whatsappMsgGreeting || '¡Hola! Quiero confirmar un pedido 🛒';
     const isNational = shippingType === 'national';
@@ -221,23 +225,31 @@ export default function CheckoutPage() {
     setError('');
 
     try {
-      const saleItems = items.map(item => ({
-        product_id: item.product.id,
-        productId: item.product.id,
-        variant_id: item.variantId,
-        variantId: item.variantId,
-        product_name: item.product.name,
-        productName: item.product.name,
-        variant_info: `${item.color} - ${item.size}`,
-        variantInfo: `${item.color} - ${item.size}`,
-        size: item.size,
-        color: item.color,
-        image_url: item.product.imageUrls?.[0] || '',
-        imageUrl: item.product.imageUrls?.[0] || '',
-        quantity: item.quantity,
-        sale_price: getItemFinalUnitPrice(item),
-        salePrice: getItemFinalUnitPrice(item)
-      }));
+      const saleItems = items.map(item => {
+        const v = item.product?.variants?.find((va: any) => va.id === item.variantId || (va.size === item.size && va.color === item.color));
+        const variantImg = (v as any)?.imageUrl || item.product.imageUrls?.[0] || '';
+        const variantLabel = item.product.isBundle
+          ? 'Set / Combo'
+          : [item.color && item.color !== 'Único' ? item.color : null, (v as any)?.attributeValue || (item.size !== 'Único' && item.size !== item.color ? item.size : null)].filter(Boolean).join(' - ') || 'Único';
+
+        return {
+          product_id: item.product.id,
+          productId: item.product.id,
+          variant_id: item.variantId,
+          variantId: item.variantId,
+          product_name: item.product.name,
+          productName: item.product.name,
+          variant_info: variantLabel,
+          variantInfo: variantLabel,
+          size: item.size,
+          color: item.color,
+          image_url: variantImg,
+          imageUrl: variantImg,
+          quantity: item.quantity,
+          sale_price: getItemFinalUnitPrice(item),
+          salePrice: getItemFinalUnitPrice(item)
+        };
+      });
 
       // 1. Create order in Backend
       const authStoreToken = useAuthStore.getState().token;
@@ -298,13 +310,19 @@ export default function CheckoutPage() {
             </div>
           ) : (
             <div className="flex flex-col gap-4 sm:gap-5">
-              {items.map((item, idx) => (
+              {items.map((item, idx) => {
+                const v = item.product?.variants?.find((va: any) => va.id === item.variantId || (va.size === item.size && va.color === item.color));
+                const itemImg = (v as any)?.imageUrl || item.product.imageUrls?.[0];
+                const colorHex = (v as any)?.colorHex;
+                const attrVal = (v as any)?.attributeValue;
+
+                return (
                 <div key={idx} className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-5 border border-slate-100 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-900/50 hover:border-slate-200 dark:hover:border-slate-600 transition-all">
                   <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-xl bg-white overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700">
-                      {item.product.imageUrls?.[0] ? (
+                      {itemImg ? (
                         <img
-                          src={parseImageUrl(item.product.imageUrls[0])}
+                          src={parseImageUrl(itemImg)}
                           alt={item.product.name}
                           className="w-full h-full object-cover"
                           onError={(e) => {
@@ -323,9 +341,28 @@ export default function CheckoutPage() {
                     </div>
                     <div className="flex-1 min-w-0 pr-6 sm:pr-0">
                       <h3 className="font-bold text-sm sm:text-base md:text-lg text-slate-900 dark:text-white leading-tight line-clamp-2">{item.product.name}</h3>
-                      <p className="text-xs sm:text-sm text-slate-500 mt-1 capitalize">
-                        {item.product.isBundle ? '🎁 Set / Combo Especial' : `${item.color} - ${item.size}`}
-                      </p>
+                      {item.product.isBundle ? (
+                        <p className="text-xs sm:text-sm text-fuchsia-600 dark:text-fuchsia-400 font-bold mt-1">🎁 Set / Combo Especial</p>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm text-slate-500 mt-1">
+                          {item.color && item.color !== 'Único' && (
+                            <span className="inline-flex items-center gap-1 capitalize font-medium">
+                              {colorHex && (
+                                <span className="inline-block w-2.5 h-2.5 rounded-full border border-slate-300 dark:border-slate-600 shadow-xs" style={{ backgroundColor: colorHex }} />
+                              )}
+                              Color: {item.color}
+                            </span>
+                          )}
+                          {(attrVal || (item.size && item.size !== 'Único' && item.size !== item.color)) && (
+                            <>
+                              {item.color && item.color !== 'Único' && <span className="text-slate-300 dark:text-slate-600">|</span>}
+                              <span className="font-medium">
+                                {attrVal || item.size}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
                       <p className="text-xs text-slate-400 mt-0.5 sm:hidden">
                         ${getItemFinalUnitPrice(item).toLocaleString()} c/u
                         {getItemFinalUnitPrice(item) < getItemUnitPrice(item) && (
@@ -371,7 +408,8 @@ export default function CheckoutPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           )}
         </div>

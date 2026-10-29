@@ -157,7 +157,13 @@ export default function CartDrawer() {
             </div>
           ) : (
             <div className="flex flex-col gap-6">
-              {items.map((item) => (
+              {items.map((item) => {
+                const variant = item.product?.variants?.find((v: any) => v.id === item.variantId || (v.size === item.size && v.color === item.color));
+                const itemImg = (variant as any)?.imageUrl || item.product.imageUrls?.[0];
+                const colorHex = (variant as any)?.colorHex;
+                const attrVal = (variant as any)?.attributeValue;
+
+                return (
                 <div key={`${item.product.id}-${item.variantId}`} className="flex gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl relative group">
                   {/* Delete Button */}
                   <button 
@@ -170,7 +176,7 @@ export default function CartDrawer() {
 
                   <div className="w-24 h-24 rounded-xl overflow-hidden bg-white dark:bg-slate-900 flex-shrink-0">
                     <img 
-                      src={parseImageUrl(item.product.imageUrls?.[0])} 
+                      src={parseImageUrl(itemImg)} 
                       alt={item.product.name}
                       className="w-full h-full object-cover"
                     />
@@ -186,11 +192,24 @@ export default function CartDrawer() {
                           🎁 Set / Combo Especial
                         </p>
                       ) : (
-                        <p className="text-xs text-slate-500 mt-1 capitalize">
-                          {item.size !== 'Único' && `Talle: ${item.size}`}
-                          {item.size !== 'Único' && item.color !== 'Único' && ' | '}
-                          {item.color !== 'Único' && `Color: ${item.color}`}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-1">
+                          {item.color && item.color !== 'Único' && (
+                            <span className="inline-flex items-center gap-1 capitalize font-medium">
+                              {colorHex && (
+                                <span className="inline-block w-2.5 h-2.5 rounded-full border border-slate-300 dark:border-slate-600 shadow-xs" style={{ backgroundColor: colorHex }} />
+                              )}
+                              Color: {item.color}
+                            </span>
+                          )}
+                          {(attrVal || (item.size && item.size !== 'Único' && item.size !== item.color)) && (
+                            <>
+                              {item.color && item.color !== 'Único' && <span className="text-slate-300 dark:text-slate-600">|</span>}
+                              <span className="font-medium">
+                                {attrVal || item.size}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
                     
@@ -238,7 +257,8 @@ export default function CartDrawer() {
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           )}
         </div>

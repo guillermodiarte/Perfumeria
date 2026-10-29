@@ -114,6 +114,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColor, setSelectedColor] = useState<string>('');
+  const [selectedAttribute, setSelectedAttribute] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
   const [descOpen, setDescOpen] = useState(true);
@@ -124,13 +125,61 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   }, []);
 
   const product = products.find(p => p.id === params.id);
-  const uniqueSizes = product ? Array.from(new Set(product.variants.map(v => v.size))).filter(Boolean) : [];
+
+  // Category visual variant detection
+  const catGroup = product ? categoriesConfig.find(g => g.opciones.includes(product.categoryId)) : undefined;
+  const isVisualProduct = catGroup?.hasVisualVariants === true;
+  const attrLabel = catGroup?.customAttributeLabel || 'Forma / Modelo';
+  const isPerfumery = !isVisualProduct && (catGroup?.variantGroupId === 'perfumes' || catGroup?.grupo === 'Perfumería' || catGroup?.grupo === 'Cuidado Personal');
+
+  // Compute unique values
+  const uniqueSizes = product && !isVisualProduct ? Array.from(new Set(product.variants.map(v => v.size))).filter(Boolean) : [];
   const uniqueColors = product ? Array.from(new Set(product.variants.map(v => v.color))).filter(s => s && s.trim()) : [];
 
+  // For visual products: unique colors from variants, unique attributes filtered by selected color
+  const visualColors = product && isVisualProduct
+    ? Array.from(new Set(product.variants.map(v => v.color).filter(Boolean))) as string[]
+    : [];
+  const visualAttributes = product && isVisualProduct && selectedColor
+    ? Array.from(new Set(
+        product.variants
+          .filter(v => v.color === selectedColor)
+          .map(v => (v as any).attributeValue || v.size)
+          .filter(Boolean)
+      )) as string[]
+    : product && isVisualProduct && !selectedColor
+    ? Array.from(new Set(
+        product.variants
+          .map(v => (v as any).attributeValue || v.size)
+          .filter(Boolean)
+      )) as string[]
+    : [];
+
+  // Initialise selections
   useEffect(() => {
-    if (uniqueSizes.length > 0 && !selectedSize) setSelectedSize(uniqueSizes[0]);
-    if (uniqueColors.length > 0 && !selectedColor) setSelectedColor(uniqueColors[0]);
-  }, [uniqueSizes, uniqueColors, selectedSize, selectedColor]);
+    if (!product) return;
+    if (isVisualProduct) {
+      if (visualColors.length > 0 && !selectedColor) setSelectedColor(visualColors[0]);
+    } else {
+      if (uniqueSizes.length > 0 && !selectedSize) setSelectedSize(uniqueSizes[0]);
+      if (uniqueColors.length > 0 && !selectedColor) setSelectedColor(uniqueColors[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product?.id]);
+
+  // When color changes in visual mode, auto-select first attribute
+  useEffect(() => {
+    if (!isVisualProduct || !selectedColor || !product) return;
+    const attrs = Array.from(new Set(
+      product.variants
+        .filter(v => v.color === selectedColor)
+        .map(v => (v as any).attributeValue || v.size)
+        .filter(Boolean)
+    )) as string[];
+    if (attrs.length > 0) setSelectedAttribute(attrs[0]);
+    else setSelectedAttribute('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedColor, product?.id, isVisualProduct]);
 
   if (!mounted) return null;
 
@@ -147,20 +196,37 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   }
 
   const parseImageUrl = (imgUrl: string) => imgUrl.startsWith('http') ? imgUrl : `${API_URL}${imgUrl}`;
-  const images = (product.imageUrls && product.imageUrls.length > 0)
+
+  // Resolve current variant
+  let currentVariant;
+  if (isVisualProduct) {
+    currentVariant = product.variants.find(v =>
+      v.color === selectedColor && ((v as any).attributeValue || v.size) === selectedAttribute
+    ) || product.variants.find(v => v.color === selectedColor) || product.variants[0];
+  } else {
+    const sizeToMatch = selectedSize || (uniqueSizes.length > 0 ? uniqueSizes[0] : (product.variants[0]?.size || ''));
+    const colorToMatch = selectedColor || (uniqueColors.length > 0 ? uniqueColors[0] : (product.variants[0]?.color || ''));
+    currentVariant = product.variants.find(v =>
+      (!sizeToMatch || v.size === sizeToMatch) &&
+      (!colorToMatch || v.color === colorToMatch)
+    ) || product.variants[0];
+  }
+
+  const maxStock = currentVariant?.stock || 0;
+
+  // Resolve displayed image: per-variant imageUrl takes priority for visual products
+  const variantImageUrl: string | undefined = (currentVariant as any)?.imageUrl;
+  const variantImageFull = variantImageUrl ? parseImageUrl(variantImageUrl) : undefined;
+  const productImages = (product.imageUrls && product.imageUrls.length > 0)
     ? product.imageUrls.map(parseImageUrl)
     : [];
+  // For visual products: main image is the variant image if available
+  const displayImages = isVisualProduct && variantImageFull
+    ? [variantImageFull, ...productImages.filter(i => i !== variantImageFull)]
+    : productImages;
 
   const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "5493704747426";
   const whatsappUrl = `https://wa.me/${phone}?text=Hola,%20quisiera%20consultar%20disponibilidad%20sobre%20el%20producto:%20${encodeURIComponent(product.name)}%20(SKU:%20${product.sku || 'N/A'})`;
-
-  const sizeToMatch = selectedSize || (uniqueSizes.length > 0 ? uniqueSizes[0] : (product.variants[0]?.size || ''));
-  const colorToMatch = selectedColor || (uniqueColors.length > 0 ? uniqueColors[0] : (product.variants[0]?.color || ''));
-  const currentVariant = product.variants.find(v => 
-    (!sizeToMatch || v.size === sizeToMatch) && 
-    (!colorToMatch || v.color === colorToMatch)
-  ) || product.variants[0];
-  const maxStock = currentVariant?.stock || 0;
 
   const minWholesaleQty = wholesaleConfig?.minQuantity || 3;
   const isPercentActive = wholesaleConfig?.enabled !== false;
@@ -189,8 +255,6 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const hasPromo = Boolean((product as any).promoEnabled && (product as any).promoPrice && (product as any).promoPrice > 0);
   const promoPrice: number = hasPromo ? (product as any).promoPrice : 0;
   const promoLabel: string = (product as any).promoLabel || '';
-  // Regla: Para mayoristas, promo gana si promoPrice < wholesalePrice (si wholesalePrice <= promoPrice, gana mayorista).
-  // Para minoristas, aplica promo si promoPrice < basePrice.
   const showPromo = hasPromo && (isWholesale ? promoPrice < wholesalePrice : promoPrice < basePrice);
 
   let currentPrice: number;
@@ -206,10 +270,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     oldPrice = null;
   }
 
-  // Determine variant label based on category
-  const catGroup = categoriesConfig.find(g => g.opciones.includes(product.categoryId));
-  const isPerfumery = catGroup?.variantGroupId === 'perfumes' || catGroup?.grupo === 'Perfumería' || catGroup?.grupo === 'Cuidado Personal';
-  const colorLabel = isPerfumery ? null : (uniqueColors.length > 0 ? 'Color / Variante' : null);
+  const colorLabel = !isPerfumery && !isVisualProduct && uniqueColors.length > 0 ? 'Color / Variante' : null;
 
   const handleAddToCart = () => {
     const action = () => {
@@ -217,16 +278,23 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
       if (variant) {
         addItem(product, variant.id, variant.size, variant.color, quantity);
         setAdded(true);
-        const toastMsg = product.isBundle 
-          ? `${quantity}x 🎁 ${product.name} añadido al carrito`
-          : `${quantity}x ${product.name} (${variant.size}) añadido al carrito`;
+        let toastMsg: string;
+        if (product.isBundle) {
+          toastMsg = `${quantity}x 🎁 ${product.name} añadido al carrito`;
+        } else if (isVisualProduct) {
+          const parts = [selectedColor, selectedAttribute].filter(Boolean);
+          toastMsg = `${quantity}x ${product.name}${parts.length ? ` (${parts.join(' – ')})` : ''} añadido al carrito`;
+        } else {
+          toastMsg = `${quantity}x ${product.name} (${variant.size}) añadido al carrito`;
+        }
         addToast(toastMsg, 'success');
         setTimeout(() => setAdded(false), 2000);
         openCart();
       }
     };
-    if (!product.isBundle && uniqueSizes.length > 0 && !selectedSize) { alert('Por favor selecciona un talle.'); return; }
-    if (!product.isBundle && uniqueColors.length > 0 && !selectedColor) { alert('Por favor selecciona un color/variante.'); return; }
+    if (!product.isBundle && !isVisualProduct && uniqueSizes.length > 0 && !selectedSize) { alert('Por favor selecciona un talle.'); return; }
+    if (!product.isBundle && !isVisualProduct && uniqueColors.length > 0 && !selectedColor) { alert('Por favor selecciona un color/variante.'); return; }
+    if (!product.isBundle && isVisualProduct && visualColors.length > 0 && !selectedColor) { alert('Por favor seleccioná un color.'); return; }
     if (!user) { openModal('login', action); return; }
     action();
   };
@@ -242,7 +310,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-white dark:bg-slate-950">
       {lightboxIndex !== null && (
-        <Lightbox images={images} startIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
+        <Lightbox images={displayImages} startIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
       )}
 
       <div className="layout-container flex h-full grow flex-col">
@@ -260,12 +328,12 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
 
             {/* ── Image Gallery ─────────────────────────────── */}
             <div className="w-full lg:w-1/2 xl:w-[52%] flex flex-col gap-4">
-              {images.length > 0 ? (
+              {displayImages.length > 0 ? (
                 <div className="flex flex-col-reverse md:flex-row gap-4">
                   {/* Thumbnails */}
-                  {images.length > 1 && (
+                  {displayImages.length > 1 && (
                     <div className="flex md:flex-col gap-2.5 overflow-x-auto md:overflow-y-auto md:max-h-[540px] pb-2 md:pb-0 scrollbar-hide flex-shrink-0">
-                      {images.map((img, i) => (
+                      {displayImages.map((img, i) => (
                         <button
                           key={i}
                           onClick={() => setSelectedImageIndex(i)}
@@ -283,7 +351,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                     onClick={() => setLightboxIndex(selectedImageIndex)}
                   >
                     <img
-                      src={images[selectedImageIndex]}
+                      src={displayImages[selectedImageIndex] || displayImages[0]}
                       alt={product.name}
                       className="w-full h-full max-h-[540px] object-contain transition-transform duration-500 group-hover:scale-105 p-3"
                     />
@@ -295,9 +363,9 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                       </div>
                     </div>
                     {/* Dot indicator */}
-                    {images.length > 1 && (
+                    {displayImages.length > 1 && (
                       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5">
-                        {images.map((_, i) => (
+                        {displayImages.map((_, i) => (
                           <span
                             key={i}
                             className={`block rounded-full transition-all duration-300 ${selectedImageIndex === i ? 'w-5 h-2 bg-primary' : 'w-2 h-2 bg-slate-300 dark:bg-slate-600'}`}
@@ -408,8 +476,112 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                   </div>
                 </div>
 
-                {/* Color/Variante Selection — only for non-perfume categories */}
-                {!product.isBundle && colorLabel && uniqueColors.length > 0 && (
+                {/* ══ VISUAL VARIANTS: Color Swatches ══ */}
+                {!product.isBundle && isVisualProduct && visualColors.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="font-bold text-slate-900 dark:text-white">Color</span>
+                      <span className="text-slate-400 capitalize text-xs font-medium">{selectedColor}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2.5">
+                      {visualColors.map(colorName => {
+                        // Find any variant with this color to get its colorHex
+                        const varWithColor = product.variants.find(v => v.color === colorName);
+                        const hex = (varWithColor as any)?.colorHex;
+                        const isSelected = selectedColor === colorName;
+                        return (
+                          <button
+                            key={colorName}
+                            onClick={() => {
+                              setSelectedColor(colorName);
+                              setSelectedImageIndex(0);
+                            }}
+                            title={colorName}
+                            className={`relative flex flex-col items-center gap-1.5 group transition-all`}
+                          >
+                            {/* Color swatch */}
+                            <span
+                              className={`block w-9 h-9 rounded-xl border-2 transition-all shadow-sm ${
+                                isSelected
+                                  ? 'border-slate-800 dark:border-white scale-110 shadow-md'
+                                  : 'border-slate-200 dark:border-slate-700 hover:border-slate-400 hover:scale-105'
+                              }`}
+                              style={hex ? { backgroundColor: hex } : { backgroundColor: '#e2e8f0' }}
+                            />
+                            {/* Selected checkmark */}
+                            {isSelected && (
+                              <span
+                                className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-black"
+                                style={{
+                                  backgroundColor: hex ? (isLightColor(hex) ? '#1e293b' : '#fff') : '#1e293b',
+                                  color: hex ? (isLightColor(hex) ? '#fff' : '#1e293b') : '#fff',
+                                }}
+                              >
+                                ✓
+                              </span>
+                            )}
+                            {/* Color name label */}
+                            <span className={`text-[10px] font-semibold leading-none max-w-[42px] text-center truncate transition-colors ${
+                              isSelected ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'
+                            }`}>
+                              {colorName}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ══ VISUAL VARIANTS: Attribute (Shape/Model) selector ══ */}
+                {!product.isBundle && isVisualProduct && visualAttributes.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="font-bold text-slate-900 dark:text-white">{attrLabel}</span>
+                      <span className="text-slate-400 capitalize text-xs font-medium">{selectedAttribute}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {visualAttributes.map(attr => {
+                        // Find the specific variant for this color + attribute
+                        const varForAttr = product.variants.find(v =>
+                          v.color === selectedColor && ((v as any).attributeValue || v.size) === attr
+                        );
+                        const attrStock = varForAttr?.stock || 0;
+                        const attrPrice = varForAttr?.manualSalePrice;
+                        const isSelected = selectedAttribute === attr;
+                        return (
+                          <button
+                            key={attr}
+                            onClick={() => setSelectedAttribute(attr)}
+                            disabled={attrStock <= 0}
+                            className={`h-11 px-4 rounded-xl border-2 flex items-center gap-2 justify-center font-bold transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
+                              isSelected
+                                ? 'border-primary bg-primary text-white shadow-lg shadow-primary/30'
+                                : 'border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white bg-white dark:bg-slate-800 hover:border-primary/50'
+                            }`}
+                          >
+                            <span>{attr}</span>
+                            {attrPrice !== undefined && attrPrice > 0 && (
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                                isSelected
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                              }`}>
+                                ${(isWholesale ? Math.round(attrPrice * (1 - wholesaleDiscountPrc / 100)) : attrPrice).toLocaleString('es-AR')}
+                              </span>
+                            )}
+                            {attrStock <= 0 && (
+                              <span className="text-[9px] uppercase tracking-wider opacity-60">Agotado</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Traditional Color/Variante Selection — only for non-perfume, non-visual categories */}
+                {!product.isBundle && !isVisualProduct && colorLabel && uniqueColors.length > 0 && (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center text-sm">
                       <span className="font-bold text-slate-900 dark:text-white">{colorLabel}</span>
@@ -429,8 +601,8 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                   </div>
                 )}
 
-                {/* Size Selection */}
-                {!product.isBundle && uniqueSizes.length > 0 && (
+                {/* Size Selection — only for traditional (non-visual) products */}
+                {!product.isBundle && !isVisualProduct && uniqueSizes.length > 0 && (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center text-sm">
                       <span className="font-bold text-slate-900 dark:text-white">
@@ -490,10 +662,11 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                 <div className="flex flex-col gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={handleAddToCart}
-                    className={`flex items-center justify-center gap-3 w-full h-14 font-bold text-lg rounded-2xl transition-all shadow-xl group ${added ? 'bg-green-500 text-white shadow-green-500/20 scale-[1.01]' : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-slate-900/15 dark:shadow-white/10 hover:scale-[1.02]'}`}
+                    disabled={maxStock <= 0}
+                    className={`flex items-center justify-center gap-3 w-full h-14 font-bold text-lg rounded-2xl transition-all shadow-xl group disabled:opacity-50 disabled:cursor-not-allowed ${added ? 'bg-green-500 text-white shadow-green-500/20 scale-[1.01]' : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-slate-900/15 dark:shadow-white/10 hover:scale-[1.02]'}`}
                   >
                     <span className="material-symbols-outlined">{added ? 'check_circle' : 'shopping_bag'}</span>
-                    {added ? '¡Añadido al carrito!' : 'Añadir al carrito'}
+                    {added ? '¡Añadido al carrito!' : maxStock <= 0 ? 'Sin stock' : 'Añadir al carrito'}
                   </button>
                   <Link href="/checkout" className="flex items-center justify-center gap-2 text-sm font-bold text-slate-500 hover:text-primary transition-colors py-1">
                     Ver Carrito y Finalizar Compra
@@ -657,7 +830,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
             }`}
           >
             <span className="material-symbols-outlined text-[18px]">{added ? 'check' : 'shopping_bag'}</span>
-            <span>{added ? '¡Añadido!' : 'Añadir'}</span>
+            <span>{added ? '¡Añadido!' : maxStock <= 0 ? 'Sin stock' : 'Añadir'}</span>
           </button>
         </div>
 
@@ -666,3 +839,13 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   );
 }
 
+/* ─── Helper: detect if a hex color is light ─── */
+function isLightColor(hex: string): boolean {
+  const h = hex.replace('#', '');
+  if (h.length < 6) return true;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  // luminance formula
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 128;
+}

@@ -5,6 +5,43 @@ export interface CategoryConfig {
   grupo: string;
   opciones: string[];
   variantGroupId: string; // 'none' or group id
+  hasVisualVariants?: boolean; // Permite variantes visuales: Colores y/o Textos con fotos y swatches
+  customAttributeLabel?: string; // Nombre de la etiqueta del atributo textual (ej: "Forma", "Modelo", "Tono")
+}
+
+export const COMMON_COLORS: { name: string; hex: string }[] = [
+  { name: 'Negro', hex: '#18181b' },
+  { name: 'Blanco', hex: '#ffffff' },
+  { name: 'Gris', hex: '#64748b' },
+  { name: 'Rosa', hex: '#f472b6' },
+  { name: 'Rojo', hex: '#dc2626' },
+  { name: 'Verde', hex: '#16a34a' },
+  { name: 'Azul', hex: '#2563eb' },
+  { name: 'Dorado', hex: '#eab308' },
+  { name: 'Plateado', hex: '#cbd5e1' },
+  { name: 'Beige', hex: '#d4b996' },
+  { name: 'Marrón', hex: '#78350f' },
+  { name: 'Violeta', hex: '#9333ea' },
+  { name: 'Naranja', hex: '#f97316' },
+  { name: 'Amarillo', hex: '#facc15' },
+];
+
+export function getColorHex(colorName?: string | null, customHex?: string | null): string {
+  if (customHex && customHex.startsWith('#')) return customHex;
+  if (!colorName) return '#e2e8f0';
+  const clean = colorName.trim().toLowerCase();
+  const found = COMMON_COLORS.find(c => c.name.toLowerCase() === clean || clean.includes(c.name.toLowerCase()));
+  if (found) return found.hex;
+  if (clean === 'negro' || clean === 'black') return '#18181b';
+  if (clean === 'blanco' || clean === 'white') return '#ffffff';
+  if (clean === 'verde' || clean === 'green') return '#16a34a';
+  if (clean === 'rosa' || clean === 'pink') return '#f472b6';
+  if (clean === 'gris' || clean === 'grey' || clean === 'gray') return '#64748b';
+  if (clean === 'rojo' || clean === 'red') return '#dc2626';
+  if (clean === 'azul' || clean === 'blue') return '#2563eb';
+  if (clean === 'dorado' || clean === 'oro' || clean === 'gold') return '#eab308';
+  if (clean === 'plateado' || clean === 'plata' || clean === 'silver') return '#cbd5e1';
+  return '#94a3b8';
 }
 
 export interface VariantOption {
@@ -52,6 +89,7 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   {
     grupo: 'Perfumería',
     variantGroupId: 'perfumes',
+    hasVisualVariants: false,
     opciones: [
       'Perfumes de Mujer',
       'Perfumes de Hombre',
@@ -63,6 +101,8 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   {
     grupo: 'Maquillaje',
     variantGroupId: 'accesorios',
+    hasVisualVariants: true,
+    customAttributeLabel: 'Tono / Tipo',
     opciones: [
       'Ojos',
       'Labios',
@@ -74,6 +114,7 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   {
     grupo: 'Cuidado de la Piel',
     variantGroupId: 'none',
+    hasVisualVariants: false,
     opciones: [
       'Limpieza Facial',
       'Hidratación',
@@ -84,6 +125,7 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   {
     grupo: 'Cuidado Personal',
     variantGroupId: 'perfumes',
+    hasVisualVariants: false,
     opciones: [
       'Cuidado Capilar',
       'Higiene Corporal',
@@ -93,6 +135,8 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   {
     grupo: 'Accesorios',
     variantGroupId: 'accesorios',
+    hasVisualVariants: true,
+    customAttributeLabel: 'Forma / Modelo',
     opciones: [
       'Collares y Cadenas',
       'Anillos',
@@ -104,6 +148,7 @@ export const CATEGORIAS_PERFUMERIA: CategoryConfig[] = [
   {
     grupo: 'Combos & Regalos',
     variantGroupId: 'none',
+    hasVisualVariants: false,
     opciones: [
       'Set de Regalos',
       'Ramos de Maquillaje',
@@ -225,19 +270,19 @@ export function normalizeVariantColor(c: string | undefined | null): string {
 }
 
 export function isSameVariant(
-  v1: { size?: string; color?: string; description?: string } | null | undefined,
-  v2: { size?: string; color?: string; description?: string } | null | undefined
+  v1: { size?: string; color?: string; description?: string; attributeValue?: string } | null | undefined,
+  v2: { size?: string; color?: string; description?: string; attributeValue?: string } | null | undefined
 ): boolean {
   if (!v1 || !v2) return false;
-  const s1 = normalizeVariantSize(v1.size);
-  const s2 = normalizeVariantSize(v2.size);
+  const s1 = normalizeVariantSize(v1.attributeValue || v1.size);
+  const s2 = normalizeVariantSize(v2.attributeValue || v2.size);
   if (s1 !== s2) return false;
   const c1 = normalizeVariantColor(v1.color || v1.description);
   const c2 = normalizeVariantColor(v2.color || v2.description);
   return c1 === c2;
 }
 
-export function consolidateProductVariants<T extends { size?: string; color?: string; description?: string; stock?: number; unitPurchasePrice?: number; manualSalePrice?: number; manualWholesalePrice?: number }>(variants: T[]): T[] {
+export function consolidateProductVariants<T extends { size?: string; color?: string; description?: string; stock?: number; unitPurchasePrice?: number; manualSalePrice?: number; manualWholesalePrice?: number; imageUrl?: string; colorHex?: string; attributeName?: string; attributeValue?: string }>(variants: T[]): T[] {
   if (!Array.isArray(variants) || variants.length <= 1) return variants || [];
   const consolidated: T[] = [];
   for (const v of variants) {
@@ -249,6 +294,10 @@ export function consolidateProductVariants<T extends { size?: string; color?: st
         unitPurchasePrice: consolidated[existingIdx].unitPurchasePrice || v.unitPurchasePrice || 0,
         manualSalePrice: consolidated[existingIdx].manualSalePrice || v.manualSalePrice || 0,
         manualWholesalePrice: consolidated[existingIdx].manualWholesalePrice || v.manualWholesalePrice || undefined,
+        imageUrl: consolidated[existingIdx].imageUrl || v.imageUrl,
+        colorHex: consolidated[existingIdx].colorHex || v.colorHex,
+        attributeName: consolidated[existingIdx].attributeName || v.attributeName,
+        attributeValue: consolidated[existingIdx].attributeValue || v.attributeValue,
       };
     } else {
       consolidated.push({ ...v });
@@ -259,8 +308,12 @@ export function consolidateProductVariants<T extends { size?: string; color?: st
 
 export interface ProductVariant {
   id: string; // Unique ID for the variant
-  size: string;
-  color: string;
+  size: string; // Talle, tamaño o forma/modelo textual (ej: "Flor", "Corazón", "100ml", "Único")
+  color: string; // Nombre del color (ej: "Negro", "Verde", "Rosa", "Rojo")
+  colorHex?: string; // Código hexadecimal para el swatch visual (ej: "#16a34a")
+  imageUrl?: string; // Foto específica de la variante o color
+  attributeName?: string; // Nombre de la propiedad secundaria (ej: "Forma", "Modelo", "Tono")
+  attributeValue?: string; // Valor de la propiedad secundaria (ej: "Flor", "Corazón")
   stock: number;
   unitPurchasePrice?: number;  // Costo de compra por variante
   manualSalePrice?: number;    // Precio de venta por variante
@@ -285,6 +338,7 @@ export interface Product {
   purchasePrice: number;
   salePrice: number;
   wholesalePrice?: number;      // Precio mayorista base del producto
+  hasVariantPricing?: boolean;  // Si es true, el producto tiene precios diferenciados por cada variante
   notForPublicSale?: boolean;   // Si es true, producto cargado solo para inventario interno, no disponible para venta al público
   imageUrls?: string[];
   variants: ProductVariant[];
@@ -415,9 +469,14 @@ export interface StockFlowState {
     targetGender?: 'Hombre' | 'Mujer' | 'Unisex';
     size: string;
     color: string;
+    colorHex?: string;
+    imageUrl?: string;
+    attributeName?: string;
+    attributeValue?: string;
     quantity: number;
     unitPurchasePrice: number;
     manualSalePrice: number;
+    hasVariantPricing?: boolean;
     // New descriptive / feature fields
     description?: string;
     tag?: string;
@@ -441,6 +500,10 @@ export interface StockFlowState {
       variantLabel: string;
       size: string;
       color: string;
+      colorHex?: string;
+      imageUrl?: string;
+      attributeName?: string;
+      attributeValue?: string;
       quantity: number;
       unitCostOriginal: number;
       unitCostARS: number;
@@ -465,6 +528,7 @@ export interface StockFlowState {
       family?: string;
       showFeatures?: boolean;
       notForPublicSale?: boolean; // Si es true, producto cargado solo para inventario interno, no disponible para venta al público
+      hasVariantPricing?: boolean; // Si es true, precios diferenciados por variante
       salePriceConflict?: 'update' | 'keep' | 'custom'; // decisión del modal
       customSalePrice?: number;
     }[];
@@ -926,7 +990,7 @@ export const useStockFlowStore = create<StockFlowState>()(
 
               // Check if variant with same size & color exists (normalizado)
               const varIndex = existingProd.variants.findIndex(v =>
-                isSameVariant(v, { size: purchase.size || 'Único', color: purchase.color || '' })
+                isSameVariant(v, { size: purchase.size || 'Único', color: purchase.color || '', attributeValue: purchase.attributeValue })
               );
 
               if (varIndex !== -1) {
@@ -938,6 +1002,10 @@ export const useStockFlowStore = create<StockFlowState>()(
                 if (purchase.manualSalePrice !== undefined) {
                   existingProd.variants[varIndex].manualSalePrice = Number(purchase.manualSalePrice) || 0;
                 }
+                if (purchase.imageUrl) existingProd.variants[varIndex].imageUrl = purchase.imageUrl;
+                if (purchase.colorHex) existingProd.variants[varIndex].colorHex = purchase.colorHex;
+                if (purchase.attributeName) existingProd.variants[varIndex].attributeName = purchase.attributeName;
+                if (purchase.attributeValue) existingProd.variants[varIndex].attributeValue = purchase.attributeValue;
                 targetVariantId = existingProd.variants[varIndex].id;
               } else {
                 targetVariantId = Math.random().toString(36).substr(2, 9);
@@ -945,6 +1013,10 @@ export const useStockFlowStore = create<StockFlowState>()(
                   id: targetVariantId,
                   size: purchase.size || 'Único',
                   color: purchase.color || '',
+                  colorHex: purchase.colorHex || getColorHex(purchase.color),
+                  imageUrl: purchase.imageUrl,
+                  attributeName: purchase.attributeName,
+                  attributeValue: purchase.attributeValue || purchase.size,
                   stock: Number(purchase.quantity) || 0,
                   unitPurchasePrice: Number(purchase.unitPurchasePrice) || 0,
                   manualSalePrice: Number(purchase.manualSalePrice) || 0,
@@ -980,6 +1052,10 @@ export const useStockFlowStore = create<StockFlowState>()(
                     id: targetVariantId,
                     size: purchase.size || 'Único',
                     color: purchase.color || '',
+                    colorHex: purchase.colorHex || getColorHex(purchase.color),
+                    imageUrl: purchase.imageUrl,
+                    attributeName: purchase.attributeName,
+                    attributeValue: purchase.attributeValue || purchase.size,
                     stock: Number(purchase.quantity) || 0,
                     unitPurchasePrice: Number(purchase.unitPurchasePrice) || 0,
                     manualSalePrice: Number(purchase.manualSalePrice) || 0,
@@ -1085,19 +1161,27 @@ export const useStockFlowStore = create<StockFlowState>()(
               if (item.family !== undefined) existingProd.family = item.family;
               if (item.showFeatures !== undefined) existingProd.showFeatures = item.showFeatures;
               if (item.notForPublicSale !== undefined) existingProd.notForPublicSale = Boolean(item.notForPublicSale);
+              if (item.hasVariantPricing !== undefined) existingProd.hasVariantPricing = Boolean(item.hasVariantPricing);
               if (item.newProductImageUrls?.length) {
                 const merged = Array.from(new Set([...(existingProd.imageUrls || []), ...item.newProductImageUrls]));
                 existingProd.imageUrls = merged;
               }
+              if (item.imageUrl && !existingProd.imageUrls?.includes(item.imageUrl)) {
+                existingProd.imageUrls = [...(existingProd.imageUrls || []), item.imageUrl];
+              }
 
               // Buscar variante por tamaño + color (normalizado)
               const varIndex = existingProd.variants.findIndex(v =>
-                isSameVariant(v, { size: item.size, color: item.color || (item as any).description || '' })
+                isSameVariant(v, { size: item.size, color: item.color || (item as any).description || '', attributeValue: item.attributeValue })
               );
 
               if (varIndex !== -1) {
                 existingProd.variants[varIndex].stock += item.quantity;
                 existingProd.variants[varIndex].unitPurchasePrice = item.totalCostPerUnitARS;
+                if (item.imageUrl) existingProd.variants[varIndex].imageUrl = item.imageUrl;
+                if (item.colorHex) existingProd.variants[varIndex].colorHex = item.colorHex;
+                if (item.attributeName) existingProd.variants[varIndex].attributeName = item.attributeName;
+                if (item.attributeValue) existingProd.variants[varIndex].attributeValue = item.attributeValue;
                 existingProd.variants[varIndex].manualSalePrice = existingProd.notForPublicSale
                   ? 0
                   : (item.salePriceConflict !== 'keep'
@@ -1122,6 +1206,10 @@ export const useStockFlowStore = create<StockFlowState>()(
                   id: targetVariantId,
                   size: item.size,
                   color: item.color,
+                  colorHex: item.colorHex || getColorHex(item.color),
+                  imageUrl: item.imageUrl,
+                  attributeName: item.attributeName,
+                  attributeValue: item.attributeValue || item.size,
                   stock: item.quantity,
                   unitPurchasePrice: item.totalCostPerUnitARS,
                   manualSalePrice: existingProd.notForPublicSale ? 0 : finalSalePrice,
@@ -1165,6 +1253,11 @@ export const useStockFlowStore = create<StockFlowState>()(
                   ? item.manualWholesalePrice
                   : (item.wholesalePrice && item.wholesalePrice > 0 ? item.wholesalePrice : undefined));
 
+              const initialImages = item.newProductImageUrls ? [...item.newProductImageUrls] : [];
+              if (item.imageUrl && !initialImages.includes(item.imageUrl)) {
+                initialImages.push(item.imageUrl);
+              }
+
               const newProduct: Product = {
                 id: createdId,
                 name: targetProductName,
@@ -1176,7 +1269,8 @@ export const useStockFlowStore = create<StockFlowState>()(
                 salePrice: isNotForSale ? 0 : finalSalePrice,
                 wholesalePrice: newProductWholesale,
                 notForPublicSale: isNotForSale,
-                imageUrls: item.newProductImageUrls || [],
+                hasVariantPricing: item.hasVariantPricing,
+                imageUrls: initialImages,
                 description: item.description,
                 tag: item.tag,
                 showTag: item.showTag,
@@ -1189,6 +1283,10 @@ export const useStockFlowStore = create<StockFlowState>()(
                   id: targetVariantId,
                   size: item.size,
                   color: item.color,
+                  colorHex: item.colorHex || getColorHex(item.color),
+                  imageUrl: item.imageUrl,
+                  attributeName: item.attributeName,
+                  attributeValue: item.attributeValue || item.size,
                   stock: item.quantity,
                   unitPurchasePrice: item.totalCostPerUnitARS,
                   manualSalePrice: isNotForSale ? 0 : finalSalePrice,
