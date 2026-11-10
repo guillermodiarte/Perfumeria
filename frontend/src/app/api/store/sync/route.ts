@@ -98,8 +98,8 @@ export async function POST(req: NextRequest) {
       create: { key: 'catalog_store_data', value: valueToStore },
     });
 
-    // Sincronizar nombres actualizados en purchase_batch_items para mantener consistencia en la DB
-    if (Array.isArray(body.products)) {
+    // Sincronizar nombres actualizados en purchase_batch_items solo si se solicita explícitamente
+    if (body.syncBatchItemNames && Array.isArray(body.products)) {
       for (const prod of body.products) {
         if (prod.id && prod.name) {
           await prisma.purchaseBatchItem.updateMany({
@@ -122,6 +122,10 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date().toISOString(),
     });
   } catch (error: any) {
+    if (error.code === 'ECONNRESET' || error.message === 'aborted' || error.name === 'AbortError') {
+      console.warn('[POST /api/store/sync] Petición cancelada por el cliente (desconexión / navegación)');
+      return new Response(null, { status: 499 });
+    }
     console.error('POST /api/store/sync error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
       size: `${sizeKb} KB`,
     });
   } catch (error: any) {
+    if (error.code === 'ECONNRESET' || error.message === 'aborted' || error.name === 'AbortError') {
+      console.warn('[product-image] Subida cancelada por el cliente (desconexión / navegación)');
+      return new Response(null, { status: 499 });
+    }
     console.error('Error uploading product image:', error);
     return NextResponse.json({ detail: error.message || 'Error al subir imagen' }, { status: 500 });
   }

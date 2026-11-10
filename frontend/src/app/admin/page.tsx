@@ -20,6 +20,7 @@ import ComboBuilderView from '@/components/admin/ComboBuilderView';
 import AdminGlobalSearch from '@/components/admin/AdminGlobalSearch';
 import Logo from '@/components/ui/Logo';
 import { API_URL } from '@/utils/api';
+import AdminErrorBoundary from '@/components/admin/AdminErrorBoundary';
 
 export default function AdminDashboard() {
   const [products, setProducts] = useState<any[]>([]);
@@ -1279,7 +1280,7 @@ export default function AdminDashboard() {
 
         {/* Content Section */}
         <div className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 bg-background-light dark:bg-background-dark/30">
-          <>
+          <AdminErrorBoundary key={activeView} viewName={activeView}>
             {activeView === 'dashboard' ? (
               <div className="max-w-[1600px] w-full px-0 sm:px-2 mx-auto">
                 <DashboardView setActiveView={setActiveView} apiKey={apiKey} pendingUserCount={pendingCount} />
@@ -1804,7 +1805,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
             ) : null}
-          </>
+          </AdminErrorBoundary>
         </div>
       </main>
 

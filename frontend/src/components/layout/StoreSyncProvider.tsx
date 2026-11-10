@@ -21,10 +21,48 @@ import { useStockFlowStore } from '@/store/useStockStore';
 export default function StoreSyncProvider() {
   const isInitialized = useRef(false);
   const isLoading = useRef(false);
+  const isSyncing = useRef(false);
+  const pendingSyncState = useRef<any>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let isMounted = true;
+
+    async function doSync(stateToSync: any) {
+      if (!isMounted) return;
+      if (isSyncing.current) {
+        pendingSyncState.current = stateToSync;
+        return;
+      }
+      isSyncing.current = true;
+      try {
+        await fetch('/api/store/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            products: stateToSync.products,
+            categoriesConfig: stateToSync.categoriesConfig,
+            variantGroupsConfig: stateToSync.variantGroupsConfig,
+            perfumeTypesConfig: stateToSync.perfumeTypesConfig,
+            purchases: stateToSync.purchases,
+            sales: stateToSync.sales,
+            globalMarkupPrc: stateToSync.globalMarkupPrc,
+            wholesaleConfig: stateToSync.wholesaleConfig,
+          }),
+        });
+      } catch (e: any) {
+        if (e.name !== 'AbortError' && e.code !== 'ECONNRESET') {
+          console.warn('[StoreSyncProvider] Aviso en autosync:', e);
+        }
+      } finally {
+        isSyncing.current = false;
+        if (pendingSyncState.current && isMounted) {
+          const nextState = pendingSyncState.current;
+          pendingSyncState.current = null;
+          doSync(nextState);
+        }
+      }
+    }
 
     async function initSync() {
       if (isLoading.current) return;
@@ -43,31 +81,17 @@ export default function StoreSyncProvider() {
 
           if (json.data && json.data.products !== undefined) {
             // ✅ El servidor tiene datos: usarlos como fuente de verdad absoluta.
-            // Esto garantiza que PC, móvil y cualquier dispositivo vean lo mismo.
             useStockFlowStore.getState().importData(json.data);
           } else {
             // BD vacía: solo subir datos locales si existen (primera carga)
             const currentState = useStockFlowStore.getState();
             const hasLocalData =
-              currentState.products?.length > 0 ||
-              currentState.purchases?.length > 0 ||
-              currentState.sales?.length > 0;
+              (currentState.products?.length || 0) > 0 ||
+              (currentState.purchases?.length || 0) > 0 ||
+              (currentState.sales?.length || 0) > 0;
 
             if (hasLocalData) {
-              fetch('/api/store/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  products: currentState.products,
-                  categoriesConfig: currentState.categoriesConfig,
-                  variantGroupsConfig: currentState.variantGroupsConfig,
-                  perfumeTypesConfig: currentState.perfumeTypesConfig,
-                  purchases: currentState.purchases,
-                  sales: currentState.sales,
-                  globalMarkupPrc: currentState.globalMarkupPrc,
-                  wholesaleConfig: currentState.wholesaleConfig,
-                }),
-              }).catch(e => console.error('[StoreSyncProvider] Error inicializando catálogo en DB:', e));
+              doSync(currentState);
             }
           }
         }
@@ -82,31 +106,16 @@ export default function StoreSyncProvider() {
     }
 
     // Esperar un tick para que Zustand termine de rehidratar el localStorage
-    // antes de activar la suscripción de autosync
     const initTimer = setTimeout(initSync, 200);
 
     // Suscribirse a cambios del store para persistir automáticamente a la BD.
-    // CRÍTICO: solo guarda si ya terminó la carga inicial (isInitialized = true).
     const unsubscribe = useStockFlowStore.subscribe((state) => {
       if (!isInitialized.current) return;
 
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
       debounceTimer.current = setTimeout(() => {
-        fetch('/api/store/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            products: state.products,
-            categoriesConfig: state.categoriesConfig,
-            variantGroupsConfig: state.variantGroupsConfig,
-            perfumeTypesConfig: state.perfumeTypesConfig,
-            purchases: state.purchases,
-            sales: state.sales,
-            globalMarkupPrc: state.globalMarkupPrc,
-            wholesaleConfig: state.wholesaleConfig,
-          }),
-        }).catch(e => console.error('[StoreSyncProvider] Error en autosync:', e));
+        doSync(state);
       }, 1500);
     });
 

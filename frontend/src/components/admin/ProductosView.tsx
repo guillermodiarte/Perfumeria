@@ -409,9 +409,10 @@ export default function ProductosView({
     setSelectedSubCategory('Todo');
   }, [selectedMainCategory]);
 
-  const getGrupoByCategory = (cat: string) => {
-      for(let g of categoriesConfig) {
-          if(g.opciones.includes(cat)) return g.grupo;
+  const getGrupoByCategory = (cat?: string) => {
+      if (!cat) return 'Otros (Sin Asignar)';
+      for(let g of (categoriesConfig || [])) {
+          if(g.opciones && Array.isArray(g.opciones) && g.opciones.includes(cat)) return g.grupo;
       }
       return 'Otros (Sin Asignar)';
   };
@@ -446,11 +447,17 @@ export default function ProductosView({
     if (stockFilter === 'not_for_public_sale' && !isNotForSale) return false;
     if (stockFilter === 'combos' && !p.isBundle) return false;
 
+    const pName = (p.name || '').toLowerCase();
+    const pSku = (p.sku || '').toLowerCase();
+    const pCatId = (p.categoryId || '').toLowerCase();
+    const pGender = (p.targetGender || '').toLowerCase();
+    const qLower = (searchQuery || '').toLowerCase();
+
     const matchesSearch = 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.categoryId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.targetGender && p.targetGender.toLowerCase().includes(searchQuery.toLowerCase()));
+      pName.includes(qLower) || 
+      pSku.includes(qLower) ||
+      pCatId.includes(qLower) ||
+      pGender.includes(qLower);
       
     if (!matchesSearch) return false;
 
@@ -768,24 +775,6 @@ export default function ProductosView({
         body: JSON.stringify({ newName, oldName }),
       }).catch(e => console.error('[ProductosView] Error actualizando nombre en BD:', e));
     }
-
-    try {
-      const currentState = useStockFlowStore.getState();
-      fetch('/api/store/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          products: currentState.products,
-          categoriesConfig: currentState.categoriesConfig,
-          variantGroupsConfig: currentState.variantGroupsConfig,
-          perfumeTypesConfig: currentState.perfumeTypesConfig,
-          purchases: currentState.purchases,
-          sales: currentState.sales,
-          globalMarkupPrc: currentState.globalMarkupPrc,
-          wholesaleConfig: currentState.wholesaleConfig,
-        }),
-      }).catch(e => console.error('Error sincronizando DB al editar producto:', e));
-    } catch {}
   };
 
   const handleSaveEdit = () => {
@@ -913,27 +902,6 @@ export default function ProductosView({
       body: JSON.stringify({ newName: targetProduct.name }),
     }).catch(e => console.error('[Merge] Error actualizando nombre en BD:', e));
 
-    // Sincronizar tras el delete
-    setTimeout(() => {
-      try {
-        const currentState = useStockFlowStore.getState();
-        fetch('/api/store/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            products: currentState.products,
-            categoriesConfig: currentState.categoriesConfig,
-            variantGroupsConfig: currentState.variantGroupsConfig,
-            perfumeTypesConfig: currentState.perfumeTypesConfig,
-            purchases: currentState.purchases,
-            sales: currentState.sales,
-            globalMarkupPrc: currentState.globalMarkupPrc,
-            wholesaleConfig: currentState.wholesaleConfig,
-          }),
-        }).catch(e => console.error('Error sincronizando DB tras fusión:', e));
-      } catch {}
-    }, 300);
-
     showAlert(`✅ Productos fusionados correctamente en "${targetProduct.name}".`);
     setMergeState(null);
     setEditingProduct(null);
@@ -943,23 +911,6 @@ export default function ProductosView({
   const executeDelete = () => {
       if(confirmDeleteId) {
           deleteProduct(confirmDeleteId);
-          try {
-            const currentState = useStockFlowStore.getState();
-            fetch('/api/store/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                products: currentState.products,
-                categoriesConfig: currentState.categoriesConfig,
-                variantGroupsConfig: currentState.variantGroupsConfig,
-                perfumeTypesConfig: currentState.perfumeTypesConfig,
-                purchases: currentState.purchases,
-                sales: currentState.sales,
-                globalMarkupPrc: currentState.globalMarkupPrc,
-                wholesaleConfig: currentState.wholesaleConfig,
-              }),
-            }).catch(e => console.error('Error sincronizando DB al eliminar producto:', e));
-          } catch {}
           showAlert('✅ Producto dado de baja del inventario. El costo de compra permanece registrado como pérdida contable.');
           setConfirmDeleteId(null);
           setDeleteStep(1);
@@ -1303,7 +1254,8 @@ export default function ProductosView({
              
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredProducts.map(p => {
-                     const totalStock = p.variants.reduce((acc, v) => acc + (v.stock || 0), 0);
+                     const variantsList = Array.isArray(p.variants) ? p.variants : [];
+                     const totalStock = variantsList.reduce((acc, v) => acc + (v.stock || 0), 0);
                      const isOutOfStock = totalStock <= 0;
                      const isNotForSale = Boolean(p.notForPublicSale);
                      const hasActivePromo = Boolean((p as any).promoEnabled && (p as any).promoPrice && (p as any).promoPrice > 0);
@@ -1430,18 +1382,19 @@ export default function ProductosView({
                                      const wholesalePrc = wholesaleConfig?.discountPercentage || 0;
                                  
                                      // Construir info por variante
-                                     const variantPriceBadges = p.variants.map(v => {
+                                     const variantPriceBadges = variantsList.map(v => {
                                          const vSalePrice = (v.manualSalePrice !== undefined && (v.manualSalePrice as any) !== '' && Number(v.manualSalePrice) > 0)
                                              ? Number(v.manualSalePrice) : (p.salePrice || 0);
                                          const vWholesalePrice = (() => {
                                              if (v.manualWholesalePrice !== undefined && (v.manualWholesalePrice as any) !== '' && Number(v.manualWholesalePrice) > 0) return Number(v.manualWholesalePrice);
-                                             if (p.variants?.length === 1 && (p as any).wholesalePrice > 0 && (p as any).wholesalePrice < vSalePrice) return (p as any).wholesalePrice;
+                                             if (variantsList.length === 1 && (p as any).wholesalePrice > 0 && (p as any).wholesalePrice < vSalePrice) return (p as any).wholesalePrice;
                                              if (isWholesalePrcActive && vSalePrice > 0 && wholesalePrc > 0) return Math.round(vSalePrice * (1 - wholesalePrc / 100));
                                              return 0;
                                          })();
-                                         const sizeLabel = v.size?.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "") :
-                                                          v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "") :
-                                                          v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "") : (v.size || "");
+                                         const vSize = typeof v.size === 'string' ? v.size : '';
+                                         const sizeLabel = vSize.includes("MER:") ? vSize.split(" ")[0].replace("MER:", "") :
+                                                          vSize.includes("ARG:") ? vSize.split(" ")[0].replace("ARG:", "") :
+                                                          vSize.includes("INT:") ? vSize.split(" ")[0].replace("INT:", "") : (vSize || "");
                                          const ci = getVariantCostInfo(v.id, p.id, v.size);
                                          return { v, sizeLabel, vSalePrice, vWholesalePrice, ci };
                                      });
@@ -1466,7 +1419,7 @@ export default function ProductosView({
                                                          <span className="text-sm font-black text-slate-900 dark:text-white group-hover:text-primary transition-colors">{formatCurrency(vSalePrice)}</span>
                                                      </button>
                                                  ))}
-                                                 {p.variants.length === 0 && (
+                                                 {variantsList.length === 0 && (
                                                      <span className="text-xs text-slate-400 italic">Sin variantes</span>
                                                  )}
                                              </div>
@@ -1492,14 +1445,15 @@ export default function ProductosView({
                                          </span>
                                      </div>
                                      <div className="flex flex-wrap gap-2">
-                                         {p.variants.map(v => {
-                                             const sizeLabel = v.size?.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "T:") : 
-                                                             v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "T:") : 
-                                                             v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "T:") : (v.size || "");
+                                         {variantsList.map(v => {
+                                             const vSize = typeof v.size === 'string' ? v.size : '';
+                                             const sizeLabel = vSize.includes("MER:") ? vSize.split(" ")[0].replace("MER:", "T:") : 
+                                                             vSize.includes("ARG:") ? vSize.split(" ")[0].replace("ARG:", "T:") : 
+                                                             vSize.includes("INT:") ? vSize.split(" ")[0].replace("INT:", "T:") : (vSize || "");
                                              const isVarOut = (v.stock || 0) <= 0;
                                              const isVisualProd = p.hasVisualVariants !== undefined
                                                ? Boolean(p.hasVisualVariants)
-                                               : Boolean(p.variants.some(va => (va as any).colorHex || (va as any).attributeValue || (va as any).imageUrl));
+                                               : Boolean(variantsList.some(va => (va as any).colorHex || (va as any).attributeValue || (va as any).imageUrl));
                                              const colorHex = (v as any).colorHex;
                                              const imgUrl = (v as any).imageUrl;
                                              const attrVal = (v as any).attributeValue;
@@ -1537,7 +1491,7 @@ export default function ProductosView({
                                                      )}
                                                      <span 
                                                          className={`text-xs font-black cursor-help ${isVarOut ? "text-red-700 dark:text-red-300" : "text-slate-700 dark:text-slate-300"}`}
-                                                         title={(v.size.includes("MER:") || v.size.includes("ARG:") || v.size?.includes("INT:")) ? v.size : undefined}
+                                                         title={(vSize.includes("MER:") || vSize.includes("ARG:") || vSize.includes("INT:")) ? vSize : undefined}
                                                      >
                                                          {isVisualProd ? (attrVal || sizeLabel) : sizeLabel}
                                                      </span>
@@ -1549,7 +1503,7 @@ export default function ProductosView({
                                              </div>
                                          );
                                          })}
-                                         {p.variants.length === 0 && (
+                                         {variantsList.length === 0 && (
                                              <div className="w-full text-center text-xs text-red-500 font-bold py-2 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-900/40">
                                                Sin variantes ni stock. Usa Ingreso Mercadería.
                                              </div>
@@ -1652,9 +1606,10 @@ export default function ProductosView({
             if (isWholesaleActive && vSalePrice > 0 && wholesalePct > 0) return Math.round(vSalePrice * (1 - wholesalePct / 100));
             return 0;
           })();
-          const sizeLabel = v.size?.includes("MER:") ? v.size.split(" ")[0].replace("MER:", "") :
-                           v.size?.includes("ARG:") ? v.size.split(" ")[0].replace("ARG:", "") :
-                           v.size?.includes("INT:") ? v.size.split(" ")[0].replace("INT:", "") : (v.size || '');
+          const vSize = typeof v.size === 'string' ? v.size : '';
+          const sizeLabel = vSize.includes("MER:") ? vSize.split(" ")[0].replace("MER:", "") :
+                           vSize.includes("ARG:") ? vSize.split(" ")[0].replace("ARG:", "") :
+                           vSize.includes("INT:") ? vSize.split(" ")[0].replace("INT:", "") : (vSize || '');
           const ci = getVariantCostInfo(v.id, prod.id, v.size);
           const margin = vSalePrice > 0 && v.unitPurchasePrice > 0
             ? Math.round(((vSalePrice - v.unitPurchasePrice) / vSalePrice) * 100) : null;
