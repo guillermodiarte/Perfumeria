@@ -73,31 +73,98 @@ export default function EditarCompraView({
 
   const storeProducts = useStockFlowStore(s => s.products) || [];
   const updateSaleTicketItems = useStockFlowStore(s => s.updateSaleTicketItems);
+  const updateMostradorClientType = useStockFlowStore(s => s.updateMostradorClientType);
 
   const getToken = () =>
     apiKey || (typeof window !== 'undefined' ? localStorage.getItem('lyg_api_key') ?? '' : '');
 
-  // ── Reglas de precios ──────────────────────────────────────────────────────
-  const isSpecialWholesale =
+  // ── Tipo de cliente interactivo ───────────────────────────────────────────
+  const initialType: 'normal' | 'wholesale' | 'special_wholesale' =
     data.isSpecialWholesale ||
     data.clientType === 'special_wholesale' ||
     data.customer?.is_special_wholesale ||
-    data.customer?.customer_type === 'special_wholesale';
+    data.customer?.customer_type === 'special_wholesale'
+      ? 'special_wholesale'
+      : data.clientType === 'wholesale' ||
+        data.customer?.is_wholesale ||
+        data.customer?.customer_type === 'wholesale'
+      ? 'wholesale'
+      : 'normal';
 
-  const isWholesale =
-    !isSpecialWholesale && (
-      data.clientType === 'wholesale' ||
-      data.customer?.is_wholesale ||
-      data.customer?.customer_type === 'wholesale'
-    );
-
-  const canEditPrices = isSpecialWholesale;
+  const [clientType, setClientType] = useState<'normal' | 'wholesale' | 'special_wholesale'>(initialType);
+  const [dbCustomer, setDbCustomer] = useState<any>(data.customer || null);
 
   // ── Estado: datos del cliente (editables con botón) ───────────────────────
   const [editingClient, setEditingClient] = useState(false);
   const [clientName, setClientName] = useState(data.clientName);
   const [clientPhone, setClientPhone] = useState(data.clientPhone || '');
   const [clientEmail, setClientEmail] = useState(data.clientEmail || '');
+
+  // Auto-detectar si el cliente está registrado en la base de datos como mayorista
+  useEffect(() => {
+    const cleanDigits = (p?: string) => (p || '').replace(/\D/g, '');
+    const lookup = async () => {
+      const token = getToken();
+      if (!token) return;
+      try {
+        const res = await fetch(`${API_URL}/api/admin/users`, {
+          headers: { 'X-API-KEY': token },
+        });
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list)) {
+            const targetPhone = cleanDigits(clientPhone);
+            const targetEmail = (clientEmail || '').trim().toLowerCase();
+            const found = list.find((c: any) => {
+              if (targetPhone && c.phone) {
+                const cp = cleanDigits(c.phone);
+                if (cp === targetPhone || (targetPhone.length >= 8 && cp.length >= 8 && targetPhone.slice(-8) === cp.slice(-8))) return true;
+              }
+              if (targetEmail && c.email && c.email.toLowerCase() === targetEmail) return true;
+              return false;
+            });
+
+            if (found) {
+              setDbCustomer(found);
+              const isSpec = Boolean(found.is_special_wholesale || found.customer_type === 'special_wholesale');
+              const isWhol = Boolean(found.is_wholesale || found.customer_type === 'wholesale');
+              if (isSpec) {
+                setClientType('special_wholesale');
+              } else if (isWhol && clientType === 'normal') {
+                setClientType('wholesale');
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error fetching customers in EditarCompraView:', err);
+      }
+    };
+    lookup();
+  }, [clientPhone, clientEmail]);
+
+  // ── Reglas de precios dinámicas ────────────────────────────────────────────
+  const isSpecialWholesale = clientType === 'special_wholesale';
+  const isWholesale = clientType === 'wholesale';
+  const canEditPrices = isSpecialWholesale;
+
+  const handleClientTypeChange = (newType: 'normal' | 'wholesale' | 'special_wholesale') => {
+    setClientType(newType);
+    if (newType !== 'special_wholesale') {
+      // Si cambia a normal o mayorista, ajustar los precios a los de lista
+      setItems(prevItems => prevItems.map(item => {
+        const prod = storeProducts.find(p => p.id === item.product_id);
+        const variant = prod?.variants.find(v => v.id === item.variant_id);
+        const listPrice = newType === 'wholesale'
+          ? (variant?.manualWholesalePrice || prod?.wholesalePrice || variant?.manualSalePrice || prod?.salePrice || item.price)
+          : (variant?.manualSalePrice || prod?.salePrice || item.price);
+        return {
+          ...item,
+          price: Number(listPrice || item.price),
+        };
+      }));
+    }
+  };
 
   // ── Estado: items del carrito ─────────────────────────────────────────────
   const [items, setItems] = useState<EditarCompraItem[]>(() =>
@@ -269,6 +336,15 @@ export default function EditarCompraView({
         });
         if (res.ok) {
           showAlert?.(`✓ Pedido Web #${data.reference} actualizado correctamente.`);
+          if (dbCustomer?.id && token) {
+            const isWhol = clientType === 'wholesale' || clientType === 'special_wholesale';
+            const isSpec = clientType === 'special_wholesale';
+            fetch(`${API_URL}/api/admin/users/${dbCustomer.id}/wholesale`, {
+              method: 'PATCH',
+              headers: { 'X-API-KEY': token, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ customer_type: clientType, is_wholesale: isWhol, is_special_wholesale: isSpec }),
+            }).catch(() => null);
+          }
           // Sync POS store if exists
           updateSaleTicketItems(data.reference, items.map(it => ({
             productId: it.product_id,
@@ -286,6 +362,17 @@ export default function EditarCompraView({
         }
       } else {
         // Mostrador → Zustand store
+        const token = getToken();
+        if (dbCustomer?.id && token) {
+          const isWhol = clientType === 'wholesale' || clientType === 'special_wholesale';
+          const isSpec = clientType === 'special_wholesale';
+          fetch(`${API_URL}/api/admin/users/${dbCustomer.id}/wholesale`, {
+            method: 'PATCH',
+            headers: { 'X-API-KEY': token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customer_type: clientType, is_wholesale: isWhol, is_special_wholesale: isSpec }),
+          }).catch(() => null);
+        }
+        updateMostradorClientType(clientPhone, clientName, clientType);
         updateSaleTicketItems(data.reference, items.map(it => ({
           productId: it.product_id,
           variantId: it.variant_id,
@@ -429,6 +516,53 @@ export default function EditarCompraView({
                   className="w-full text-sm rounded-xl border border-gray-200 px-3 py-2 bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-400"
                   placeholder="Email"
                 />
+              </div>
+            </div>
+
+            {/* Selector interactivo de tipo de cliente (Estilo Vender Caja) */}
+            <div className="mt-4 pt-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Tipo de Cliente:</span>
+                {dbCustomer && (
+                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    ✓ Registrado Web
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 p-1 bg-gray-100 rounded-xl flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleClientTypeChange('normal')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    clientType === 'normal'
+                      ? 'bg-white text-gray-800 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  👤 Normal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleClientTypeChange('wholesale')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    clientType === 'wholesale'
+                      ? 'bg-white text-blue-700 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  🏷️ Mayorista
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleClientTypeChange('special_wholesale')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    clientType === 'special_wholesale'
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  👑 Mayorista Especial (Precios Manuales)
+                </button>
               </div>
             </div>
 

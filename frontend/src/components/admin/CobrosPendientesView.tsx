@@ -59,6 +59,7 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
   // Backend Web Orders
   const [webOrders, setWebOrders] = useState<any[]>([]);
   const [loadingWeb, setLoadingWeb] = useState(false);
+  const [customers, setCustomers] = useState<any[]>([]);
 
   const [filterSource, setFilterSource] = useState<'all' | 'web' | 'mostrador' | 'month_due'>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -113,21 +114,28 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
     }
   };
 
-  // Cargar pedidos web
+  // Cargar pedidos web y clientes
   const fetchWebOrders = useCallback(async () => {
     const token = getToken();
     if (!token) return;
     setLoadingWeb(true);
     try {
-      const res = await fetch(`${API_URL}/api/orders/admin/all`, {
-        headers: { 'X-API-KEY': token }
-      });
-      if (res.ok) {
-        const data = await res.json();
+      const [ordersRes, usersRes] = await Promise.all([
+        fetch(`${API_URL}/api/orders/admin/all`, { headers: { 'X-API-KEY': token } }),
+        fetch(`${API_URL}/api/admin/users`, { headers: { 'X-API-KEY': token } }).catch(() => null)
+      ]);
+      if (ordersRes.ok) {
+        const data = await ordersRes.json();
         setWebOrders(data);
       }
+      if (usersRes && usersRes.ok) {
+        const usersData = await usersRes.json();
+        if (Array.isArray(usersData)) {
+          setCustomers(usersData);
+        }
+      }
     } catch (e) {
-      console.warn('Error fetching web orders:', e);
+      console.warn('Error fetching web orders or users:', e);
     } finally {
       setLoadingWeb(false);
     }
@@ -136,6 +144,19 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
   useEffect(() => {
     fetchWebOrders();
   }, [fetchWebOrders]);
+
+  // Helper de teléfonos
+  const cleanDigits = (p?: string) => (p || '').replace(/\D/g, '');
+  const isPhoneMatch = (p1?: string, p2?: string): boolean => {
+    const c1 = cleanDigits(p1);
+    const c2 = cleanDigits(p2);
+    if (!c1 || !c2) return false;
+    if (c1 === c2) return true;
+    if (c1.length >= 8 && c2.length >= 8) {
+      return c1.slice(-8) === c2.slice(-8);
+    }
+    return false;
+  };
 
   // 1. Procesar deudas de Mostrador (Zustand)
   const posTicketsMap = new Map<string, PendingDebtRecord>();
@@ -146,12 +167,26 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
     .forEach(s => {
       const pending = s.pendingAmount ?? s.remainingAmount ?? 0;
       if (!posTicketsMap.has(s.ticketId)) {
+        // Buscar cliente registrado coincidente por teléfono o email
+        const matchedCustomer = customers.find(c => {
+          if (s.clientPhone && c.phone && isPhoneMatch(s.clientPhone, c.phone)) return true;
+          if (s.clientEmail && c.email && c.email.toLowerCase() === s.clientEmail.toLowerCase()) return true;
+          return false;
+        });
+
+        const isSpec = Boolean(
+          s.isSpecialWholesale ||
+          s.clientType === 'special_wholesale' ||
+          matchedCustomer?.is_special_wholesale ||
+          matchedCustomer?.customer_type === 'special_wholesale'
+        );
+
         posTicketsMap.set(s.ticketId, {
           id: s.ticketId,
           source: 'mostrador',
           reference: s.ticketId,
-          clientName: s.clientName || 'Consumidor Final',
-          clientPhone: s.clientPhone || 'S/D',
+          clientName: s.clientName || matchedCustomer?.name || 'Consumidor Final',
+          clientPhone: s.clientPhone || matchedCustomer?.phone || 'S/D',
           date: s.date,
           total: s.shippingCost || 0,
           paidAmount: s.paidAmount ?? 0,
@@ -160,7 +195,8 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
           installmentsCount: s.installmentsCount || 1,
           lastPaidMonth: s.lastNotifiedMonth,
           notes: s.notes || s.adminNotes,
-          isSpecialWholesale: Boolean(s.isSpecialWholesale || s.clientType === 'special_wholesale'),
+          isSpecialWholesale: isSpec,
+          customer: matchedCustomer,
           items: [],
           rawSaleRecords: [],
           shippingCost: s.shippingCost || 0,
@@ -574,10 +610,27 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
   // ── Pantalla de edición completa (reemplaza el modal anterior) ──────────────
   if (debtToEdit) {
     const debt = debtToEdit;
+    // Resolver cliente registrado más reciente si existe
+    const matchedCustomer = debt.customer || customers.find(c => {
+      if (debt.clientPhone && c.phone && isPhoneMatch(debt.clientPhone, c.phone)) return true;
+      if (c.email && (debt as any).clientEmail && c.email.toLowerCase() === (debt as any).clientEmail.toLowerCase()) return true;
+      return false;
+    });
+
+    const isSpec = Boolean(
+      debt.isSpecialWholesale ||
+      matchedCustomer?.is_special_wholesale ||
+      matchedCustomer?.customer_type === 'special_wholesale'
+    );
+    const isWholesale = Boolean(
+      matchedCustomer?.is_wholesale ||
+      matchedCustomer?.customer_type === 'wholesale'
+    );
+
     const customerType: 'normal' | 'wholesale' | 'special_wholesale' =
-      debt.isSpecialWholesale || debt.customer?.is_special_wholesale || debt.customer?.customer_type === 'special_wholesale'
+      isSpec
         ? 'special_wholesale'
-        : debt.customer?.is_wholesale || debt.customer?.customer_type === 'wholesale'
+        : isWholesale
         ? 'wholesale'
         : 'normal';
 
@@ -587,9 +640,9 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
       fecha: debt.date,
       clientName: debt.clientName,
       clientPhone: debt.clientPhone,
-      clientEmail: debt.customer?.email || '',
+      clientEmail: matchedCustomer?.email || debt.customer?.email || '',
       clientType: customerType,
-      isSpecialWholesale: customerType === 'special_wholesale',
+      isSpecialWholesale: isSpec,
       items: (debt.items || []).map((it: any) => ({
         product_id: it.productId || it.product_id || '',
         variant_id: it.variantId || it.variant_id || '',
@@ -604,7 +657,7 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
       total: Number(debt.total || 0),
       paidAmount: Number(debt.paidAmount || 0),
       notes: debt.notes || '',
-      customer: debt.customer,
+      customer: matchedCustomer || debt.customer,
     };
 
     return (
