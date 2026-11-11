@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useStockFlowStore, SaleRecord } from '@/store/useStockStore';
 import { generateTicketPDF } from '@/utils/generateTicket';
 import { API_URL } from '@/utils/api';
@@ -25,6 +25,8 @@ interface PendingDebtRecord {
   installmentsCount: number;
   lastPaidMonth?: string;
   notes?: string;
+  customer?: any;
+  isSpecialWholesale?: boolean;
   items: Array<{
     productId?: string;
     variantId?: string;
@@ -32,6 +34,7 @@ interface PendingDebtRecord {
     variantInfo: string;
     quantity: number;
     price?: number;
+    imageUrl?: string;
   }>;
   rawSaleRecords?: any[];
   shippingCost?: number;
@@ -49,6 +52,8 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
   const recordSalePayment = useStockFlowStore(s => s.recordSalePayment);
   const markSaleMonthPaid = useStockFlowStore(s => s.markSaleMonthPaid);
   const deleteSaleAndRestoreStock = useStockFlowStore(s => s.deleteSaleAndRestoreStock);
+  const updateSaleTicketItems = useStockFlowStore(s => s.updateSaleTicketItems);
+  const storeProducts = useStockFlowStore(s => s.products) || [];
 
   // Backend Web Orders
   const [webOrders, setWebOrders] = useState<any[]>([]);
@@ -69,6 +74,22 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
 
   // Modal Ver Detalle de Venta
   const [selectedDetailRecord, setSelectedDetailRecord] = useState<PendingDebtRecord | null>(null);
+
+  // Modal Edición Completa de la Compra (Cobros Pendientes)
+  const [debtToEdit, setDebtToEdit] = useState<PendingDebtRecord | null>(null);
+  const [editDebtItems, setEditDebtItems] = useState<any[]>([]);
+  const [editDebtShippingType, setEditDebtShippingType] = useState<'pickup' | 'delivery' | 'national'>('delivery');
+  const [editDebtShippingCost, setEditDebtShippingCost] = useState<string>('0');
+  const [editDebtNotes, setEditDebtNotes] = useState<string>('');
+  const [savingDebtEdit, setSavingDebtEdit] = useState(false);
+
+  // Modal Selector de Producto para agregar a la compra
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [selectedProductToAdd, setSelectedProductToAdd] = useState<any | null>(null);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number>(0);
+  const [addQuantity, setAddQuantity] = useState<number>(1);
+  const [addCustomPrice, setAddCustomPrice] = useState<string>('');
 
   const currentMonth = new Date().toISOString().substring(0, 7); // "YYYY-MM"
 
@@ -117,8 +138,10 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
 
   // 1. Procesar deudas de Mostrador (Zustand)
   const posTicketsMap = new Map<string, PendingDebtRecord>();
+  const webOrderNumbers = new Set(webOrders.map(o => o.order_number));
+
   posSales
-    .filter(s => !s.ticketId.startsWith('WEB-'))
+    .filter(s => !s.ticketId.startsWith('WEB-') && !s.ticketId.startsWith('ORD-') && !webOrderNumbers.has(s.ticketId))
     .forEach(s => {
       const pending = s.pendingAmount ?? s.remainingAmount ?? 0;
       if (!posTicketsMap.has(s.ticketId)) {
@@ -136,6 +159,7 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
           installmentsCount: s.installmentsCount || 1,
           lastPaidMonth: s.lastNotifiedMonth,
           notes: s.notes || s.adminNotes,
+          isSpecialWholesale: Boolean(s.isSpecialWholesale || s.clientType === 'special_wholesale'),
           items: [],
           rawSaleRecords: [],
           shippingCost: s.shippingCost || 0,
@@ -153,7 +177,8 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
         productName: s.productName,
         variantInfo: `${s.color || ''} ${s.size ? `Talle ${s.size}` : ''}`.trim(),
         quantity: s.quantity || 1,
-        price: s.unitSalePrice || 0
+        price: s.unitSalePrice || 0,
+        imageUrl: s.productImageUrl || undefined,
       });
     });
 
@@ -186,13 +211,16 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
         installmentsCount: o.installments_count || 1,
         lastPaidMonth: o.last_installment_paid_month,
         notes: o.admin_notes,
+        customer: o.customer,
+        isSpecialWholesale: Boolean(o.customer?.is_special_wholesale || o.customer?.customer_type === 'special_wholesale'),
         items: (o.items || []).map((i: any) => ({
           productId: i.product_id,
           variantId: i.variant_id,
           productName: i.product_name || 'Producto',
           variantInfo: i.variant_info || '',
           quantity: i.quantity || 1,
-          price: Number(i.price || 0)
+          price: Number(i.price || 0),
+          imageUrl: i.image_url || undefined,
         })),
         shippingCost: parseFloat(o.shipping_cost || 0),
         shippingType: o.shipping_type,
@@ -205,6 +233,220 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
   const allDebts = [...webDebts, ...posDebts].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
+
+  // Helper de búsqueda de catálogo para incorporar productos
+  const filteredStoreProducts = useMemo(() => {
+    if (!productSearchQuery.trim()) return storeProducts.slice(0, 15);
+    const q = productSearchQuery.toLowerCase();
+    return storeProducts
+      .filter((p: any) =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.categoryId || '').toLowerCase().includes(q) ||
+        (p.sku || '').toLowerCase().includes(q)
+      )
+      .slice(0, 20);
+  }, [storeProducts, productSearchQuery]);
+
+  // Abrir editor de compra para un cobro pendiente
+  const openDebtEditor = (debt: PendingDebtRecord) => {
+    setDebtToEdit(debt);
+    const items = (debt.items || []).map((it: any) => ({
+      ...it,
+      product_id: it.productId || it.product_id,
+      variant_id: it.variantId || it.variant_id,
+      product_name: it.productName || it.product_name,
+      variant_info: it.variantInfo || it.variant_info,
+      quantity: Math.max(1, Number(it.quantity) || 1),
+      price: Math.max(0, Number(it.price) || 0),
+      image_url: it.imageUrl || it.image_url || null,
+    }));
+    setEditDebtItems(items);
+    setEditDebtShippingType((debt.shippingType || 'pickup') as any);
+    setEditDebtShippingCost(Number(debt.shippingCost || 0).toString());
+    setEditDebtNotes(debt.notes || '');
+  };
+
+  const handleSelectProductToAdd = (p: any) => {
+    setSelectedProductToAdd(p);
+    setSelectedVariantIndex(0);
+    setAddQuantity(1);
+
+    const isSpecial = Boolean(
+      debtToEdit?.isSpecialWholesale ||
+      debtToEdit?.customer?.is_special_wholesale ||
+      debtToEdit?.customer?.customer_type === 'special_wholesale'
+    );
+    const isWholesale = Boolean(
+      debtToEdit?.customer?.is_wholesale ||
+      debtToEdit?.customer?.customer_type === 'wholesale'
+    );
+
+    const firstVar = p.variants?.[0] || {};
+    const defaultPrice = isSpecial
+      ? (firstVar.manualWholesalePrice || p.wholesalePrice || firstVar.manualSalePrice || p.salePrice || 0)
+      : isWholesale
+      ? (firstVar.manualWholesalePrice || p.wholesalePrice || p.salePrice || 0)
+      : (firstVar.manualSalePrice || p.salePrice || 0);
+
+    setAddCustomPrice(Number(defaultPrice || 0).toString());
+  };
+
+  const handleVariantChangeForAdd = (idx: number) => {
+    setSelectedVariantIndex(idx);
+    if (!selectedProductToAdd) return;
+    const p = selectedProductToAdd;
+    const v = p.variants?.[idx] || {};
+    const isSpecial = Boolean(
+      debtToEdit?.isSpecialWholesale ||
+      debtToEdit?.customer?.is_special_wholesale ||
+      debtToEdit?.customer?.customer_type === 'special_wholesale'
+    );
+    const isWholesale = Boolean(
+      debtToEdit?.customer?.is_wholesale ||
+      debtToEdit?.customer?.customer_type === 'wholesale'
+    );
+    const defaultPrice = isSpecial
+      ? (v.manualWholesalePrice || p.wholesalePrice || v.manualSalePrice || p.salePrice || 0)
+      : isWholesale
+      ? (v.manualWholesalePrice || p.wholesalePrice || p.salePrice || 0)
+      : (v.manualSalePrice || p.salePrice || 0);
+
+    setAddCustomPrice(Number(defaultPrice || 0).toString());
+  };
+
+  const handleConfirmAddProduct = () => {
+    if (!selectedProductToAdd) return;
+    const p = selectedProductToAdd;
+    const v = p.variants?.[selectedVariantIndex] || p.variants?.[0] || {};
+    const price = Math.max(0, parseFloat(addCustomPrice) || 0);
+    const qty = Math.max(1, Number(addQuantity) || 1);
+
+    const parts = [v.color, v.size, v.attributeValue].filter(Boolean);
+    const vLabel = parts.length > 0 ? parts.join(' - ') : (v.description || 'Único / Estándar');
+
+    const newItem = {
+      product_id: String(p.id),
+      variant_id: String(v.id || 'unico'),
+      product_name: p.name,
+      variant_info: vLabel,
+      image_url: p.imageUrls?.[0] || v.imageUrl || null,
+      quantity: qty,
+      price: price,
+    };
+
+    setEditDebtItems(prev => [...prev, newItem]);
+    setSelectedProductToAdd(null);
+    setProductSearchQuery('');
+    setShowAddProductModal(false);
+  };
+
+  const handleEditDebtItemQty = (index: number, delta: number) => {
+    setEditDebtItems(prev => {
+      const updated = [...prev];
+      const cur = Number(updated[index].quantity) || 1;
+      const next = Math.max(1, cur + delta);
+      updated[index] = { ...updated[index], quantity: next };
+      return updated;
+    });
+  };
+
+  const handleEditDebtItemQtyDirect = (index: number, valStr: string) => {
+    const next = Math.max(1, parseInt(valStr) || 1);
+    setEditDebtItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], quantity: next };
+      return updated;
+    });
+  };
+
+  const handleEditDebtItemPrice = (index: number, priceStr: string) => {
+    const next = Math.max(0, parseFloat(priceStr) || 0);
+    setEditDebtItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], price: next };
+      return updated;
+    });
+  };
+
+  const handleRemoveDebtItem = (index: number) => {
+    setEditDebtItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Guardar modificaciones completas de la compra
+  const handleSaveDebtEdits = async () => {
+    if (!debtToEdit) return;
+    if (!editDebtItems || editDebtItems.length === 0) {
+      showAlert?.('La compra debe tener al menos un producto.');
+      return;
+    }
+
+    setSavingDebtEdit(true);
+    const effShippingCost = editDebtShippingType === 'pickup' ? 0 : Math.max(0, parseFloat(editDebtShippingCost) || 0);
+
+    try {
+      if (debtToEdit.source === 'web') {
+        const token = getToken();
+        const res = await fetch(`${API_URL}/api/orders/admin/${debtToEdit.reference}`, {
+          method: 'PUT',
+          headers: {
+            'X-API-KEY': token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            items: editDebtItems,
+            shipping_type: editDebtShippingType,
+            shipping_cost: effShippingCost,
+            admin_notes: editDebtNotes,
+          }),
+        });
+
+        if (res.ok) {
+          showAlert?.(`✓ Pedido Web #${debtToEdit.reference} actualizado exitosamente.`);
+          // Sincronizar también registro de mostrador si estuviera en estado local
+          updateSaleTicketItems(debtToEdit.reference, editDebtItems.map(it => ({
+            productId: it.product_id || it.productId,
+            variantId: it.variant_id || it.variantId,
+            productName: it.product_name || it.productName,
+            variantInfo: it.variant_info || it.variantInfo,
+            quantity: it.quantity,
+            price: it.price,
+            imageUrl: it.image_url || it.imageUrl,
+          })), {
+            shippingType: editDebtShippingType,
+            shippingCost: effShippingCost,
+            adminNotes: editDebtNotes,
+          });
+          setDebtToEdit(null);
+          await fetchWebOrders();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showAlert?.(err.detail || 'Error al actualizar pedido web.');
+        }
+      } else {
+        // Venta de mostrador en Zustand
+        updateSaleTicketItems(debtToEdit.reference, editDebtItems.map(it => ({
+          productId: it.product_id || it.productId,
+          variantId: it.variant_id || it.variantId,
+          productName: it.product_name || it.productName,
+          variantInfo: it.variant_info || it.variantInfo,
+          quantity: it.quantity,
+          price: it.price,
+          imageUrl: it.image_url || it.imageUrl,
+        })), {
+          shippingType: editDebtShippingType,
+          shippingCost: effShippingCost,
+          adminNotes: editDebtNotes,
+        });
+        showAlert?.(`✓ Venta Mostrador #${debtToEdit.reference} modificada exitosamente.`);
+        setDebtToEdit(null);
+      }
+    } catch (err: any) {
+      console.error('Error al guardar edición de compra:', err);
+      showAlert?.('Error al conectar con el servidor.');
+    } finally {
+      setSavingDebtEdit(false);
+    }
+  };
 
   // Filtros
   const filteredDebts = allDebts.filter(d => {
@@ -473,6 +715,16 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                           {d.source === 'web' ? 'Pedido Online' : 'Venta Mostrador'}
                         </span>
 
+                        {Boolean(d.customer?.is_special_wholesale || d.isSpecialWholesale || d.customer?.customer_type === 'special_wholesale') ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 flex items-center gap-1 shadow-xs">
+                            <span>👑</span> Mayorista Especial
+                          </span>
+                        ) : Boolean(d.customer?.is_wholesale || d.customer?.customer_type === 'wholesale') ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 flex items-center gap-1">
+                            Mayorista
+                          </span>
+                        ) : null}
+
                         {Boolean(d.shippingCost && d.shippingCost > 0) && (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 flex items-center gap-1">
                             <span className="material-symbols-outlined text-[12px]">local_shipping</span>
@@ -564,6 +816,18 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                       >
                         <span className="material-symbols-outlined text-lg">visibility</span>
                       </button>
+
+                      {/* Botón Editar Compra (Productos, Precios y Envío) */}
+                      {canManageCobros && (
+                        <button
+                          onClick={() => openDebtEditor(d)}
+                          className="flex items-center gap-1 px-3 py-2.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 font-bold text-xs transition-colors shadow-xs"
+                          title="Modificar productos, cantidades, precios o método de envío"
+                        >
+                          <span className="material-symbols-outlined text-base">edit_note</span>
+                          <span className="hidden sm:inline">Editar</span>
+                        </button>
+                      )}
 
                       {/* Botón Ticket PDF */}
                       {d.source === 'mostrador' && d.rawSaleRecords && d.rawSaleRecords.length > 0 && (
@@ -1018,6 +1282,20 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                 Cerrar
               </button>
               <div className="flex items-center gap-2">
+                {canManageCobros && (
+                  <button
+                    onClick={() => {
+                      const debt = selectedDetailRecord;
+                      setSelectedDetailRecord(null);
+                      openDebtEditor(debt);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-md shadow-amber-500/20 transition-all"
+                    title="Modificar productos, cantidades, precios o método de envío"
+                  >
+                    <span className="material-symbols-outlined text-base">edit_note</span>
+                    Editar Compra
+                  </button>
+                )}
                 {selectedDetailRecord.source === 'mostrador' && selectedDetailRecord.rawSaleRecords && selectedDetailRecord.rawSaleRecords.length > 0 && (
                   <button
                     onClick={() => {
@@ -1050,6 +1328,570 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Modificar Compra Completa en Cobros Pendientes */}
+      {debtToEdit && (() => {
+        const isSpecialWholesale = Boolean(
+          debtToEdit.isSpecialWholesale ||
+          debtToEdit.customer?.is_special_wholesale ||
+          debtToEdit.customer?.customer_type === 'special_wholesale'
+        );
+        const isWholesale = Boolean(
+          debtToEdit.customer?.is_wholesale ||
+          debtToEdit.customer?.customer_type === 'wholesale'
+        );
+
+        const itemsTotal = editDebtItems.reduce((sum: number, it: any) => {
+          return sum + ((Number(it.quantity) || 1) * (Number(it.price) || 0));
+        }, 0);
+        const effShippingCost = editDebtShippingType === 'pickup' ? 0 : Math.max(0, parseFloat(editDebtShippingCost) || 0);
+        const grandTotal = itemsTotal + effShippingCost;
+        const newPending = Math.max(0, grandTotal - debtToEdit.paidAmount);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[92vh] flex flex-col">
+              
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950/50 text-amber-600">
+                    <span className="material-symbols-outlined text-xl">edit_note</span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                        Modificar Compra #{debtToEdit.reference}
+                      </h3>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        debtToEdit.source === 'web'
+                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                          : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                      }`}>
+                        {debtToEdit.source === 'web' ? 'Pedido Online' : 'Venta Mostrador'}
+                      </span>
+                      {isSpecialWholesale ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 flex items-center gap-1">
+                          👑 Mayorista Especial
+                        </span>
+                      ) : isWholesale ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">
+                          Mayorista
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Cliente: <strong>{debtToEdit.clientName}</strong> · Tel: {debtToEdit.clientPhone}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDebtToEdit(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1 text-xs">
+                
+                {/* 1. Método de Entrega y Envío */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    1. Método de Entrega / Envío
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditDebtShippingType('pickup')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        editDebtShippingType === 'pickup'
+                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 mb-1">
+                        <span className="text-sm">🏪</span> Retiro en Local
+                      </div>
+                      <p className="text-[11px] text-slate-500">Sin costo de envío ($0)</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditDebtShippingType('delivery')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        editDebtShippingType === 'delivery'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-800 dark:text-blue-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 mb-1">
+                        <span className="text-sm">🚚</span> Envío Local (Formosa)
+                      </div>
+                      <p className="text-[11px] text-slate-500">Cadetería dentro de la ciudad</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditDebtShippingType('national')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        editDebtShippingType === 'national'
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/30 text-purple-800 dark:text-purple-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 mb-1">
+                        <span className="text-sm">🚛</span> Envío Nacional
+                      </div>
+                      <p className="text-[11px] text-slate-500">Transporte o Correo a convenir</p>
+                    </button>
+                  </div>
+
+                  {editDebtShippingType !== 'pickup' && (
+                    <div className="flex items-center gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+                      <label className="font-bold text-slate-700 dark:text-slate-300 shrink-0">
+                        Costo de Envío a cobrar ($):
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={editDebtShippingCost}
+                        onChange={(e) => setEditDebtShippingCost(e.target.value)}
+                        placeholder="0"
+                        className="w-32 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-black text-slate-800 dark:text-white"
+                      />
+                      <span className="text-[11px] text-slate-400">
+                        {editDebtShippingType === 'national' ? 'Costo acordado para despacho nacional' : 'Costo del cadete local'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Productos de la Compra */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        2. Productos de la Compra ({editDebtItems.length})
+                      </p>
+                      {isSpecialWholesale && (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1">
+                          <span>👑</span> Precios especiales habilitados para este cliente mayorista especial
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddProductModal(true);
+                        setProductSearchQuery('');
+                        setSelectedProductToAdd(null);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-primary/20 transition-all"
+                    >
+                      <span className="material-symbols-outlined text-sm">add_shopping_cart</span>
+                      + Agregar Producto
+                    </button>
+                  </div>
+
+                  {editDebtItems.length === 0 ? (
+                    <div className="p-6 text-center text-slate-400 bg-white dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
+                      <span className="material-symbols-outlined text-3xl mb-1 text-slate-300">remove_shopping_cart</span>
+                      <p>La compra no tiene productos. Usá el botón de arriba para agregar uno.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-200 dark:divide-slate-700/60 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                      {editDebtItems.map((item: any, i: number) => {
+                        const qty = Number(item.quantity) || 1;
+                        const price = Number(item.price) || 0;
+                        const lineSubtotal = qty * price;
+
+                        return (
+                          <div key={i} className="p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              {item.image_url ? (
+                                <img src={item.image_url} alt={item.product_name} className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-100" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                                  <span className="material-symbols-outlined text-lg">inventory_2</span>
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-slate-900 dark:text-white truncate text-xs">{item.product_name}</p>
+                                <p className="text-[11px] text-slate-400 truncate">{item.variant_info || 'Estándar'}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                              {/* Precio Unitario Editable */}
+                              <div className="flex flex-col items-end">
+                                <span className="text-[10px] text-slate-400 font-medium">Precio Unitario ($)</span>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={item.price}
+                                    onChange={(e) => handleEditDebtItemPrice(i, e.target.value)}
+                                    className={`w-24 px-2 py-1 text-right font-black rounded-lg border text-xs ${
+                                      isSpecialWholesale
+                                        ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200'
+                                        : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Cantidad con botones +/- */}
+                              <div className="flex flex-col items-center">
+                                <span className="text-[10px] text-slate-400 font-medium">Cantidad</span>
+                                <div className="flex items-center rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden bg-white dark:bg-slate-900">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditDebtItemQty(i, -1)}
+                                    className="px-2 py-1 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 font-bold"
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={item.quantity}
+                                    onChange={(e) => handleEditDebtItemQtyDirect(i, e.target.value)}
+                                    className="w-12 text-center font-bold text-xs bg-transparent outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditDebtItemQty(i, 1)}
+                                    className="px-2 py-1 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 font-bold"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Subtotal */}
+                              <div className="text-right min-w-[75px]">
+                                <span className="text-[10px] text-slate-400 block font-medium">Subtotal</span>
+                                <span className="font-black text-slate-800 dark:text-white text-xs">
+                                  ${lineSubtotal.toLocaleString('es-AR')}
+                                </span>
+                              </div>
+
+                              {/* Botón Eliminar */}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveDebtItem(i)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                                title="Eliminar producto de la compra"
+                              >
+                                <span className="material-symbols-outlined text-lg">delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Notas Administrativas */}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    3. Notas Administrativas (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editDebtNotes}
+                    onChange={(e) => setEditDebtNotes(e.target.value)}
+                    placeholder="Ej: Ajustado a pedido del cliente..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-800 dark:text-white"
+                  />
+                </div>
+
+                {/* Resumen Financiero Actualizado */}
+                <div className="bg-slate-50 dark:bg-slate-900/80 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1.5">
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                    <span>Subtotal Mercadería ({editDebtItems.length}):</span>
+                    <span className="font-bold">${itemsTotal.toLocaleString('es-AR')}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                    <span>Costo de Envío ({editDebtShippingType === 'pickup' ? 'Retiro en local' : editDebtShippingType === 'national' ? 'Envío nacional' : 'Envío local'}):</span>
+                    <span className="font-bold">${effShippingCost.toLocaleString('es-AR')}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1.5 border-t border-slate-200 dark:border-slate-700 text-xs">
+                    <span className="font-bold text-slate-700 dark:text-slate-200">Total Venta Actualizado:</span>
+                    <span className="font-black text-slate-900 dark:text-white">${grandTotal.toLocaleString('es-AR')}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+                    <span>Ya Abonado por el Cliente:</span>
+                    <span>${debtToEdit.paidAmount.toLocaleString('es-AR')}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-700 text-sm">
+                    <span className="font-extrabold text-red-600 dark:text-red-400">Nuevo Saldo Adeudado:</span>
+                    <span className="font-black text-red-600 dark:text-red-400 text-lg">${newPending.toLocaleString('es-AR')}</span>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Footer */}
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-700 flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setDebtToEdit(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveDebtEdits}
+                  disabled={savingDebtEdit || editDebtItems.length === 0}
+                  className="flex-[2] py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-base">
+                    {savingDebtEdit ? 'sync' : 'save'}
+                  </span>
+                  {savingDebtEdit ? 'Guardando cambios...' : 'Guardar Modificaciones de la Compra'}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL: Seleccionar e Incorporar Producto a la Compra en Cobros Pendientes */}
+      {showAddProductModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] flex flex-col">
+            
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100 dark:border-slate-700 shrink-0">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">add_shopping_cart</span>
+                Agregar Producto a la Compra
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAddProductModal(false);
+                  setSelectedProductToAdd(null);
+                  setProductSearchQuery('');
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1 text-xs">
+              {!selectedProductToAdd ? (
+                <>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Buscar en el Catálogo:
+                    </label>
+                    <div className="relative">
+                      <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">
+                        search
+                      </span>
+                      <input
+                        type="text"
+                        value={productSearchQuery}
+                        onChange={(e) => setProductSearchQuery(e.target.value)}
+                        placeholder="Buscar por nombre, SKU o categoría..."
+                        className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700/60 max-h-72 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                    {filteredStoreProducts.length === 0 ? (
+                      <p className="p-4 text-center text-slate-400">No se encontraron productos coincidentes.</p>
+                    ) : (
+                      filteredStoreProducts.map((p: any) => {
+                        const img = p.imageUrls?.[0] || p.variants?.[0]?.imageUrl;
+                        const isSpecial = Boolean(
+                          debtToEdit?.isSpecialWholesale ||
+                          debtToEdit?.customer?.is_special_wholesale ||
+                          debtToEdit?.customer?.customer_type === 'special_wholesale'
+                        );
+                        const isWholesale = Boolean(
+                          debtToEdit?.customer?.is_wholesale ||
+                          debtToEdit?.customer?.customer_type === 'wholesale'
+                        );
+                        const displayPrice = isSpecial || isWholesale
+                          ? (p.wholesalePrice || p.salePrice || 0)
+                          : (p.salePrice || 0);
+
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => handleSelectProductToAdd(p)}
+                            className="p-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {img ? (
+                                <img src={img} alt={p.name} className="w-9 h-9 rounded-lg object-cover shrink-0 border" />
+                              ) : (
+                                <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                                  <span className="material-symbols-outlined text-sm">inventory_2</span>
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-slate-900 dark:text-white truncate">{p.name}</p>
+                                <p className="text-[10px] text-slate-400 truncate">
+                                  {p.categoryId || 'Sin categoría'} {p.sku ? `· SKU: ${p.sku}` : ''}
+                                  {p.variants?.length ? ` · ${p.variants.length} variantes` : ''}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="font-black text-slate-800 dark:text-white text-xs block">
+                                ${Number(displayPrice).toLocaleString('es-AR')}
+                              </span>
+                              <span className="text-[10px] text-primary font-bold">Seleccionar ›</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  {/* Producto Seleccionado */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {(selectedProductToAdd.imageUrls?.[0] || selectedProductToAdd.variants?.[0]?.imageUrl) && (
+                        <img
+                          src={selectedProductToAdd.imageUrls?.[0] || selectedProductToAdd.variants?.[0]?.imageUrl}
+                          alt={selectedProductToAdd.name}
+                          className="w-12 h-12 rounded-xl object-cover border"
+                        />
+                      )}
+                      <div>
+                        <p className="font-bold text-slate-900 dark:text-white text-sm">{selectedProductToAdd.name}</p>
+                        <p className="text-slate-400 text-[11px]">{selectedProductToAdd.categoryId || ''}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProductToAdd(null)}
+                      className="text-xs text-primary hover:underline font-bold"
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+
+                  {/* Selector de Variante */}
+                  {selectedProductToAdd.variants && selectedProductToAdd.variants.length > 1 && (
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Seleccionar Variante / Color / Presentación:
+                      </label>
+                      <select
+                        value={selectedVariantIndex}
+                        onChange={(e) => handleVariantChangeForAdd(Number(e.target.value))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
+                      >
+                        {selectedProductToAdd.variants.map((v: any, idx: number) => {
+                          const parts = [v.color, v.size, v.attributeValue].filter(Boolean);
+                          const desc = parts.length > 0 ? parts.join(' - ') : (v.description || `Variante #${idx + 1}`);
+                          const st = v.stock !== undefined ? ` (Stock: ${v.stock})` : '';
+                          return (
+                            <option key={idx} value={idx}>
+                              {desc} {st}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Cantidad y Precio */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Cantidad:
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={addQuantity}
+                        onChange={(e) => setAddQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-center"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Precio Unitario ($):
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={addCustomPrice}
+                        onChange={(e) => setAddCustomPrice(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl border font-black text-right ${
+                          Boolean(
+                            debtToEdit?.isSpecialWholesale ||
+                            debtToEdit?.customer?.is_special_wholesale ||
+                            debtToEdit?.customer?.customer_type === 'special_wholesale'
+                          )
+                            ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200'
+                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {Boolean(
+                    debtToEdit?.isSpecialWholesale ||
+                    debtToEdit?.customer?.is_special_wholesale ||
+                    debtToEdit?.customer?.customer_type === 'special_wholesale'
+                  ) && (
+                    <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 text-amber-800 dark:text-amber-200 text-[11px] flex items-center gap-1.5">
+                      <span>👑</span> Podés colocar el precio unitario pactado para este cliente mayorista especial.
+                    </div>
+                  )}
+
+                  {/* Subtotal del item a agregar */}
+                  <div className="flex justify-between items-center p-3 rounded-xl bg-slate-100 dark:bg-slate-900 text-xs font-bold">
+                    <span>Subtotal del producto agregado:</span>
+                    <span className="font-black text-primary text-sm">
+                      ${((addQuantity || 1) * (parseFloat(addCustomPrice) || 0)).toLocaleString('es-AR')}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProductToAdd(null)}
+                      className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                    >
+                      Volver a la lista
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmAddProduct}
+                      className="flex-[2] py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-xs flex items-center justify-center gap-1 shadow-md shadow-primary/20"
+                    >
+                      <span className="material-symbols-outlined text-base">check</span>
+                      Incorporar a la Compra
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       )}

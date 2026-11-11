@@ -52,6 +52,8 @@ export async function GET(req: NextRequest) {
           city: cust?.city ?? '',
           postal_code: cust?.postal_code ?? '',
           is_wholesale: cust?.is_wholesale ?? false,
+          is_special_wholesale: cust?.is_special_wholesale ?? false,
+          customer_type: cust?.customer_type || (cust?.is_special_wholesale ? 'special_wholesale' : cust?.is_wholesale ? 'wholesale' : 'normal'),
           wholesale_until: cust?.wholesale_until ?? null,
         },
         items: o.items.map(i => ({

@@ -621,6 +621,23 @@ export interface StockFlowState {
       quantity: number;
     }>
   ) => void;
+  updateSaleTicketItems: (
+    ticketId: string,
+    newItems: Array<{
+      productId: string;
+      variantId?: string;
+      productName: string;
+      variantInfo?: string;
+      quantity: number;
+      price: number;
+      imageUrl?: string;
+    }>,
+    options?: {
+      shippingType?: string;
+      shippingCost?: number;
+      adminNotes?: string;
+    }
+  ) => void;
 
   confirmSale: (saleId: string) => void;
   cancelSale: (saleId: string) => void;
@@ -1791,6 +1808,142 @@ export const useStockFlowStore = create<StockFlowState>()(
 
           const updatedSales = state.sales.filter(s => s.ticketId !== ticketId && s.id !== ticketId);
           return { products: updatedProducts, sales: updatedSales };
+        });
+      },
+
+      updateSaleTicketItems: (ticketId, newItems, options) => {
+        set((state) => {
+          let updatedProducts = JSON.parse(JSON.stringify(state.products)) as Product[];
+          const salesForTicket = state.sales.filter(s => s.ticketId === ticketId || s.id === ticketId);
+
+          if (salesForTicket.length === 0) return {};
+
+          const firstSale = salesForTicket[0];
+          const clientName = firstSale.clientName || 'Consumidor Final';
+          const clientPhone = firstSale.clientPhone || '';
+          const originalDate = firstSale.date || new Date().toISOString();
+          const paidAmount = Number(firstSale.paidAmount) || 0;
+          const isSpecialWholesale = firstSale.isSpecialWholesale;
+          const clientType = firstSale.clientType;
+          const paymentType = firstSale.paymentType || 'cuotas';
+          const installmentsCount = firstSale.installmentsCount || 1;
+          const invoiceNumber = firstSale.invoiceNumber;
+
+          // 1. Restaurar stock de los items que tenía antes
+          salesForTicket.forEach(s => {
+            if (s.status !== 'Cancelada') {
+              let pIdx = updatedProducts.findIndex(p => p.id === s.productId);
+              if (pIdx === -1 && s.productName) {
+                pIdx = updatedProducts.findIndex(p => p.name.trim().toLowerCase() === s.productName.trim().toLowerCase());
+              }
+              if (pIdx !== -1) {
+                const prod = updatedProducts[pIdx];
+                let vIdx = -1;
+                if (s.variantId) vIdx = prod.variants.findIndex(v => v.id === s.variantId);
+                if (vIdx === -1 && (s.color || s.size)) {
+                  vIdx = prod.variants.findIndex(v =>
+                    (s.size && v.size === s.size) || (s.color && v.color === s.color)
+                  );
+                }
+                if (vIdx === -1 && prod.variants.length > 0) vIdx = 0;
+                if (vIdx !== -1) {
+                  prod.variants[vIdx].stock = (Number(prod.variants[vIdx].stock) || 0) + (Number(s.quantity) || 1);
+                }
+              }
+            }
+          });
+
+          // 2. Descontar stock para los nuevos items
+          const newSaleRecords: SaleRecord[] = [];
+          const effShippingType = options?.shippingType !== undefined ? options.shippingType : (firstSale.shippingType || 'pickup');
+          const effShippingCost = effShippingType === 'pickup' ? 0 : (options?.shippingCost !== undefined ? Math.max(0, Number(options.shippingCost)) : (Number(firstSale.shippingCost) || 0));
+          const effNotes = options?.adminNotes !== undefined ? options.adminNotes : (firstSale.notes || firstSale.adminNotes);
+
+          const itemsSum = newItems.reduce((acc, it) => acc + ((Number(it.quantity) || 1) * (Number(it.price) || 0)), 0);
+          const grandTotal = itemsSum + effShippingCost;
+          const remaining = Math.max(0, grandTotal - paidAmount);
+          const status = remaining <= 0 ? ('Pagada' as const) : ('Pendiente' as const);
+          const paymentStatus = remaining <= 0 ? ('full' as const) : (paidAmount > 0 ? ('partial' as const) : ('pending' as const));
+
+          newItems.forEach(item => {
+            let pIdx = -1;
+            if (item.productId) {
+              pIdx = updatedProducts.findIndex(p => p.id === item.productId);
+            }
+            if (pIdx === -1 && item.productName) {
+              pIdx = updatedProducts.findIndex(p => p.name.trim().toLowerCase() === item.productName.trim().toLowerCase());
+            }
+
+            let pName = item.productName || 'Producto';
+            let pSize = 'N/A';
+            let pColor = 'N/A';
+            let pImage = item.imageUrl || '';
+
+            if (pIdx !== -1) {
+              const prod = updatedProducts[pIdx];
+              pName = prod.name;
+              if (!pImage && prod.imageUrls?.length) pImage = prod.imageUrls[0];
+
+              let vIdx = -1;
+              if (item.variantId) {
+                vIdx = prod.variants.findIndex(v => v.id === item.variantId);
+              }
+              if (vIdx === -1 && item.variantInfo) {
+                const info = item.variantInfo.toLowerCase();
+                vIdx = prod.variants.findIndex(v =>
+                  (v.size && info.includes(v.size.toLowerCase())) ||
+                  (v.color && info.includes(v.color.toLowerCase()))
+                );
+              }
+              if (vIdx === -1 && prod.variants.length > 0) vIdx = 0;
+
+              if (vIdx !== -1) {
+                prod.variants[vIdx].stock = Math.max(0, (Number(prod.variants[vIdx].stock) || 0) - item.quantity);
+                if (prod.variants[vIdx].size) pSize = prod.variants[vIdx].size!;
+                if (prod.variants[vIdx].color) pColor = prod.variants[vIdx].color!;
+                if (!pImage && prod.variants[vIdx].imageUrl) pImage = prod.variants[vIdx].imageUrl!;
+              }
+            }
+
+            const lineRevenue = (Number(item.quantity) || 1) * (Number(item.price) || 0);
+
+            newSaleRecords.push({
+              id: Math.random().toString(36).substr(2, 9),
+              ticketId,
+              date: originalDate,
+              productId: item.productId || '',
+              productName: pName,
+              variantId: item.variantId,
+              size: pSize,
+              color: pColor,
+              clientName,
+              clientPhone,
+              quantity: item.quantity,
+              unitSalePrice: item.price,
+              revenue: lineRevenue,
+              status,
+              paidAmount,
+              remainingAmount: remaining,
+              paymentStatus,
+              paymentType,
+              installmentsCount,
+              shippingCost: effShippingCost,
+              shippingType: effShippingType,
+              notes: effNotes,
+              adminNotes: effNotes,
+              productImageUrl: pImage,
+              isSpecialWholesale,
+              clientType,
+              invoiceNumber,
+            });
+          });
+
+          // 3. Reemplazar los registros viejos con los nuevos en state.sales
+          const otherSales = state.sales.filter(s => s.ticketId !== ticketId && s.id !== ticketId);
+          return {
+            products: updatedProducts,
+            sales: [...otherSales, ...newSaleRecords],
+          };
         });
       },
 

@@ -47,6 +47,40 @@ export async function PATCH(req: NextRequest, { params }: { params: { orderNumbe
     if (body.shipping_invoice_url !== undefined) updateData.shipping_invoice_url = body.shipping_invoice_url;
     if (body.shipped_at !== undefined) updateData.shipped_at = body.shipped_at;
 
+    // Si se enviaron items modificados (ej: descuentos especiales para Mayoristas Especiales)
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      await prisma.orderItem.deleteMany({
+        where: { order_id: order.id },
+      });
+      await prisma.orderItem.createMany({
+        data: body.items.map((it: any) => ({
+          order_id: order.id,
+          product_id: String(it.product_id || ''),
+          variant_id: String(it.variant_id || ''),
+          product_name: it.product_name || 'Producto',
+          variant_info: it.variant_info || '',
+          image_url: it.image_url || null,
+          quantity: Math.max(1, Number(it.quantity) || 1),
+          price: Math.max(0, Number(it.price) || 0),
+        })),
+      });
+
+      const itemsSum = body.items.reduce((sum: number, it: any) => {
+        return sum + (Math.max(1, Number(it.quantity) || 1) * Math.max(0, Number(it.price) || 0));
+      }, 0);
+
+      const effShippingType = body.shipping_type !== undefined ? body.shipping_type : (order.shipping_type || 'delivery');
+      const effShippingCost = effShippingType === 'pickup'
+        ? 0
+        : (body.shipping_cost !== undefined ? Math.max(0, Number(body.shipping_cost)) : Number(order.shipping_cost || 0));
+
+      updateData.total = itemsSum + effShippingCost;
+
+      if (body.payment_type === 'total' || (order.payment_type === 'total' && body.paid_amount === undefined)) {
+        updateData.paid_amount = updateData.total;
+      }
+    }
+
     // Check if status is changed to approved
     const nowApproved = (body.status || order.status || '').toLowerCase().startsWith('aprob');
     if (nowApproved && !wasAlreadyApproved && order.customer) {

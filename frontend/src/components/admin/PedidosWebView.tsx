@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '@/utils/api';
 import { generateTicketPDF } from '@/utils/generateTicket';
+import { useStockFlowStore } from '@/store/useStockStore';
 
 interface PedidosWebViewProps {
   apiKey?: string;
@@ -18,6 +19,8 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
   const canManagePayments = isSuperAdmin || isAdmin;
   const canManageShipping = isSuperAdmin || isAdmin || isEmpleado;
 
+  const storeProducts = useStockFlowStore(s => s.products) || [];
+
   const [webOrders, setWebOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,11 +28,28 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
 
   // Modal Aprobar Pedido
   const [orderToApprove, setOrderToApprove] = useState<any | null>(null);
+  const [approvalItems, setApprovalItems] = useState<any[]>([]);
   const [approvalPaymentType, setApprovalPaymentType] = useState<'total' | 'partial' | 'cuotas'>('total');
   const [approvalPaidAmount, setApprovalPaidAmount] = useState<string>('');
   const [approvalInstallments, setApprovalInstallments] = useState<number>(3);
   const [approvalNotes, setApprovalNotes] = useState<string>('');
   const [processing, setProcessing] = useState(false);
+
+  // Modal Edición Completa de Pedido (Productos, Precios, Cantidades y Envío)
+  const [orderToEditProducts, setOrderToEditProducts] = useState<any | null>(null);
+  const [editOrderItems, setEditOrderItems] = useState<any[]>([]);
+  const [editOrderShippingType, setEditOrderShippingType] = useState<'pickup' | 'delivery' | 'national'>('delivery');
+  const [editOrderShippingCost, setEditOrderShippingCost] = useState<string>('0');
+  const [editOrderNotes, setEditOrderNotes] = useState<string>('');
+  const [savingOrderEdit, setSavingOrderEdit] = useState(false);
+
+  // Buscador y selector para añadir producto a un pedido
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [selectedProductToAdd, setSelectedProductToAdd] = useState<any | null>(null);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number>(0);
+  const [addQuantity, setAddQuantity] = useState<number>(1);
+  const [addCustomPrice, setAddCustomPrice] = useState<string>('');
 
   // Modal Despachar / Enviar Pedido
   const [orderToShip, setOrderToShip] = useState<any | null>(null);
@@ -87,6 +107,12 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
   // Manejar apertura de modal aprobar
   const openApproveModal = (order: any) => {
     setOrderToApprove(order);
+    const items = (order.items || []).map((it: any) => ({
+      ...it,
+      quantity: Math.max(1, Number(it.quantity) || 1),
+      price: Math.max(0, Number(it.price) || 0),
+    }));
+    setApprovalItems(items);
     setApprovalPaymentType('total');
     setApprovalPaidAmount(order.total?.toString() || '0');
     setApprovalInstallments(3);
@@ -99,7 +125,9 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
     setProcessing(true);
     const token = getToken();
 
-    const total = parseFloat(orderToApprove.total) || 0;
+    const itemsSum = approvalItems.reduce((s: number, it: any) => s + (Number(it.quantity || 1) * Number(it.price || 0)), 0);
+    const shippingCost = orderToApprove.shipping_type === 'pickup' ? 0 : Number(orderToApprove.shipping_cost || 0);
+    const total = itemsSum + shippingCost;
     let finalPaid = total;
     let paymentStatus = 'full';
 
@@ -126,7 +154,9 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
           payment_type: approvalPaymentType,
           installments_count: approvalPaymentType === 'cuotas' ? approvalInstallments : 1,
           paid_amount: finalPaid,
-          admin_notes: approvalNotes
+          admin_notes: approvalNotes,
+          items: approvalItems,
+          total: total,
         })
       });
 
@@ -143,6 +173,193 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
     } finally {
       setProcessing(false);
     }
+  };
+
+  // Abrir modal de edición completa del pedido
+  const openOrderEditor = (order: any) => {
+    setOrderToEditProducts(order);
+    const items = (order.items || []).map((it: any) => ({
+      ...it,
+      quantity: Math.max(1, Number(it.quantity) || 1),
+      price: Math.max(0, Number(it.price) || 0),
+    }));
+    setEditOrderItems(items);
+    setEditOrderShippingType((order.shipping_type || 'delivery') as any);
+    setEditOrderShippingCost(Number(order.shipping_cost || 0).toString());
+    setEditOrderNotes(order.admin_notes || '');
+  };
+
+  // Guardar modificaciones completas del pedido
+  const handleSaveOrderEdits = async () => {
+    if (!orderToEditProducts) return;
+    if (!editOrderItems || editOrderItems.length === 0) {
+      showAlert?.('El pedido debe tener al menos un producto.');
+      return;
+    }
+
+    setSavingOrderEdit(true);
+    const token = getToken();
+    const effShippingCost = editOrderShippingType === 'pickup' ? 0 : Math.max(0, parseFloat(editOrderShippingCost) || 0);
+
+    try {
+      const res = await fetch(`${API_URL}/api/orders/admin/${orderToEditProducts.order_number}`, {
+        method: 'PUT',
+        headers: {
+          'X-API-KEY': token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          items: editOrderItems,
+          shipping_type: editOrderShippingType,
+          shipping_cost: effShippingCost,
+          admin_notes: editOrderNotes,
+        }),
+      });
+
+      if (res.ok) {
+        showAlert?.(`✓ Pedido #${orderToEditProducts.order_number} actualizado exitosamente.`);
+        setOrderToEditProducts(null);
+        fetchOrders();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showAlert?.(err.detail || 'Error al actualizar pedido.');
+      }
+    } catch {
+      showAlert?.('Error de red al actualizar pedido.');
+    } finally {
+      setSavingOrderEdit(false);
+    }
+  };
+
+  // Helper de búsqueda de productos para incorporar al pedido
+  const filteredStoreProducts = useMemo(() => {
+    if (!productSearchQuery.trim()) return storeProducts.slice(0, 15);
+    const q = productSearchQuery.toLowerCase();
+    return storeProducts
+      .filter((p: any) =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.categoryId || '').toLowerCase().includes(q) ||
+        (p.sku || '').toLowerCase().includes(q)
+      )
+      .slice(0, 20);
+  }, [storeProducts, productSearchQuery]);
+
+  const handleSelectProductToAdd = (p: any) => {
+    setSelectedProductToAdd(p);
+    setSelectedVariantIndex(0);
+    setAddQuantity(1);
+
+    const isSpecial = Boolean(
+      orderToEditProducts?.customer?.is_special_wholesale ||
+      orderToEditProducts?.customer?.customer_type === 'special_wholesale'
+    );
+    const isWholesale = Boolean(
+      orderToEditProducts?.customer?.is_wholesale ||
+      orderToEditProducts?.customer?.customer_type === 'wholesale'
+    );
+
+    const firstVar = p.variants?.[0] || {};
+    const defaultPrice = isSpecial
+      ? (firstVar.manualWholesalePrice || p.wholesalePrice || firstVar.manualSalePrice || p.salePrice || 0)
+      : isWholesale
+      ? (firstVar.manualWholesalePrice || p.wholesalePrice || p.salePrice || 0)
+      : (firstVar.manualSalePrice || p.salePrice || 0);
+
+    setAddCustomPrice(Number(defaultPrice || 0).toString());
+  };
+
+  const handleVariantChangeForAdd = (idx: number) => {
+    setSelectedVariantIndex(idx);
+    if (!selectedProductToAdd) return;
+    const p = selectedProductToAdd;
+    const v = p.variants?.[idx] || {};
+    const isSpecial = Boolean(
+      orderToEditProducts?.customer?.is_special_wholesale ||
+      orderToEditProducts?.customer?.customer_type === 'special_wholesale'
+    );
+    const isWholesale = Boolean(
+      orderToEditProducts?.customer?.is_wholesale ||
+      orderToEditProducts?.customer?.customer_type === 'wholesale'
+    );
+    const defaultPrice = isSpecial
+      ? (v.manualWholesalePrice || p.wholesalePrice || v.manualSalePrice || p.salePrice || 0)
+      : isWholesale
+      ? (v.manualWholesalePrice || p.wholesalePrice || p.salePrice || 0)
+      : (v.manualSalePrice || p.salePrice || 0);
+
+    setAddCustomPrice(Number(defaultPrice || 0).toString());
+  };
+
+  const handleConfirmAddProduct = () => {
+    if (!selectedProductToAdd) return;
+    const p = selectedProductToAdd;
+    const v = p.variants?.[selectedVariantIndex] || p.variants?.[0] || {};
+    const price = Math.max(0, parseFloat(addCustomPrice) || 0);
+    const qty = Math.max(1, Number(addQuantity) || 1);
+
+    const parts = [v.color, v.size, v.attributeValue].filter(Boolean);
+    const vLabel = parts.length > 0 ? parts.join(' - ') : (v.description || 'Único / Estándar');
+
+    const newItem = {
+      product_id: String(p.id),
+      variant_id: String(v.id || 'unico'),
+      product_name: p.name,
+      variant_info: vLabel,
+      image_url: p.imageUrls?.[0] || v.imageUrl || null,
+      quantity: qty,
+      price: price,
+    };
+
+    setEditOrderItems(prev => [...prev, newItem]);
+    setSelectedProductToAdd(null);
+    setProductSearchQuery('');
+    setShowAddProductModal(false);
+  };
+
+  const handleApprovalItemPriceChange = (index: number, newPriceStr: string) => {
+    const newPrice = Math.max(0, parseFloat(newPriceStr) || 0);
+    setApprovalItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], price: newPrice };
+      if (approvalPaymentType === 'total') {
+        const itemsSum = updated.reduce((s: number, it: any) => s + (Number(it.quantity || 1) * Number(it.price || 0)), 0);
+        const effShip = orderToApprove?.shipping_type === 'pickup' ? 0 : Number(orderToApprove?.shipping_cost || 0);
+        setApprovalPaidAmount((itemsSum + effShip).toString());
+      }
+      return updated;
+    });
+  };
+
+  const handleEditItemQty = (index: number, delta: number) => {
+    setEditOrderItems(prev => {
+      const updated = [...prev];
+      const cur = Number(updated[index].quantity) || 1;
+      const next = Math.max(1, cur + delta);
+      updated[index] = { ...updated[index], quantity: next };
+      return updated;
+    });
+  };
+
+  const handleEditItemQtyDirect = (index: number, valStr: string) => {
+    const next = Math.max(1, parseInt(valStr) || 1);
+    setEditOrderItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], quantity: next };
+      return updated;
+    });
+  };
+
+  const handleEditItemPrice = (index: number, priceStr: string) => {
+    const next = Math.max(0, parseFloat(priceStr) || 0);
+    setEditOrderItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], price: next };
+      return updated;
+    });
+  };
+
+  const handleRemoveItem = (index: number) => {
+    setEditOrderItems(prev => prev.filter((_, i) => i !== index));
   };
 
   // Confirmar Rechazo
@@ -718,6 +935,15 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
                         <span className="font-bold text-slate-700 dark:text-slate-200">
                           {order.customer?.name || 'Cliente'}
                         </span>
+                        {Boolean(order.customer?.is_special_wholesale || order.customer?.customer_type === 'special_wholesale') ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 flex items-center gap-1 border border-amber-300 dark:border-amber-700/60 shadow-xs">
+                            <span>👑</span> Mayorista Especial
+                          </span>
+                        ) : Boolean(order.customer?.is_wholesale || order.customer?.customer_type === 'wholesale') ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 flex items-center gap-1">
+                            Mayorista
+                          </span>
+                        ) : null}
                         <span>Tel: {order.customer?.phone || 'S/D'}</span>
                         <span>{dateStr}</span>
                         <span>{order.items?.length || 0} productos</span>
@@ -762,6 +988,18 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
                       >
                         <span className="material-symbols-outlined text-lg">visibility</span>
                       </button>
+
+                      {/* Botón Editar Pedido (Productos y Envío) */}
+                      {canManagePayments && (
+                        <button
+                          onClick={() => openOrderEditor(order)}
+                          title="Modificar productos, cantidades, precios o método de envío"
+                          className="px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 font-bold text-xs flex items-center gap-1 shadow-xs transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-base">edit_note</span>
+                          <span>Editar</span>
+                        </button>
+                      )}
 
                       {/* Botones si está En Revisión (solo Super Admin y Admin pueden aprobar/rechazar) */}
                       {statusStr.includes('revis') && canManagePayments && (
@@ -895,201 +1133,288 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
       </div>
 
       {/* MODAL: Aprobar Pedido (Total / Parcial / Cuotas) */}
-      {orderToApprove && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100 dark:border-slate-700">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span className="material-symbols-outlined text-green-500">check_circle</span>
-                Aprobar Pedido #{orderToApprove.order_number}
-              </h3>
-              <button onClick={() => setOrderToApprove(null)} className="text-slate-400 hover:text-slate-600">
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
+      {orderToApprove && (() => {
+        const isSpecialWholesale = Boolean(
+          orderToApprove.customer?.is_special_wholesale ||
+          orderToApprove.customer?.customer_type === 'special_wholesale'
+        );
+        const approvalItemsSum = approvalItems.reduce((acc: number, it: any) => acc + ((Number(it.quantity) || 1) * (Number(it.price) || 0)), 0);
+        const approvalShippingCost = orderToApprove.shipping_type === 'pickup' ? 0 : (Number(orderToApprove.shipping_cost) || 0);
+        const approvalCalculatedTotal = approvalItemsSum + approvalShippingCost;
 
-            {/* Datos del comprador */}
-            <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl mb-4 text-xs space-y-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-slate-400 mb-0.5">Cliente</p>
-                  <p className="font-bold text-slate-800 dark:text-white text-sm">{orderToApprove.customer?.name}</p>
-                  <p className="text-slate-500">{orderToApprove.customer?.phone} · {orderToApprove.customer?.email}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-slate-400 mb-0.5">Entrega</p>
-                  <p className="font-bold text-slate-800 dark:text-white">
-                    {orderToApprove.shipping_type === 'pickup' ? '🏪 Retiro en Local' : orderToApprove.shipping_type === 'national' ? '🚛 Envío Nacional' : '🚚 Envío Local (Formosa)'}
-                  </p>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100 dark:border-slate-700">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span className="material-symbols-outlined text-green-500">check_circle</span>
+                  Aprobar Pedido #{orderToApprove.order_number}
+                </h3>
+                <button onClick={() => setOrderToApprove(null)} className="text-slate-400 hover:text-slate-600">
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              {/* Datos del comprador */}
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl mb-4 text-xs space-y-2 border border-slate-200 dark:border-slate-700">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="text-slate-400">Cliente</p>
+                      {isSpecialWholesale && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 flex items-center gap-1">
+                          👑 Mayorista Especial
+                        </span>
+                      )}
+                    </div>
+                    <p className="font-bold text-slate-800 dark:text-white text-sm">{orderToApprove.customer?.name}</p>
+                    <p className="text-slate-500">{orderToApprove.customer?.phone} · {orderToApprove.customer?.email}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-slate-400 mb-0.5">Entrega</p>
+                    <p className="font-bold text-slate-800 dark:text-white">
+                      {orderToApprove.shipping_type === 'pickup' ? '🏪 Retiro en Local' : orderToApprove.shipping_type === 'national' ? '🚛 Envío Nacional' : '🚚 Envío Local (Formosa)'}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Productos del pedido */}
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Detalle del Pedido</p>
-            <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60 mb-4 max-h-40 overflow-y-auto">
-              {orderToApprove.items?.map((item: any, i: number) => (
-                <div key={i} className="flex items-center gap-3 px-3 py-2 text-xs">
-                  {item.image_url && (
-                    <img src={item.image_url} alt={item.product_name} className="w-8 h-8 rounded-lg object-cover shrink-0" />
+              {/* Banner si es Mayorista Especial */}
+              {isSpecialWholesale && (
+                <div className="flex items-center gap-2.5 p-3 mb-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-xs text-amber-900 dark:text-amber-200">
+                  <span className="text-xl shrink-0">👑</span>
+                  <div>
+                    <p className="font-extrabold text-amber-900 dark:text-amber-100">Cliente Mayorista Especial</p>
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                      Podés modificar los precios unitarios directamente en la tabla antes de aprobar para aplicar el descuento correspondiente.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Detalle y Productos del pedido */}
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Productos del Pedido ({approvalItems.length})
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ord = orderToApprove;
+                    setOrderToApprove(null);
+                    openOrderEditor(ord);
+                  }}
+                  className="text-primary hover:underline font-bold flex items-center gap-1 text-[11px]"
+                  title="Sumar o quitar productos, o cambiar método de envío"
+                >
+                  <span className="material-symbols-outlined text-sm">edit_note</span>
+                  Modificar productos o envío
+                </button>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60 mb-4 max-h-48 overflow-y-auto">
+                {approvalItems.map((item: any, i: number) => {
+                  const qty = Number(item.quantity) || 1;
+                  const price = Number(item.price) || 0;
+                  const lineTotal = qty * price;
+
+                  return (
+                    <div key={i} className="flex items-center gap-3 px-3 py-2 text-xs">
+                      {item.image_url ? (
+                        <img src={item.image_url} alt={item.product_name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                          <span className="material-symbols-outlined text-sm">inventory_2</span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-800 dark:text-white truncate">{item.product_name}</p>
+                        {item.variant_info && <p className="text-slate-400 truncate text-[11px]">{item.variant_info}</p>}
+                      </div>
+
+                      {isSpecialWholesale ? (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-bold text-slate-700 dark:text-slate-300">x{qty}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-slate-400 font-bold">$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={item.price}
+                              onChange={(e) => handleApprovalItemPriceChange(i, e.target.value)}
+                              title="Modificar precio unitario para este cliente especial"
+                              className="w-20 px-2 py-1 text-right font-black rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 focus:ring-2 focus:ring-amber-500 text-xs"
+                            />
+                          </div>
+                          <span className="font-black text-slate-800 dark:text-white min-w-[65px] text-right">
+                            ${lineTotal.toLocaleString('es-AR')}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-slate-700 dark:text-slate-200">x{qty}</p>
+                          <p className="text-slate-500 font-bold">${price.toLocaleString('es-AR')}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Total */}
+              <div className="flex justify-between items-center bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800/40 rounded-xl px-4 py-2.5 mb-4">
+                <div>
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300 block">Total a Cobrar</span>
+                  {orderToApprove.shipping_type !== 'pickup' && Number(orderToApprove.shipping_cost) > 0 && (
+                    <span className="text-[10px] text-slate-400">
+                      (Incluye envío: ${Number(orderToApprove.shipping_cost).toLocaleString('es-AR')})
+                    </span>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-800 dark:text-white truncate">{item.product_name}</p>
-                    {item.variant_info && <p className="text-slate-400 truncate">{item.variant_info}</p>}
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-bold text-slate-700 dark:text-slate-200">x{item.quantity}</p>
-                    <p className="text-slate-500">${(parseFloat(item.price) || 0).toLocaleString('es-AR')}</p>
-                  </div>
                 </div>
-              ))}
-            </div>
-
-            {/* Total */}
-            <div className="flex justify-between items-center bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800/40 rounded-xl px-4 py-2.5 mb-4">
-              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Total a Cobrar</span>
-              <span className="font-black text-primary text-xl">${parseFloat(orderToApprove.total || 0).toLocaleString('es-AR')}</span>
-            </div>
-
-            {/* Modalidad de Cobro */}
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Modalidad de Cobro</p>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setApprovalPaymentType('total');
-                  setApprovalPaidAmount(orderToApprove.total?.toString() || '0');
-                }}
-                className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
-                  approvalPaymentType === 'total'
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300'
-                    : 'border-slate-200 dark:border-slate-700 text-slate-600'
-                }`}
-              >
-                Pago Total
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setApprovalPaymentType('partial');
-                  setApprovalPaidAmount('');
-                }}
-                className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
-                  approvalPaymentType === 'partial'
-                    ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300'
-                    : 'border-slate-200 dark:border-slate-700 text-slate-600'
-                }`}
-              >
-                Pago Parcial
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setApprovalPaymentType('cuotas');
-                  setApprovalPaidAmount('0');
-                }}
-                className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
-                  approvalPaymentType === 'cuotas'
-                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300'
-                    : 'border-slate-200 dark:border-slate-700 text-slate-600'
-                }`}
-              >
-                En Cuotas
-              </button>
-            </div>
-
-            {approvalPaymentType === 'partial' && (
-              <div className="space-y-2 mb-4 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800/40 text-xs">
-                <label className="block font-bold text-slate-700 dark:text-slate-300">¿Cuánto abonó el cliente hoy? ($):</label>
-                <input
-                  type="number"
-                  value={approvalPaidAmount}
-                  onChange={(e) => setApprovalPaidAmount(e.target.value)}
-                  placeholder="Monto abonado"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-bold"
-                />
-                <div className="flex justify-between text-xs pt-1 font-bold">
-                  <span>Resta por cobrar:</span>
-                  <span className="text-red-500 font-black">
-                    ${Math.max(0, (parseFloat(orderToApprove.total) || 0) - (parseFloat(approvalPaidAmount) || 0)).toLocaleString('es-AR')}
-                  </span>
-                </div>
+                <span className="font-black text-primary text-xl">${approvalCalculatedTotal.toLocaleString('es-AR')}</span>
               </div>
-            )}
 
-            {approvalPaymentType === 'cuotas' && (
-              <div className="space-y-3 mb-4 p-3 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl border border-indigo-200 dark:border-indigo-800/40 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Cantidad de Cuotas:</label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[2, 3, 6, 12].map(n => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => setApprovalInstallments(n)}
-                        className={`py-1.5 font-bold rounded-lg border ${
-                          approvalInstallments === n ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        {n} cuotas
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              {/* Modalidad de Cobro */}
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Modalidad de Cobro</p>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setApprovalPaymentType('total');
+                    setApprovalPaidAmount(approvalCalculatedTotal.toString());
+                  }}
+                  className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
+                    approvalPaymentType === 'total'
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600'
+                  }`}
+                >
+                  Pago Total
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setApprovalPaymentType('partial');
+                    setApprovalPaidAmount('');
+                  }}
+                  className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
+                    approvalPaymentType === 'partial'
+                      ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600'
+                  }`}
+                >
+                  Pago Parcial
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setApprovalPaymentType('cuotas');
+                    setApprovalPaidAmount('0');
+                  }}
+                  className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
+                    approvalPaymentType === 'cuotas'
+                      ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600'
+                  }`}
+                >
+                  En Cuotas
+                </button>
+              </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Entrega inicial hoy ($):</label>
+              {approvalPaymentType === 'partial' && (
+                <div className="space-y-2 mb-4 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800/40 text-xs">
+                  <label className="block font-bold text-slate-700 dark:text-slate-300">¿Cuánto abonó el cliente hoy? ($):</label>
                   <input
                     type="number"
                     value={approvalPaidAmount}
                     onChange={(e) => setApprovalPaidAmount(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-bold"
+                    placeholder="Monto abonado"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-bold"
                   />
+                  <div className="flex justify-between text-xs pt-1 font-bold">
+                    <span>Resta por cobrar:</span>
+                    <span className="text-red-500 font-black">
+                      ${Math.max(0, approvalCalculatedTotal - (parseFloat(approvalPaidAmount) || 0)).toLocaleString('es-AR')}
+                    </span>
+                  </div>
                 </div>
+              )}
 
-                <div className="flex justify-between font-bold text-xs pt-1 border-t border-indigo-200">
-                  <span>Adeuda a financiar:</span>
-                  <span className="text-indigo-700 dark:text-indigo-300">
-                    ${Math.max(0, (parseFloat(orderToApprove.total) || 0) - (parseFloat(approvalPaidAmount) || 0)).toLocaleString('es-AR')}
-                  </span>
+              {approvalPaymentType === 'cuotas' && (
+                <div className="space-y-3 mb-4 p-3 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl border border-indigo-200 dark:border-indigo-800/40 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Cantidad de Cuotas:</label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[2, 3, 6, 12].map(n => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setApprovalInstallments(n)}
+                          className={`py-1.5 font-bold rounded-lg border ${
+                            approvalInstallments === n ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {n} cuotas
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Entrega inicial hoy ($):</label>
+                    <input
+                      type="number"
+                      value={approvalPaidAmount}
+                      onChange={(e) => setApprovalPaidAmount(e.target.value)}
+                      placeholder="0"
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-bold"
+                    />
+                  </div>
+
+                  <div className="flex justify-between font-bold text-xs pt-1 border-t border-indigo-200">
+                    <span>Adeuda a financiar:</span>
+                    <span className="text-indigo-700 dark:text-indigo-300">
+                      ${Math.max(0, approvalCalculatedTotal - (parseFloat(approvalPaidAmount) || 0)).toLocaleString('es-AR')}
+                    </span>
+                  </div>
                 </div>
+              )}
+
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Notas administrativas (opcional):</label>
+                <input
+                  type="text"
+                  value={approvalNotes}
+                  onChange={(e) => setApprovalNotes(e.target.value)}
+                  placeholder="Observación interna..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs"
+                />
               </div>
-            )}
 
-            <div className="mb-4">
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Notas administrativas (opcional):</label>
-              <input
-                type="text"
-                value={approvalNotes}
-                onChange={(e) => setApprovalNotes(e.target.value)}
-                placeholder="Observación interna..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs"
-              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOrderToApprove(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmApproval}
+                  disabled={processing}
+                  className="flex-[2] py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-xs font-black flex items-center justify-center gap-1 shadow-md shadow-green-500/20"
+                >
+                  <span className="material-symbols-outlined text-base">verified</span>
+                  Confirmar Aprobación
+                </button>
+              </div>
+
             </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setOrderToApprove(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmApproval}
-                disabled={processing}
-                className="flex-[2] py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-xs font-black flex items-center justify-center gap-1 shadow-md shadow-green-500/20"
-              >
-                <span className="material-symbols-outlined text-base">verified</span>
-                Confirmar Aprobación
-              </button>
-            </div>
-
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL: Rechazar Pedido — con detalle completo */}
       {orderToReject && (
@@ -1371,12 +1696,39 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
           <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100 dark:border-slate-700">
               <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">Pedido #{orderDetail.order_number}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Pedido #{orderDetail.order_number}</h3>
+                  {Boolean(orderDetail.customer?.is_special_wholesale || orderDetail.customer?.customer_type === 'special_wholesale') ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300">
+                      👑 Mayorista Especial
+                    </span>
+                  ) : Boolean(orderDetail.customer?.is_wholesale || orderDetail.customer?.customer_type === 'wholesale') ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">
+                      Mayorista
+                    </span>
+                  ) : null}
+                </div>
                 <p className="text-xs text-slate-500">{orderDetail.customer?.name} ({orderDetail.customer?.phone})</p>
               </div>
-              <button onClick={() => setOrderDetail(null)} className="text-slate-400 hover:text-slate-600">
-                <span className="material-symbols-outlined">close</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {canManagePayments && (
+                  <button
+                    onClick={() => {
+                      const ord = orderDetail;
+                      setOrderDetail(null);
+                      openOrderEditor(ord);
+                    }}
+                    className="px-3 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+                    title="Modificar productos, cantidades, precios o método de envío"
+                  >
+                    <span className="material-symbols-outlined text-base">edit_note</span>
+                    Editar Pedido
+                  </button>
+                )}
+                <button onClick={() => setOrderDetail(null)} className="text-slate-400 hover:text-slate-600">
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
             </div>
 
             {/* Datos de Entrega */}
@@ -1459,12 +1811,27 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
               <span className="text-xl font-black text-primary">${parseFloat(orderDetail.total || 0).toLocaleString('es-AR')}</span>
             </div>
 
-            <button
-              onClick={() => setOrderDetail(null)}
-              className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
-            >
-              Cerrar
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setOrderDetail(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+              >
+                Cerrar
+              </button>
+              {canManagePayments && (
+                <button
+                  onClick={() => {
+                    const ord = orderDetail;
+                    setOrderDetail(null);
+                    openOrderEditor(ord);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20"
+                >
+                  <span className="material-symbols-outlined text-base">edit_note</span>
+                  Modificar Productos / Envío
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1560,6 +1927,548 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
                 Guardar Cambios
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Modificar Pedido Completo (Productos, Precios, Cantidades y Envío) */}
+      {orderToEditProducts && (() => {
+        const isSpecialWholesale = Boolean(
+          orderToEditProducts.customer?.is_special_wholesale ||
+          orderToEditProducts.customer?.customer_type === 'special_wholesale'
+        );
+        const isWholesale = Boolean(
+          orderToEditProducts.customer?.is_wholesale ||
+          orderToEditProducts.customer?.customer_type === 'wholesale'
+        );
+
+        const itemsTotal = editOrderItems.reduce((sum: number, it: any) => {
+          return sum + ((Number(it.quantity) || 1) * (Number(it.price) || 0));
+        }, 0);
+        const effShippingCost = editOrderShippingType === 'pickup' ? 0 : Math.max(0, parseFloat(editOrderShippingCost) || 0);
+        const grandTotal = itemsTotal + effShippingCost;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[92vh] flex flex-col">
+              
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950/50 text-amber-600">
+                    <span className="material-symbols-outlined text-xl">edit_note</span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                        Modificar Pedido #{orderToEditProducts.order_number}
+                      </h3>
+                      {isSpecialWholesale ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 flex items-center gap-1">
+                          👑 Mayorista Especial
+                        </span>
+                      ) : isWholesale ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">
+                          Mayorista
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                          Minorista
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Cliente: <strong>{orderToEditProducts.customer?.name}</strong> · Tel: {orderToEditProducts.customer?.phone || 'S/D'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setOrderToEditProducts(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1 text-xs">
+                
+                {/* 1. Método de Entrega y Envío */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    1. Método de Entrega / Envío
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditOrderShippingType('pickup')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        editOrderShippingType === 'pickup'
+                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 mb-1">
+                        <span className="text-sm">🏪</span> Retiro en Local
+                      </div>
+                      <p className="text-[11px] text-slate-500">Sin costo de envío ($0)</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditOrderShippingType('delivery')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        editOrderShippingType === 'delivery'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-800 dark:text-blue-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 mb-1">
+                        <span className="text-sm">🚚</span> Envío Local (Formosa)
+                      </div>
+                      <p className="text-[11px] text-slate-500">Cadetería dentro de la ciudad</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditOrderShippingType('national')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        editOrderShippingType === 'national'
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/30 text-purple-800 dark:text-purple-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 mb-1">
+                        <span className="text-sm">🚛</span> Envío Nacional
+                      </div>
+                      <p className="text-[11px] text-slate-500">Transporte o Correo a convenir</p>
+                    </button>
+                  </div>
+
+                  {editOrderShippingType !== 'pickup' && (
+                    <div className="flex items-center gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+                      <label className="font-bold text-slate-700 dark:text-slate-300 shrink-0">
+                        Costo de Envío a cobrar ($):
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={editOrderShippingCost}
+                        onChange={(e) => setEditOrderShippingCost(e.target.value)}
+                        placeholder="0"
+                        className="w-32 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-black text-slate-800 dark:text-white"
+                      />
+                      <span className="text-[11px] text-slate-400">
+                        {editOrderShippingType === 'national' ? 'Costo acordado para despacho nacional' : 'Costo del cadete local'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Productos del Pedido */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        2. Productos del Pedido ({editOrderItems.length})
+                      </p>
+                      {isSpecialWholesale && (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1">
+                          <span>👑</span> Precios especiales habilitados para este cliente
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddProductModal(true);
+                        setProductSearchQuery('');
+                        setSelectedProductToAdd(null);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-primary/20 transition-all"
+                    >
+                      <span className="material-symbols-outlined text-sm">add_shopping_cart</span>
+                      + Agregar Producto
+                    </button>
+                  </div>
+
+                  {editOrderItems.length === 0 ? (
+                    <div className="p-6 text-center text-slate-400 bg-white dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
+                      <span className="material-symbols-outlined text-3xl mb-1 text-slate-300">remove_shopping_cart</span>
+                      <p>El pedido no tiene productos. Usá el botón de arriba para agregar uno.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-200 dark:divide-slate-700/60 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                      {editOrderItems.map((item: any, i: number) => {
+                        const qty = Number(item.quantity) || 1;
+                        const price = Number(item.price) || 0;
+                        const lineSubtotal = qty * price;
+
+                        return (
+                          <div key={i} className="p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              {item.image_url ? (
+                                <img src={item.image_url} alt={item.product_name} className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-100" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                                  <span className="material-symbols-outlined text-lg">inventory_2</span>
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-slate-900 dark:text-white truncate text-xs">{item.product_name}</p>
+                                <p className="text-[11px] text-slate-400 truncate">{item.variant_info || 'Estándar'}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                              {/* Precio Unitario Editable */}
+                              <div className="flex flex-col items-end">
+                                <span className="text-[10px] text-slate-400 font-medium">Precio Unitario ($)</span>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={item.price}
+                                    onChange={(e) => handleEditItemPrice(i, e.target.value)}
+                                    className={`w-24 px-2 py-1 text-right font-black rounded-lg border text-xs ${
+                                      isSpecialWholesale
+                                        ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200'
+                                        : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Cantidad con botones +/- */}
+                              <div className="flex flex-col items-center">
+                                <span className="text-[10px] text-slate-400 font-medium">Cantidad</span>
+                                <div className="flex items-center rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden bg-white dark:bg-slate-900">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditItemQty(i, -1)}
+                                    className="px-2 py-1 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 font-bold"
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={item.quantity}
+                                    onChange={(e) => handleEditItemQtyDirect(i, e.target.value)}
+                                    className="w-12 text-center font-bold text-xs bg-transparent outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditItemQty(i, 1)}
+                                    className="px-2 py-1 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 font-bold"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Subtotal */}
+                              <div className="text-right min-w-[75px]">
+                                <span className="text-[10px] text-slate-400 block font-medium">Subtotal</span>
+                                <span className="font-black text-slate-800 dark:text-white text-xs">
+                                  ${lineSubtotal.toLocaleString('es-AR')}
+                                </span>
+                              </div>
+
+                              {/* Botón Eliminar */}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(i)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                                title="Eliminar producto del pedido"
+                              >
+                                <span className="material-symbols-outlined text-lg">delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Notas Administrativas */}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    3. Notas Administrativas (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editOrderNotes}
+                    onChange={(e) => setEditOrderNotes(e.target.value)}
+                    placeholder="Ej: Modificado a pedido del cliente por WhatsApp..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-800 dark:text-white"
+                  />
+                </div>
+
+                {/* Resumen de Totales */}
+                <div className="bg-slate-50 dark:bg-slate-900/80 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1.5">
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                    <span>Subtotal Productos ({editOrderItems.length}):</span>
+                    <span className="font-bold">${itemsTotal.toLocaleString('es-AR')}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                    <span>Costo de Envío ({editOrderShippingType === 'pickup' ? 'Retiro en local' : editOrderShippingType === 'national' ? 'Envío nacional' : 'Envío local'}):</span>
+                    <span className="font-bold">${effShippingCost.toLocaleString('es-AR')}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-700 text-sm">
+                    <span className="font-extrabold text-slate-900 dark:text-white">Total del Pedido Actualizado:</span>
+                    <span className="font-black text-primary text-lg">${grandTotal.toLocaleString('es-AR')}</span>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Footer */}
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-700 flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setOrderToEditProducts(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveOrderEdits}
+                  disabled={savingOrderEdit || editOrderItems.length === 0}
+                  className="flex-[2] py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-base">
+                    {savingOrderEdit ? 'sync' : 'save'}
+                  </span>
+                  {savingOrderEdit ? 'Guardando cambios...' : 'Guardar Modificaciones del Pedido'}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL: Seleccionar e Incorporar Producto al Pedido */}
+      {showAddProductModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] flex flex-col">
+            
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100 dark:border-slate-700 shrink-0">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">add_shopping_cart</span>
+                Agregar Producto al Pedido
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAddProductModal(false);
+                  setSelectedProductToAdd(null);
+                  setProductSearchQuery('');
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1 text-xs">
+              {!selectedProductToAdd ? (
+                <>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Buscar en el Catálogo:
+                    </label>
+                    <div className="relative">
+                      <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">
+                        search
+                      </span>
+                      <input
+                        type="text"
+                        value={productSearchQuery}
+                        onChange={(e) => setProductSearchQuery(e.target.value)}
+                        placeholder="Buscar por nombre, SKU o categoría..."
+                        className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700/60 max-h-72 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                    {filteredStoreProducts.length === 0 ? (
+                      <p className="p-4 text-center text-slate-400">No se encontraron productos coincidentes.</p>
+                    ) : (
+                      filteredStoreProducts.map((p: any) => {
+                        const img = p.imageUrls?.[0] || p.variants?.[0]?.imageUrl;
+                        const isSpecial = Boolean(
+                          orderToEditProducts?.customer?.is_special_wholesale ||
+                          orderToEditProducts?.customer?.customer_type === 'special_wholesale'
+                        );
+                        const isWholesale = Boolean(
+                          orderToEditProducts?.customer?.is_wholesale ||
+                          orderToEditProducts?.customer?.customer_type === 'wholesale'
+                        );
+                        const displayPrice = isSpecial || isWholesale
+                          ? (p.wholesalePrice || p.salePrice || 0)
+                          : (p.salePrice || 0);
+
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => handleSelectProductToAdd(p)}
+                            className="p-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {img ? (
+                                <img src={img} alt={p.name} className="w-9 h-9 rounded-lg object-cover shrink-0 border" />
+                              ) : (
+                                <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                                  <span className="material-symbols-outlined text-sm">inventory_2</span>
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-slate-900 dark:text-white truncate">{p.name}</p>
+                                <p className="text-[10px] text-slate-400 truncate">
+                                  {p.categoryId || 'Sin categoría'} {p.sku ? `· SKU: ${p.sku}` : ''}
+                                  {p.variants?.length ? ` · ${p.variants.length} variantes` : ''}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="font-black text-slate-800 dark:text-white text-xs block">
+                                ${Number(displayPrice).toLocaleString('es-AR')}
+                              </span>
+                              <span className="text-[10px] text-primary font-bold">Seleccionar ›</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  {/* Producto Seleccionado */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {(selectedProductToAdd.imageUrls?.[0] || selectedProductToAdd.variants?.[0]?.imageUrl) && (
+                        <img
+                          src={selectedProductToAdd.imageUrls?.[0] || selectedProductToAdd.variants?.[0]?.imageUrl}
+                          alt={selectedProductToAdd.name}
+                          className="w-12 h-12 rounded-xl object-cover border"
+                        />
+                      )}
+                      <div>
+                        <p className="font-bold text-slate-900 dark:text-white text-sm">{selectedProductToAdd.name}</p>
+                        <p className="text-slate-400 text-[11px]">{selectedProductToAdd.categoryId || ''}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProductToAdd(null)}
+                      className="text-xs text-primary hover:underline font-bold"
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+
+                  {/* Selector de Variante */}
+                  {selectedProductToAdd.variants && selectedProductToAdd.variants.length > 1 && (
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Seleccionar Variante / Color / Presentación:
+                      </label>
+                      <select
+                        value={selectedVariantIndex}
+                        onChange={(e) => handleVariantChangeForAdd(Number(e.target.value))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
+                      >
+                        {selectedProductToAdd.variants.map((v: any, idx: number) => {
+                          const parts = [v.color, v.size, v.attributeValue].filter(Boolean);
+                          const desc = parts.length > 0 ? parts.join(' - ') : (v.description || `Variante #${idx + 1}`);
+                          const st = v.stock !== undefined ? ` (Stock: ${v.stock})` : '';
+                          return (
+                            <option key={idx} value={idx}>
+                              {desc} {st}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Cantidad y Precio */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Cantidad:
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={addQuantity}
+                        onChange={(e) => setAddQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-center"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Precio Unitario ($):
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={addCustomPrice}
+                        onChange={(e) => setAddCustomPrice(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl border font-black text-right ${
+                          Boolean(orderToEditProducts?.customer?.is_special_wholesale || orderToEditProducts?.customer?.customer_type === 'special_wholesale')
+                            ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200'
+                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {Boolean(orderToEditProducts?.customer?.is_special_wholesale || orderToEditProducts?.customer?.customer_type === 'special_wholesale') && (
+                    <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 text-amber-800 dark:text-amber-200 text-[11px] flex items-center gap-1.5">
+                      <span>👑</span> Podés colocar el precio unitario pactado para este cliente mayorista especial.
+                    </div>
+                  )}
+
+                  {/* Subtotal del item a agregar */}
+                  <div className="flex justify-between items-center p-3 rounded-xl bg-slate-100 dark:bg-slate-900 text-xs font-bold">
+                    <span>Subtotal del producto agregado:</span>
+                    <span className="font-black text-primary text-sm">
+                      ${((addQuantity || 1) * (parseFloat(addCustomPrice) || 0)).toLocaleString('es-AR')}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProductToAdd(null)}
+                      className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                    >
+                      Volver a la lista
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmAddProduct}
+                      className="flex-[2] py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-xs flex items-center justify-center gap-1 shadow-md shadow-primary/20"
+                    >
+                      <span className="material-symbols-outlined text-base">check</span>
+                      Incorporar al Pedido
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       )}
