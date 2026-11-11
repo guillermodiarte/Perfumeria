@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useStockFlowStore, SaleRecord } from '@/store/useStockStore';
 import { generateTicketPDF } from '@/utils/generateTicket';
 import { API_URL } from '@/utils/api';
+import EditarCompraView, { EditarCompraData } from '@/components/admin/EditarCompraView';
 
 interface CobrosPendientesViewProps {
   apiKey?: string;
@@ -569,6 +570,56 @@ export default function CobrosPendientesView({ apiKey, showAlert, currentAdminRo
       setIsDeleting(false);
     }
   };
+
+  // ── Pantalla de edición completa (reemplaza el modal anterior) ──────────────
+  if (debtToEdit) {
+    const debt = debtToEdit;
+    const customerType: 'normal' | 'wholesale' | 'special_wholesale' =
+      debt.isSpecialWholesale || debt.customer?.is_special_wholesale || debt.customer?.customer_type === 'special_wholesale'
+        ? 'special_wholesale'
+        : debt.customer?.is_wholesale || debt.customer?.customer_type === 'wholesale'
+        ? 'wholesale'
+        : 'normal';
+
+    const editarData: EditarCompraData = {
+      source: debt.source,
+      reference: debt.reference,
+      fecha: debt.date,
+      clientName: debt.clientName,
+      clientPhone: debt.clientPhone,
+      clientEmail: debt.customer?.email || '',
+      clientType: customerType,
+      isSpecialWholesale: customerType === 'special_wholesale',
+      items: (debt.items || []).map((it: any) => ({
+        product_id: it.productId || it.product_id || '',
+        variant_id: it.variantId || it.variant_id || '',
+        product_name: it.productName || it.product_name || 'Producto',
+        variant_info: it.variantInfo || it.variant_info || '',
+        quantity: Math.max(1, Number(it.quantity) || 1),
+        price: Math.max(0, Number(it.price) || 0),
+        image_url: it.imageUrl || it.image_url || null,
+      })),
+      shippingType: (debt.shippingType || 'pickup') as any,
+      shippingCost: Number(debt.shippingCost || 0),
+      total: Number(debt.total || 0),
+      paidAmount: Number(debt.paidAmount || 0),
+      notes: debt.notes || '',
+      customer: debt.customer,
+    };
+
+    return (
+      <EditarCompraView
+        data={editarData}
+        apiKey={apiKey}
+        showAlert={showAlert}
+        onSaved={async () => {
+          setDebtToEdit(null);
+          if (debt.source === 'web') await fetchWebOrders();
+        }}
+        onCancel={() => setDebtToEdit(null)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">

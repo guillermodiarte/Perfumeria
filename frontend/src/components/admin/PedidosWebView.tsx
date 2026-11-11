@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '@/utils/api';
 import { generateTicketPDF } from '@/utils/generateTicket';
 import { useStockFlowStore } from '@/store/useStockStore';
+import EditarCompraView, { EditarCompraData } from '@/components/admin/EditarCompraView';
 
 interface PedidosWebViewProps {
   apiKey?: string;
@@ -628,6 +629,56 @@ export default function PedidosWebView({ apiKey, showAlert, currentAdminRole }: 
     return (s.includes('aprob') || s.includes('pagad')) && isPickup && d !== 'delivered';
   }).length;
   const shippedCount = webOrders.filter(o => (o.delivery_status || '').toLowerCase() === 'shipped').length;
+
+  // ── Pantalla de edición completa (reemplaza el modal anterior) ──────────────
+  if (orderToEditProducts) {
+    const o = orderToEditProducts;
+    const customerType: 'normal' | 'wholesale' | 'special_wholesale' =
+      o.customer?.is_special_wholesale || o.customer?.customer_type === 'special_wholesale'
+        ? 'special_wholesale'
+        : o.customer?.is_wholesale || o.customer?.customer_type === 'wholesale'
+        ? 'wholesale'
+        : 'normal';
+
+    const editarData: EditarCompraData = {
+      source: 'web',
+      reference: o.order_number,
+      fecha: o.created_at,
+      clientName: o.customer?.name || 'Cliente Web',
+      clientPhone: o.customer?.phone || '',
+      clientEmail: o.customer?.email || '',
+      clientType: customerType,
+      isSpecialWholesale: customerType === 'special_wholesale',
+      items: (o.items || []).map((it: any) => ({
+        product_id: it.product_id || it.productId || '',
+        variant_id: it.variant_id || it.variantId || '',
+        product_name: it.product_name || it.productName || 'Producto',
+        variant_info: it.variant_info || it.variantInfo || '',
+        quantity: Math.max(1, Number(it.quantity) || 1),
+        price: Math.max(0, Number(it.price) || 0),
+        image_url: it.image_url || it.imageUrl || null,
+      })),
+      shippingType: (o.shipping_type || 'pickup') as any,
+      shippingCost: Number(o.shipping_cost || 0),
+      total: Number(o.total || 0),
+      paidAmount: Number(o.paid_amount || 0),
+      notes: o.admin_notes || '',
+      customer: o.customer,
+    };
+
+    return (
+      <EditarCompraView
+        data={editarData}
+        apiKey={apiKey}
+        showAlert={showAlert}
+        onSaved={async () => {
+          setOrderToEditProducts(null);
+          await fetchOrders();
+        }}
+        onCancel={() => setOrderToEditProducts(null)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
