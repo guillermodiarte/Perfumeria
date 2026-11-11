@@ -642,6 +642,9 @@ export interface StockFlowState {
   confirmSale: (saleId: string) => void;
   cancelSale: (saleId: string) => void;
 
+  /** Actualiza el clientType/isSpecialWholesale en todas las ventas de un cliente de mostrador identificado por teléfono o nombre */
+  updateMostradorClientType: (phone: string, name: string, newType: 'normal' | 'wholesale' | 'special_wholesale') => void;
+
   deleteProduct: (productId: string) => void;
   deleteVariant: (productId: string, variantId: string) => void;
   updateProduct: (productId: string, data: Partial<Product>, variants?: ProductVariant[]) => void;
@@ -2029,6 +2032,28 @@ export const useStockFlowStore = create<StockFlowState>()(
           });
 
           return { products: updatedProducts, sales: updatedSales };
+        });
+      },
+
+      updateMostradorClientType: (phone, name, newType) => {
+        set((state) => {
+          const cleanPhone = (phone || '').replace(/\D/g, '');
+          const cleanName = (name || '').trim().toLowerCase();
+          const updatedSales = state.sales.map(s => {
+            const sPhone = (s.clientPhone || '').replace(/\D/g, '');
+            const sName = (s.clientName || '').trim().toLowerCase();
+            const matchPhone = cleanPhone && sPhone && (sPhone === cleanPhone || (cleanPhone.length >= 8 && sPhone.slice(-8) === cleanPhone.slice(-8)));
+            const matchName = !cleanPhone && cleanName && sName === cleanName;
+            if (matchPhone || matchName) {
+              return {
+                ...s,
+                clientType: newType,
+                isSpecialWholesale: newType === 'special_wholesale',
+              };
+            }
+            return s;
+          });
+          return { sales: updatedSales };
         });
       },
 

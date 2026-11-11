@@ -42,6 +42,10 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
 
   // Zustand sales para Clientes de Mostrador
   const sales = useStockFlowStore(s => s.sales);
+  const updateMostradorClientType = useStockFlowStore(s => s.updateMostradorClientType);
+
+  // Estado para el selector de tipo de mostrador (evita recarga de la tabla)
+  const [mostradorTypeLoading, setMostradorTypeLoading] = useState<string | null>(null);
 
   // Modal Crear Cuenta Web desde Mostrador
   const [createWebModalClient, setCreateWebModalClient] = useState<{ name: string; phone: string; email: string } | null>(null);
@@ -572,7 +576,17 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
   const pending = customers.filter(c => !c.is_approved);
   const approved = customers.filter(c => c.is_approved);
 
-  // Clientes de mostrador únicos agrupados por teléfono o nombre
+  // ── Helper de normalización de teléfonos ──────────────────────────────────
+  const cleanPhone = (p?: string) => (p || '').replace(/\D/g, '');
+  const phoneMatch = (a?: string, b?: string) => {
+    const ca = cleanPhone(a); const cb = cleanPhone(b);
+    if (!ca || !cb) return false;
+    if (ca === cb) return true;
+    if (ca.length >= 8 && cb.length >= 8) return ca.slice(-8) === cb.slice(-8);
+    return false;
+  };
+
+  // ── Clientes de mostrador agrupados (con clientType del store) ────────────
   const posClients = (() => {
     const map = new Map<string, {
       name: string;
@@ -583,43 +597,50 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
       lastDate: string;
       hasWebAccount: boolean;
       webCustomerId?: number;
+      clientType: 'normal' | 'wholesale' | 'special_wholesale';
     }>();
 
     sales.forEach(sale => {
-      const phoneClean = (sale.clientPhone || '').trim();
-      const nameClean = (sale.clientName || '').trim();
-      const key = phoneClean || nameClean;
+      const ph = (sale.clientPhone || '').trim();
+      const nm = (sale.clientName || '').trim();
+      const key = cleanPhone(ph) || nm.toLowerCase();
       if (!key) return;
 
       const rev = (sale.quantity || 1) * (sale.unitSalePrice || 0);
-      const existing = map.get(key);
 
-      // Check if this client matches a customer in DB
-      const matchedCustomer = customers.find(c => {
-        if (sale.clientEmail && c.email.toLowerCase() === sale.clientEmail.toLowerCase()) return true;
-        if (phoneClean && c.phone && c.phone.replace(/\D/g, '') === phoneClean.replace(/\D/g, '')) return true;
+      // Buscar si coincide con un usuario web por teléfono o email
+      const matchedWebUser = customers.find(c => {
+        if (sale.clientEmail && c.email && c.email.toLowerCase() === sale.clientEmail.toLowerCase()) return true;
+        if (ph && c.phone && phoneMatch(ph, c.phone)) return true;
         return false;
       });
 
+      // Tipo de cliente: si tiene cuenta web usa el de BD, si no usa el del store
+      const saleType = (sale as any).clientType as 'normal' | 'wholesale' | 'special_wholesale' | undefined;
+      const webType: 'normal' | 'wholesale' | 'special_wholesale' = matchedWebUser
+        ? (matchedWebUser.customer_type || (matchedWebUser.is_special_wholesale ? 'special_wholesale' : matchedWebUser.is_wholesale ? 'wholesale' : 'normal'))
+        : (saleType || 'normal');
+
+      const existing = map.get(key);
       if (existing) {
         existing.totalRevenue += rev;
         existing.salesCount += 1;
         if (!existing.email && sale.clientEmail) existing.email = sale.clientEmail;
         if (new Date(sale.date) > new Date(existing.lastDate)) existing.lastDate = sale.date;
-        if (matchedCustomer) {
-          existing.hasWebAccount = true;
-          existing.webCustomerId = matchedCustomer.id;
-        }
+        if (matchedWebUser) { existing.hasWebAccount = true; existing.webCustomerId = matchedWebUser.id; }
+        // Update type if web user found (more authoritative)
+        if (matchedWebUser) existing.clientType = webType;
       } else {
         map.set(key, {
-          name: nameClean || 'Cliente',
-          phone: phoneClean,
+          name: nm || 'Cliente',
+          phone: ph,
           email: sale.clientEmail || '',
           totalRevenue: rev,
           salesCount: 1,
           lastDate: sale.date || '',
-          hasWebAccount: !!matchedCustomer,
-          webCustomerId: matchedCustomer?.id,
+          hasWebAccount: !!matchedWebUser,
+          webCustomerId: matchedWebUser?.id,
+          clientType: webType,
         });
       }
     });
@@ -627,14 +648,79 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
     return Array.from(map.values()).sort((a, b) => b.totalRevenue - a.totalRevenue);
   })();
 
-  const filteredPosClients = posClients.filter(c => {
+  // ── Clientes de mostrador sin cuenta web (para pestaña Mostrador) ─────────
+  const purePosList = posClients.filter(c => !c.hasWebAccount);
+
+  // ── Lista "Todos": web + mostrador sin cuenta web, sin duplicar ───────────
+  // Web customers come first; then mostrador-only (no web account)
+  const allUnifiedClients: Array<{
+    source: 'web' | 'mostrador';
+    webCustomer?: Customer;
+    posClient?: typeof posClients[number];
+    // unified display fields
+    name: string;
+    phone: string;
+    email: string;
+    clientType: 'normal' | 'wholesale' | 'special_wholesale';
+    isApproved: boolean;
+    totalRevenue?: number;
+    salesCount?: number;
+    lastDate?: string;
+  }> = [
+    // All web customers
+    ...customers.map(c => ({
+      source: 'web' as const,
+      webCustomer: c,
+      posClient: posClients.find(p => phoneMatch(p.phone, c.phone) || (p.email && c.email && p.email.toLowerCase() === c.email.toLowerCase())),
+      name: c.name,
+      phone: c.phone,
+      email: c.email,
+      clientType: (c.customer_type || (c.is_special_wholesale ? 'special_wholesale' : c.is_wholesale ? 'wholesale' : 'normal')) as any,
+      isApproved: c.is_approved,
+      totalRevenue: undefined as number | undefined,
+      salesCount: undefined as number | undefined,
+      lastDate: undefined as string | undefined,
+    })).map(r => ({
+      ...r,
+      totalRevenue: r.posClient?.totalRevenue,
+      salesCount: r.posClient?.salesCount,
+      lastDate: r.posClient?.lastDate,
+    })),
+    // Mostrador-only (no web account)
+    ...purePosList.map(p => ({
+      source: 'mostrador' as const,
+      webCustomer: undefined,
+      posClient: p,
+      name: p.name,
+      phone: p.phone,
+      email: p.email,
+      clientType: p.clientType,
+      isApproved: true,
+      totalRevenue: p.totalRevenue,
+      salesCount: p.salesCount,
+      lastDate: p.lastDate,
+    })),
+  ];
+
+  // ── Manejar cambio de tipo para cliente de mostrador ──────────────────────
+  const handleMostradorTypeChange = (posClient: typeof posClients[number], newType: 'normal' | 'wholesale' | 'special_wholesale') => {
+    setMostradorTypeLoading(posClient.phone || posClient.name);
+    updateMostradorClientType(posClient.phone, posClient.name, newType);
+    setTimeout(() => setMostradorTypeLoading(null), 400);
+    const label = newType === 'special_wholesale' ? 'Mayorista Especial' : newType === 'wholesale' ? 'Mayorista' : 'Normal';
+    showAlert(`✓ ${posClient.name} ahora es ${label} (solo mostrador).`, 'success');
+  };
+
+  const filteredPosClients = purePosList.filter(c => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    return (
-      c.name.toLowerCase().includes(q) ||
-      c.phone.toLowerCase().includes(q) ||
-      c.email.toLowerCase().includes(q)
-    );
+    return c.name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
+  });
+
+  const filteredAllClients = allUnifiedClients.filter(c => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return c.name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
   });
 
   const handleCreateWebAccount = async (e: React.FormEvent) => {
@@ -673,6 +759,7 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
     }
   };
 
+  // 'filtered' se usa solo para pending y approved (clientes web)
   const filtered = customers
     .filter(c => {
       if (filter === 'pending') return !c.is_approved;
@@ -805,7 +892,7 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
             <span className="material-symbols-outlined">group</span>
           </div>
           <div>
-            <div className="text-2xl font-black text-slate-900 dark:text-white">{customers.length}</div>
+            <div className="text-2xl font-black text-slate-900 dark:text-white">{allUnifiedClients.length}</div>
             <div className="text-xs text-slate-500 font-medium">Total Clientes</div>
           </div>
         </div>
@@ -853,8 +940,8 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
             {([
               { key: 'pending', label: 'Pendientes de Aprobación', count: pending.length, color: 'amber' },
               { key: 'approved', label: 'Aprobados (Web)', count: approved.length, color: 'green' },
-              { key: 'mostrador', label: 'Clientes Mostrador', count: posClients.length, color: 'cyan' },
-              { key: 'all', label: 'Todos (Web)', count: customers.length, color: 'slate' },
+              { key: 'mostrador', label: 'Clientes Mostrador', count: purePosList.length, color: 'cyan' },
+              { key: 'all', label: 'Todos', count: allUnifiedClients.length, color: 'slate' },
             ] as const).map(tab => (
               <button
                 key={tab.key}
@@ -883,7 +970,7 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
           filteredPosClients.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
               <span className="material-symbols-outlined text-5xl">point_of_sale</span>
-              <p className="font-medium text-sm">No se encontraron clientes de mostrador con ventas registradas.</p>
+              <p className="font-medium text-sm">No se encontraron clientes solo-mostrador (sin cuenta web).</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -891,9 +978,9 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
                 <thead>
                   <tr className="bg-slate-50/50 dark:bg-slate-700/30 border-b border-slate-100 dark:border-slate-700">
                     <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente Mostrador</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tipo</th>
                     <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Historial Compras</th>
                     <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider hidden md:table-cell">Última Compra</th>
-                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cuenta Web</th>
                     <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Acciones</th>
                   </tr>
                 </thead>
@@ -910,16 +997,38 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
                           )}
                         </p>
                         {client.phone && (
-                          <a
-                            href={whatsappLink(client.phone)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium mt-0.5"
-                          >
+                          <a href={whatsappLink(client.phone)} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium mt-0.5">
                             <span className="material-symbols-outlined text-xs">phone</span>
                             {client.phone}
                           </a>
                         )}
+                      </td>
+                      {/* Selector de tipo mayorista para mostrador */}
+                      <td className="px-5 py-4">
+                        <div className="flex flex-col gap-1.5 items-start">
+                          {client.clientType === 'special_wholesale' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                              <span className="material-symbols-outlined text-[13px] text-amber-600">crown</span>Mayorista Especial
+                            </span>
+                          ) : client.clientType === 'wholesale' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-700">
+                              <span className="material-symbols-outlined text-[12px]">verified</span>Mayorista
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400 font-medium">Normal</span>
+                          )}
+                          <select
+                            value={client.clientType}
+                            onChange={e => handleMostradorTypeChange(client, e.target.value as any)}
+                            disabled={mostradorTypeLoading === (client.phone || client.name)}
+                            className="text-[11px] font-bold rounded-lg px-2 py-1 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-primary cursor-pointer hover:border-slate-300"
+                          >
+                            <option value="normal">👤 Normal</option>
+                            <option value="wholesale">🏷️ Mayorista</option>
+                            <option value="special_wholesale">👑 Mayorista Especial</option>
+                          </select>
+                        </div>
                       </td>
                       <td className="px-5 py-4">
                         <p className="font-black text-sm text-slate-900 dark:text-white">${client.totalRevenue.toLocaleString('es-AR')}</p>
@@ -928,39 +1037,185 @@ export default function ClientesView({ apiKey, onPendingCountChange }: ClientesV
                       <td className="px-5 py-4 text-xs text-slate-600 dark:text-slate-300 hidden md:table-cell">
                         {client.lastDate ? new Date(client.lastDate).toLocaleDateString('es-AR') : '—'}
                       </td>
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          onClick={() => {
+                            setCreateWebModalClient(client);
+                            setNewClientName(client.name);
+                            setNewClientPhone(client.phone);
+                            setNewClientEmail(client.email || '');
+                            setNewClientPassword('perfumeria123');
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all shadow-sm shadow-primary/20"
+                        >
+                          <span className="material-symbols-outlined text-sm">person_add</span>
+                          Crear Cuenta Web
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : filter === 'all' ? (
+          /* ── Tab "Todos": web + mostrador unificados ───────────────────── */
+          filteredAllClients.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
+              <span className="material-symbols-outlined text-5xl">person_search</span>
+              <p className="font-medium text-sm">No se encontraron clientes.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50 dark:bg-slate-700/30 border-b border-slate-100 dark:border-slate-700">
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tipo</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Origen</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider hidden md:table-cell">Compras</th>
+                    <th className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {filteredAllClients.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors">
+                      {/* Nombre / contacto */}
                       <td className="px-5 py-4">
-                        {client.hasWebAccount ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                            <span className="material-symbols-outlined text-xs">verified</span>
-                            Cuenta Web Activa
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                            Solo Mostrador
-                          </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-sm text-slate-900 dark:text-white">{row.name}</span>
+                          {row.webCustomer && adminEmails.has(row.email.toLowerCase()) && (
+                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                              <span className="material-symbols-outlined text-[12px]">shield_person</span>Admin de Tienda
+                            </span>
+                          )}
+                        </div>
+                        {row.email && <div className="text-xs text-slate-500 mt-0.5">{row.email}</div>}
+                        {row.phone && (
+                          <a href={whatsappLink(row.phone)} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium mt-0.5">
+                            <svg className="size-3.5" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                            </svg>
+                            {row.phone}
+                          </a>
                         )}
                       </td>
-                      <td className="px-5 py-4 text-right">
-                        {!client.hasWebAccount ? (
-                          <button
-                            onClick={() => {
-                              setCreateWebModalClient(client);
-                              setNewClientName(client.name);
-                              setNewClientPhone(client.phone);
-                              setNewClientEmail(client.email || '');
-                              setNewClientPassword('perfumeria123');
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all shadow-sm shadow-primary/20"
-                          >
-                            <span className="material-symbols-outlined text-sm">person_add</span>
-                            Crear Cuenta Web
-                          </button>
+
+                      {/* Tipo de cliente */}
+                      <td className="px-5 py-4">
+                        <div className="flex flex-col gap-1.5 items-start">
+                          {row.clientType === 'special_wholesale' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                              <span className="material-symbols-outlined text-[13px] text-amber-600">crown</span>Mayorista Especial
+                            </span>
+                          ) : row.clientType === 'wholesale' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-700">
+                              <span className="material-symbols-outlined text-[12px]">verified</span>Mayorista
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400 font-medium">Normal</span>
+                          )}
+                          {/* Selector: web → API; mostrador → Zustand */}
+                          {row.webCustomer ? (
+                            <select
+                              value={row.clientType}
+                              onChange={e => handleUpdateCustomerType(row.webCustomer!, e.target.value as any)}
+                              disabled={actionLoadingId === row.webCustomer.id}
+                              className="text-[11px] font-bold rounded-lg px-2 py-1 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-primary cursor-pointer hover:border-slate-300"
+                            >
+                              <option value="normal">👤 Normal</option>
+                              <option value="wholesale">🏷️ Mayorista</option>
+                              <option value="special_wholesale">👑 Mayorista Especial</option>
+                            </select>
+                          ) : row.posClient ? (
+                            <select
+                              value={row.clientType}
+                              onChange={e => handleMostradorTypeChange(row.posClient!, e.target.value as any)}
+                              disabled={mostradorTypeLoading === (row.phone || row.name)}
+                              className="text-[11px] font-bold rounded-lg px-2 py-1 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-primary cursor-pointer hover:border-slate-300"
+                            >
+                              <option value="normal">👤 Normal</option>
+                              <option value="wholesale">🏷️ Mayorista</option>
+                              <option value="special_wholesale">👑 Mayorista Especial</option>
+                            </select>
+                          ) : null}
+                        </div>
+                      </td>
+
+                      {/* Origen */}
+                      <td className="px-5 py-4">
+                        <div className="flex flex-col gap-1">
+                          {row.source === 'web' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700">
+                              🌐 Web
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">
+                              🏪 Solo Mostrador
+                            </span>
+                          )}
+                          {row.source === 'web' && row.posClient && (
+                            <span className="text-[10px] text-slate-400">+ compras mostrador</span>
+                          )}
+                          {row.source === 'web' && !row.isApproved && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">
+                              ⏳ Pendiente
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Compras */}
+                      <td className="px-5 py-4 hidden md:table-cell">
+                        {row.totalRevenue != null ? (
+                          <div>
+                            <p className="font-black text-sm text-slate-900 dark:text-white">${row.totalRevenue.toLocaleString('es-AR')}</p>
+                            <p className="text-xs text-slate-500">{row.salesCount} venta{(row.salesCount || 0) > 1 ? 's' : ''}</p>
+                          </div>
                         ) : (
-                          <span className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-end gap-1">
-                            <span className="material-symbols-outlined text-sm">check</span>
-                            Vinculado
-                          </span>
+                          <span className="text-xs text-slate-400">—</span>
                         )}
+                      </td>
+
+                      {/* Acciones */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center justify-end gap-2">
+                          {row.webCustomer && (
+                            <>
+                              {!row.webCustomer.is_approved ? (
+                                <button onClick={() => handleApproval(row.webCustomer!, true)}
+                                  disabled={actionLoadingId === row.webCustomer.id}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-xs font-bold transition-all disabled:opacity-50">
+                                  <span className="material-symbols-outlined text-[14px]">how_to_reg</span>Aprobar
+                                </button>
+                              ) : (
+                                <button onClick={() => handleApproval(row.webCustomer!, false)}
+                                  disabled={actionLoadingId === row.webCustomer.id}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-amber-100 text-slate-700 hover:text-amber-700 text-xs font-bold transition-all disabled:opacity-50">
+                                  <span className="material-symbols-outlined text-[14px]">block</span>Suspender
+                                </button>
+                              )}
+                              <button onClick={() => handleOpenEdit(row.webCustomer!)}
+                                className="p-2 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-500 hover:text-primary hover:border-primary/50 transition-all">
+                                <span className="material-symbols-outlined text-[16px]">edit</span>
+                              </button>
+                            </>
+                          )}
+                          {!row.webCustomer && row.posClient && (
+                            <button
+                              onClick={() => {
+                                setCreateWebModalClient(row.posClient!);
+                                setNewClientName(row.posClient!.name);
+                                setNewClientPhone(row.posClient!.phone);
+                                setNewClientEmail(row.posClient!.email || '');
+                                setNewClientPassword('perfumeria123');
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all shadow-sm">
+                              <span className="material-symbols-outlined text-sm">person_add</span>Crear Cuenta Web
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
